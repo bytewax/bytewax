@@ -34,14 +34,14 @@ jobs:
       - name: Prep lint venv
         shell: bash
         run: |
-          mkdir -p venvs/
-          uv venv venvs/dev/
-          . venvs/dev/bin/activate
+          uv venv venv
+          . venv/bin/activate
           uv pip sync --strict requirements/dev.txt
       - name: Run lints
         shell: bash
-        run: just _test-repo
-      - uses: pre-commit/action@v3.0.0
+        run: |
+          . venv/bin/activate
+          just _test-repo
 
   linux:
     strategy:
@@ -65,39 +65,34 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install --user uv
-      - uses: extractions/setup-just@v2
+        run: python3 -m pip install uv
       - uses: mkroening/rust-toolchain-toml@main
-      - uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          command: build
-          args: --release -o dist -i python${{ matrix.python-version }}
-          sccache: true
-      - name: Prep test venv
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
         shell: bash
         run: |
-          mkdir -p venvs/
-          uv venv venvs/test-py${{ matrix.python-version }}/
-          . venvs/test-py${{ matrix.python-version }}/bin/activate
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip sync --strict requirements/test-py${{ matrix.python-version }}.txt
-          uv pip install -v --no-deps $WHEEL_FILE
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just build
+      - name: Run tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
-      - name: Run tests
         shell: bash
         env:
           TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
-          . venvs/test-py${{ matrix.python-version }}/bin/activate
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
           just test-py
-        # Only run tests for the host architecture, as aarch64
-        # and armv7 are cross-compiled.
-        if: ${{ matrix.target == 'x86_64' }}
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -119,11 +114,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install --user uv
-      - uses: extractions/setup-just@v2
+        run: python3 -m pip install uv
       - name: Install aarch64-apple-darwin Rust target
         run: rustup target add aarch64-apple-darwin
-      # Caching
       # Install gnu-tar because BSD tar is buggy
       # https://github.com/actions/cache/issues/403
       - name: Install GNU tar
@@ -139,36 +132,32 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          command: build
-          args: --release -o dist -i python${{ matrix.python-version }}
-          sccache: true
-      - name: Prep test venv
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
         shell: bash
         run: |
-          mkdir -p venvs/
-          uv venv venvs/test-py${{ matrix.python-version }}/
-          . venvs/test-py${{ matrix.python-version }}/bin/activate
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip sync --strict requirements/test-py${{ matrix.python-version }}.txt
-          uv pip install -v --no-deps $WHEEL_FILE
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just build
+      - name: Run tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
-      - name: Run tests
         shell: bash
         env:
           TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
-          . venvs/test-py${{ matrix.python-version }}/bin/activate
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
           just test-py
-        # Only run tests for the host architecture, as aarch64
-        # and armv7 are cross-compiled.
-        if: ${{ matrix.target == 'x86_64' }}
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -200,26 +189,25 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install --user uv
-      - uses: extractions/setup-just@v2
+        run: python3 -m pip install uv
       - uses: mkroening/rust-toolchain-toml@main
-      - uses: messense/maturin-action@v1
-        with:
-          command: build
-          args: --release -o dist --interpreter python${{ matrix.python-version }}
-          sccache: true
-      - name: Prep test venv
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
         shell: bash
         run: |
-          mkdir -p venvs/
-          uv venv venvs/test-py${{ matrix.python-version }}/
-          . venvs/test-py${{ matrix.python-version }}/bin/activate
-          $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-          uv pip sync --strict requirements/test-py${{ matrix.python-version }}.txt
-          uv pip install -v --no-deps $WHEEL_FILE
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just build
       - name: Run tests
         run: |
-          . venvs/test-py${{ matrix.python-version }}/bin/activate
+          . venv/bin/activate
+          $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
+          uv pip install -v --no-deps $WHEEL_FILE
           just test-py
       - name: Upload wheels
         uses: actions/upload-artifact@v3
