@@ -1,7 +1,10 @@
 """Helper tools for testing dataflows."""
 
+<<<<<<< HEAD
 import asyncio
 import sys
+=======
+>>>>>>> 27bd4e0a (Default serde to PickleSerde.)
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
@@ -24,7 +27,6 @@ from bytewax.run import (
     _create_arg_parser,
     _EnvDefault,
 )
-from bytewax.serde import set_serde_obj
 
 __all__ = [
     "TestingSink",

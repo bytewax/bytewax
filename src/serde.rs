@@ -1,21 +1,26 @@
 //! Serialization of Python object for recovery and transport.
 
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 
-use crate::unwrap_any;
-
+// This needed to be mutable in order to swap it's value when testing.
 static mut SERDE_OBJ: GILOnceCell<PyObject> = GILOnceCell::new();
 
-/// Load, or return the specified serde object from the Python side
+/// Load, or initialize a Python object to use for Serde
 /// into a GILOnceCell.
 pub(crate) fn get_serde_obj(py: Python) -> PyResult<&Bound<'_, PyAny>> {
     // SAFETY: Safety here is provided by GilOnceCell requiring the GIL
     // to be held when getting this value.
     unsafe {
         Ok(SERDE_OBJ
-            .get(py)
-            .expect("No serde object has been set.")
+            .get_or_try_init(py, || -> PyResult<PyObject> {
+                Ok(py
+                    .import_bound("bytewax.serde")?
+                    .getattr("PickleSerde")?
+                    .call0()?
+                    .unbind())
+            })?
             .bind(py))
     }
 }
@@ -51,7 +56,9 @@ fn set_serde_obj(py: Python, serde_object: PyObject) -> PyResult<()> {
     unsafe {
         // Remove the currently set object.
         SERDE_OBJ.take();
-        unwrap_any!(SERDE_OBJ.set(py, serde_object));
+        SERDE_OBJ
+            .set(py, serde_object)
+            .map_err(|err| PyErr::new::<PyRuntimeError, _>(err.to_string()))?;
     }
     Ok(())
 }
