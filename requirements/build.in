@@ -1,4 +1,5 @@
 colorama
+maturin
 pytest
 pytest-benchmark
 pytest-codspeed

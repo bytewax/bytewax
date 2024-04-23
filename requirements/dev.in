@@ -1,8 +1,7 @@
 -e .
--r test.in
+-r build.in
 -r doc.in
 ipython
-maturin
 mypy
 pip  # Remove once we have a version of maturin with --uv.
 pre-commit
