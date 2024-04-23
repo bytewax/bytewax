@@ -26,40 +26,10 @@ generated from our Python source in `/pysrc`. The build process turns
 the source into automatically generated Markdown files in `/docs/api`,
 which are then passed through the Sphinx builder.
 
-## Local Testing
+## Local Prototyping
 
-Checked into this repo are some tools to allow you to quickly iterate
-on documentation without needing to make a PR or release.
-
-The quickest way to iterate on your docs is to run the
-`./autobuild.sh` script from the `/docs` directory from inside the
-`dev` virtualenv. See <project:#xref-dev-venv> on how to set that up.
-
-```console
-(dev-3.10) $ cd docs
-(dev-3.10) $ ./autobuild.sh
-Running Sphinx v7.2.6
-...
-[I 240124 12:03:11 server:335] Serving on http://127.0.0.1:8000
-```
-
-The temporary built HTML files are put in `/docs/_build`. This
-directory _should not be checked in_. Production docs are built using
-Read the Docs and served from them.
-
-This starts a web server on <http://localhost:8000/> with the built
-docs and will watch the source files and rebuild on any change.
-
-:::{warning}
-
-The watching mechanism sometimes gets confused and trapped in an
-infinite loop, constantly rebuilding the docs on no changes. I think
-it has something to do with the fact that the Sphinx build process
-generates Markdown files for the API docs.
-
-If you `C-c` it and start it again, it will stop.
-
-:::
+You'll need to set up a local development environment. See
+<project:#xref-dev-env> and specifically <project:#xref-dev-docs>.
 
 ## MyST Cheat Sheet
 

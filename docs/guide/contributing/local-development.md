@@ -1,82 +1,184 @@
+(xref-dev-env)=
 # Local Development
 
 Here we'll describe how to get a reproducible local development
 environment setup.
 
-## Installing `pyenv`
+## Environment Tools
+
+### Installing Rust
+
+Install a Rust compiler stack. See the [Rust Project's installation
+documentation](https://www.rust-lang.org/learn/get-started) on how to
+do that using `rustup`.
+
+### Installing `just`
+
+We use [`just`](https://just.systems/man/en/) as a command runner for
+actions / recipes related to developing Bytewax. Please follow [the
+installation
+instructions](https://github.com/casey/just?tab=readme-ov-file#installation).
+There's probably a package for your OS already.
+
+### Installing `pyenv` and Python 3.12
 
 We want Bytewax to run under many different versions of the Python
 interpreter, so we need a quick way to create virtualenvs in different
-versions. I suggest using [`pyenv`](https://github.com/pyenv/pyenv).
-Follow the instructions there to install it.
+versions. I suggest using [`pyenv`](https://github.com/pyenv/pyenv)
+because it will let you re-compile Python easily with benchmarking
+flags. Follow the instructions there to install it. You can also use
+your OS's package manager to get access to `python3.12`.
+
+Ensure that you have Python 3.12 installed and available as a "global
+shim" so that it can be run anywhere. The following will make plain
+`python` run your OS-wide interpreter, but will make 3.12 available
+via `python3.12`.
+
+```console
+$ pyenv global system 3.12
+```
+
+### Installing `uv`
+
+We use [`uv`](https://github.com/astral-sh/uv) as a virtual
+environment creator, package installer, and dependency pin-er. There
+are a few different ways to install it, but I recommend installing it
+through either [`brew`](https://brew.sh/) on macOS or
+[`pipx`](https://pipx.pypa.io/stable/).
 
 (xref-dev-venv)=
-## Setup a Virtual Environment
+## Setup the Reproducible Development Virtual Environment
 
-I keep all of my different versioned virtualenvs in a `venv` dir. This
-is already git-ignored.
+We have a "getting started" `just` recipe that will:
 
-```console
-$ mkdir venv
-$ python310 -m virtualenv venv/dev-3.10
-```
+1. Set up a venv in `venvs/dev`.
 
-[`pip-tools`](https://pip-tools.readthedocs.io/en/stable/) is a small
-set of tools on top of Python's built-in
-[`pip`](https://pip.pypa.io/en/stable/) which allow fully reproducible
-virtual environments which we use to ensure that the versions of
-dependencies and test runners you use locally match what's in CI.
+2. Install all development dependencies into it in a reproducible way.
+
+3. Install Git [pre-commit](https://pre-commit.com/) hooks that use
+   that venv.
 
 ```console
-$ ./venv/dev-3.10/bin/activate
-(dev-3.10) $ pip install pip-tools
+$ just get-started
 ```
 
-### Make Reproducible Virtual Environment
+If it detects anything wrong, follow the instructions.
 
-Now lets install all of the exact dependencies that will be used.
-`pip-tools` adds a `pip-sync` command that makes the virtualenv
-perfectly match what is in this requirements file. This installs
-everything to build Bytewax, run tests, build docs.
+Whenever you work on Bytewax, you must have the `dev` venv activated.
+Most of the other `just` recipes require this. They will error if the
+venv is not activated.
 
 ```console
-(dev-3.10) $ pip-sync requirements/dev.txt
+$ . venvs/dev/bin/activate
+(dev) $
 ```
 
-## Compiling Bytewax
+## LSP and Editors
 
-To have Maturin compile the local version of your Rust code and build
-the library and install it in the currently activated virtualenv run:
+Since all the development tools are installed into the `dev` venv,
+find a way to point VSCode, PyCharm, or whatever IDE / LSP you are
+using at the venv located in the `venvs/dev/` directory. It is
+important you do this because `pyproject.toml` has settings for how
+the LSP should handle various cases and will format or lint or give
+type hints incorrectly if a different environment is used.
+
+## Common Actions
+
+Most of our common actions for developing on the library are `just`
+recipes.
+
+### Build Library
+
+This will compile the Rust code for the Bytewax library, generate new
+stubs, and install it into the current venv. You can then use
+`ipython`, or run a dataflow, or run unit tests to try it out.
 
 ```console
-(dev-3.10) $ maturin develop
+(dev) $ just develop
 ```
 
-## Generating Stubs
+This will compile the library in _debug mode_ and will have poor
+performance. See <project:#xref-performance> for how to compile for
+proper local benchmarking.
 
-Some things like LSP auto-complete and docstrings need to come from a
-stub file, which is Python file with no executable code, just
-interfaces. Maturin / PyO3 can't generate these automatically, so we
-have a reflection script which does it. You should update stubs
-whenever you modify the Rust code:
+### Running a Dataflow
+
+Once you've compiled a changed version of Bytewax, you can run
+dataflows in exactly the same way as someone who has installed the
+library normally. See <project:#xref-execution>.
+
+### Running Tests
+
+To run the Python or Rust tests use the following recipes.
 
 ```console
-(dev-3.10) $ python stubgen.py bytewax._bytewax -o pysrc/bytewax/_bytewax.pyi
-(dev-3.10) $ ruff pysrc/bytewax/_bytewax.pyi
+(dev) $ just test-py
+(dev) $ just test-rs
 ```
 
-Stubs should be committed to the repository.
+### Linting Code
 
-(xref-dev-deps)=
-## Adding Dependencies
+This will run a series of lints on the code:
+
+- Ensure all Python code is compatible with at least Python 3.8.
+
+- Use [`ruff`](https://docs.astral.sh/ruff/) to lint the Python code.
+
+- Run [`mypy`](https://mypy.readthedocs.io/en/stable/) to find type
+  errors in the Python code.
+
+- Run [`cargo clippy`](https://doc.rust-lang.org/clippy/) to lint the
+  Rust code.
+
+```console
+(dev) $ just lint
+```
+
+### Prepare for CI
+
+CI automatically will run lints, pre-commit hooks, tests, and
+benchmarks. If you want to run them all locally so there (probably)
+won't be any surprises when you push you change, you can use the
+following recipe.
+
+```console
+(dev) $ just ci-pre
+```
+
+(xref-dev-docs)=
+### Writing Docs
+
+We have a recipe that will build the docs locally, start up a web
+server hosting them, and will watch for any changes on Markdown files
+and re-build the docs.
+
+```console
+(dev) $ just doc-autobuild
+Running Sphinx v7.2.6
+...
+[I 240124 12:03:11 server:335] Serving on http://127.0.0.1:8000
+```
+
+The temporary built HTML files are put in `/docs/_build`. This
+directory _should not be checked in_. Production docs are built using
+Read the Docs and served from them.
+
+This starts a web server on <http://localhost:8000/> with the built
+docs and will watch the source files and rebuild on any change.
 
 :::{warning}
 
-We're cheating and should have a dependency tree for every Python
-version. It doesn't seem like any of our deps change depending on
-Python version, so this seems ok, but in the future it might not be.
+The watching mechanism sometimes gets confused and trapped in an
+infinite loop, constantly rebuilding the docs on no changes. I think
+it has something to do with the fact that the Sphinx build process
+generates Markdown files for the API docs.
+
+If you `C-c` it and start it again, it will stop.
 
 :::
+
+(xref-dev-deps)=
+## Adding Dependencies
 
 ### For Library
 
@@ -88,43 +190,68 @@ library that other people will be including in their applications and
 so they might have more specific version requirements for their
 deployment.
 
-After updating, you need to re-compile the deps and commit changes.
+After updating, you need to [re-compile the deps](#xref-dev-compile)
+and commit the changes.
 
 #### Optional Dependencies
 
+If there is a feature of the Bytewax library that not everyone will
+use and requires a new dependency, you can add it as an **extra**
+dependency. First add a new **extra name** to `pyproject.toml` under
+the `extras` list. Then add a list of dependencies under
+`project.optional-dependencies`. E.g. for adding Kafka functionality:
 
+```yaml
+extras = [
+    "kafka",
+]
+
+[project.optional-dependencies]
+kafka = [
+    "requests>=2.0",
+    "fastavro>=1.8",
+    "confluent-kafka>=2.0.2",
+]
+```
 
 ### For Development Environment
 
 If you want to add a dependency that isn't required to use the Bytewax
 library, but now is needed for a fully working development
 environment, add a line to the appropriate file in
-`requirements/*.in`. The files that end in `.in` are the "unpinned"
+`requirements/dev.in`. The files that end in `.in` are the "unpinned"
 description of the top-level requirements.
 
-After updating, you need to re-compile the deps and commit changes.
+After updating, you need to [re-compile the deps](#xref-dev-compile)
+and commit the changes.
+
+(xref-dev-compile)=
+## Compiling Dependencies
+
+Whenever you update dependency constraints, we need to _lock specific
+versions_ of those dependencies so that when we run CI, the
+environment is reproducible. In a sense, our CI infrastructure is a
+deployment. This is called **compiling** the dependencies and we use
+`uv` to do that. We have a `just` recipe that re-compiles all the deps
+in the correct order.
+
+```console
+(dev) $ just venv-compile-all
+(dev) $ git add requirements/
+```
+
+Then commit all changes in the `requirements/*.txt` files.
 
 ## Upgrading Dependencies
 
-See [`pip-compile`
-documentation](https://pip-tools.readthedocs.io/en/stable/#updating-requirements)
-for how to update a dep to a newer version. We should do this
-periodically to check compatibility with new versions. Note that if
-you want to say the we require a minimum version, you have to follow
-the instructions in <project:#xref-dev-deps> to adjust the
-constraints.
-
-## Compiling Dependencies
-
-Whenever you update dependency constraints, we need to _pin specific
-versions_ of those dependencies so that when we run CI, the
-environment is reproducible. In a sense, our CI infrastructure is a
-deployment. We have a script that re-compiles all the deps in the
-correct order.
+`uv` will not modify a `requirements/*.txt` file just to bump a
+package version if it detects a new one. It will only modify existing
+locked versions if they no longer pass the constraints of the `*.in`
+files. If you want to upgrade all packages to their latest version,
+you should blow-away all the `*.txt` files and re-compile them.
 
 ```console
-(dev-3.10) $ cd requirements/
-(dev-3.10) $ ./compile.sh
+(dev) $ rm requirements/*.txt
+(dev) $ just venv-compile-all
+(dev) $ git add requirements/
 ```
-
-Then check in all updates to the `requirements/` directory.
