@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v3
       - uses: actions/setup-python@v3
       - name: Install uv
-        run: python3 -m pip install --user uv
+        run: python3 -m pip install uv
       - uses: extractions/setup-just@v2
       - uses: mkroening/rust-toolchain-toml@main
       - name: Install cbfmt
@@ -75,10 +75,11 @@ jobs:
           . venv/bin/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
-        shell: bash
-        run: |
-          . venv/bin/activate
-          just build
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
       - name: Run tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
@@ -140,10 +141,11 @@ jobs:
           . venv/bin/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
-        shell: bash
-        run: |
-          . venv/bin/activate
-          just build
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
       - name: Run tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
@@ -198,9 +200,11 @@ jobs:
           venv/Scripts/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
-        run: |
-          venv/Scripts/activate
-          just build
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
       - name: Run tests
         run: |
           venv/Scripts/activate
