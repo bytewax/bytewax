@@ -21,11 +21,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - uses: actions/setup-python@v3
-      - name: Install pipx and Hatch
-        run: |
-          python3 -m pip install --user pipx
-          pipx ensurepath
-          pipx install hatch
+      - name: Install uv
+        run: python3 -m pip install --user uv
+      - uses: extractions/setup-just@v2
       - uses: mkroening/rust-toolchain-toml@main
       - name: Install cbfmt
         run: |
@@ -35,14 +33,14 @@ jobs:
             mv cbfmt /usr/local/bin/
       - name: Prep lint venv
         shell: bash
-        env:
-          PIP_COMPILE_DISABLE: 1
-        run: hatch -vv env create
+        run: |
+          mkdir -p venvs/
+          uv venv venvs/dev/
+          . venvs/dev/bin/activate
+          uv pip sync --strict requirements/dev.txt
       - name: Run lints
         shell: bash
-        env:
-          PIP_COMPILE_DISABLE: 1
-        run: hatch env run repo-tests
+        run: just _test-repo
       - uses: pre-commit/action@v3.0.0
 
   linux:
@@ -66,11 +64,9 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install pipx and Hatch
-        run: |
-          python3 -m pip install --user pipx
-          pipx ensurepath
-          pipx install hatch
+      - name: Install uv
+        run: python3 -m pip install --user uv
+      - uses: extractions/setup-just@v2
       - uses: mkroening/rust-toolchain-toml@main
       - uses: PyO3/maturin-action@v1
         with:
@@ -80,29 +76,25 @@ jobs:
           sccache: true
       - name: Prep test venv
         shell: bash
-        env:
-          PIP_COMPILE_DISABLE: 1
-        # First `PIP_COMPILE_DISABLE` ensures that we have a fully
-        # locked venv. Then we do something gross which that Hatch
-        # automatically installs the local dev version of Bytewax, so
-        # we manually uninstall it from the venv and re-install the
-        # final wheel.
         run: |
-          hatch -vv env create test.py${{ matrix.python-version }}
-          hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
+          mkdir -p venvs/
+          uv venv venvs/test-py${{ matrix.python-version }}/
+          . venvs/test-py${{ matrix.python-version }}/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
-          hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE
+          uv pip sync --strict requirements/test-py${{ matrix.python-version }}.txt
+          uv pip install -v --no-deps $WHEEL_FILE
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
       - name: Run tests
         shell: bash
         env:
-          PIP_COMPILE_DISABLE: 1
           TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
-        run: hatch env run -e test.py${{ matrix.python-version }} py-tests
+        run: |
+          . venvs/test-py${{ matrix.python-version }}/bin/activate
+          just test-py
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
@@ -126,11 +118,9 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install pipx and Hatch
-        run: |
-          python3 -m pip install --user pipx
-          pipx ensurepath
-          pipx install hatch
+      - name: Install uv
+        run: python3 -m pip install --user uv
+      - uses: extractions/setup-just@v2
       - name: Install aarch64-apple-darwin Rust target
         run: rustup target add aarch64-apple-darwin
       # Caching
@@ -157,29 +147,25 @@ jobs:
           sccache: true
       - name: Prep test venv
         shell: bash
-        env:
-          PIP_COMPILE_DISABLE: 1
-        # First `PIP_COMPILE_DISABLE` ensures that we have a fully
-        # locked venv. Then we do something gross which that Hatch
-        # automatically installs the local dev version of Bytewax, so
-        # we manually uninstall it from the venv and re-install the
-        # final wheel.
         run: |
-          hatch -vv env create test.py${{ matrix.python-version }}
-          hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
+          mkdir -p venvs/
+          uv venv venvs/test-py${{ matrix.python-version }}/
+          . venvs/test-py${{ matrix.python-version }}/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
-          hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE
+          uv pip sync --strict requirements/test-py${{ matrix.python-version }}.txt
+          uv pip install -v --no-deps $WHEEL_FILE
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
       - name: Run tests
         shell: bash
         env:
-          PIP_COMPILE_DISABLE: 1
           TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
-        run: hatch env run -e test.py${{ matrix.python-version }} py-tests
+        run: |
+          . venvs/test-py${{ matrix.python-version }}/bin/activate
+          just test-py
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
@@ -213,11 +199,9 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install pipx and Hatch
-        run: |
-          python3 -m pip install --user pipx
-          pipx ensurepath
-          pipx install hatch
+      - name: Install uv
+        run: python3 -m pip install --user uv
+      - uses: extractions/setup-just@v2
       - uses: mkroening/rust-toolchain-toml@main
       - uses: messense/maturin-action@v1
         with:
@@ -225,16 +209,18 @@ jobs:
           args: --release -o dist --interpreter python${{ matrix.python-version }}
           sccache: true
       - name: Prep test venv
+        shell: bash
         run: |
-          $env:PIP_COMPILE_DISABLE=1
-          hatch -vv env create test.py${{ matrix.python-version }}
-          hatch env run -e test.py${{ matrix.python-version }} -- pip uninstall -vy bytewax
+          mkdir -p venvs/
+          uv venv venvs/test-py${{ matrix.python-version }}/
+          . venvs/test-py${{ matrix.python-version }}/bin/activate
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-          hatch env run -e test.py${{ matrix.python-version }} -- pip install -v --no-deps $WHEEL_FILE
+          uv pip sync --strict requirements/test-py${{ matrix.python-version }}.txt
+          uv pip install -v --no-deps $WHEEL_FILE
       - name: Run tests
         run: |
-          $env:PIP_COMPILE_DISABLE=1
-          hatch env run -e test.py${{ matrix.python-version }} py-tests
+          . venvs/test-py${{ matrix.python-version }}/bin/activate
+          just test-py
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:

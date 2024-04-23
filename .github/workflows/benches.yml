@@ -21,11 +21,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install pipx and Hatch
-        run: |
-          python3 -m pip install --user pipx
-          pipx ensurepath
-          pipx install hatch
+      - name: Install uv
+        run: python3 -m pip install --user uv
+      - uses: extractions/setup-just@v2
       - uses: PyO3/maturin-action@v1
         with:
           command: build
@@ -33,20 +31,17 @@ jobs:
           sccache: true
       - name: Prep test venv
         shell: bash
-        env:
-          PIP_COMPILE_DISABLE: 1
-        # First `PIP_COMPILE_DISABLE` ensures that we have a fully
-        # locked venv. Then we do something gross which that Hatch
-        # automatically installs the local dev version of Bytewax, so
-        # we manually uninstall it from the venv and re-install the
-        # final wheel.
         run: |
-          hatch -vv env create
-          hatch env run -- pip uninstall -vy bytewax
+          mkdir -p venvs/
+          uv venv venvs/test-py3.12/
+          . venvs/test-py3.12/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
-          hatch env run -- pip install -v --no-deps $WHEEL_FILE
+          uv pip sync --strict requirements/test-py3.12.txt
+          uv pip install -v --no-deps $WHEEL_FILE
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v2
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
-          run: hatch env run py-benchmarks
+          run: |
+            . test-py3.12/bin/activate
+            just test-benchmark

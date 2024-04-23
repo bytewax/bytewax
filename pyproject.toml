@@ -45,127 +45,12 @@ long_description = "file: README.md"
 long_description_content_type = "text/markdown"
 
 [build-system]
-requires = [
-    "hatchling",
-    "maturin",
-]
+requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
-
-[tool.hatch]
-
-[tool.hatch.env]
-requires = ["hatch-pip-compile"]
-
-# This is the built-in env that is run during `hatch fmt`.
-[tool.hatch.envs.hatch-static-analysis]
-# We can make it pin its deps.
-type = "pip-compile"
-pip-compile-hashes = true
-pip-compile-installer = "pip-sync"
-pip-compile-constraint = "default"
-pip-compile-verbose = true
-dependencies = [
-    # Unpin the default internal version of Ruff.
-    "ruff",
-]
-# Disable Hatch's built-in default Ruff config.
-config-path = "none"
 
 [tool.maturin]
 module-name = "bytewax._bytewax"
 python-source = "pysrc"
-
-# TODO: Get stubgen automatically built.
-# https://hatch.pypa.io/latest/plugins/build-hook/custom/
-# [tool.hatch.build.hooks.custom]
-# path = "stubgen.py"
-
-# This is the `default` venv. It is your "do everything from the
-# command line" env. Every other env inherits from this one. All
-# dependencies are included here so `mypy` / LSP can give you correct
-# feedback on library code, tests, and doc building code. There are
-# some CI tests / lints that are not dependent on Python version and
-# are run out of this venv (rather than the `test` venv, which is
-# parameterized by Python version).
-[tool.hatch.envs.default]
-# The default pinned deps will be in `bytewax/requirements.txt`.
-type = "pip-compile"
-pip-compile-hashes = true
-pip-compile-installer = "pip-sync"
-pip-compile-constraint = "default"
-pip-compile-verbose = true
-# If you need to manually frob the venv, it'll be in `bytewax/venv`.
-path = "./venv"
-python = "3.12"
-features = [
-    "kafka",
-]
-
-[tool.hatch.envs.test]
-dependencies = [
-    "mypy",
-    "myst-parser",
-    "pydata-sphinx-theme",
-    "pytest",
-    "pytest-benchmark",
-    "pytest-codspeed",
-    "ruff",
-    "sphinx",
-    "sphinx-autobuild",
-    "sphinx-autodoc2",
-    "sphinx-favicon",
-    "sphinxcontrib-mermaid",
-    "types-docutils",
-    "vermin",
-]
-
-[tool.hatch.envs.default.scripts]
-doc-autobuild = "sphinx-autobuild -E docs docs/_build"
-doc-tests = "sphinx-build -b doctest -E docs docs/_build"
-lints = [
-    "vermin pysrc/ pytests/ docs/ examples/ *.py",
-    "ruff check pysrc/ pytests/ docs/ examples/ *.py",
-    # TODO: Add `examples/` to mypy checking. Will require a lot of
-    # fixup?
-    "mypy pysrc/ pytests/ docs/ *.py",
-    "cargo clippy",
-]
-rust-tests = "cargo test --no-default-features"
-repo-tests = [
-    "lints",
-    "rust-tests",
-    # TODO: Turn these back on once we fix them up.
-    # "doc-tests",
-]
-py-benchmarks = "pytest --codspeed pytests/"
-
-# This is the `test` venv for running Bytewax Python tests in a
-# deterministic way across all versions of Python.
-[tool.hatch.envs.test]
-# All the specific test deps will be in
-# `bytewax/requirements/requirements-test.pyX.Y.txt`. If you add /
-# remove dependencies here, also add / remove them from the `default`
-# env. `pip-compile-constraint` ensures we get exactly the same
-# versions in both.
-dependencies = [
-    # Require this locally because it is optionally reqired on
-    # Windows.
-    "colorama",
-    "pytest",
-    "pytest-benchmark",
-]
-
-[[tool.hatch.envs.test.matrix]]
-python = [
-    "3.8",
-    "3.9",
-    "3.10",
-    "3.11",
-    "3.12",
-]
-
-[tool.hatch.envs.test.scripts]
-py-tests = "pytest --benchmark-skip pytests/"
 
 [tool.pytest.ini_options]
 addopts = "-v"
@@ -218,32 +103,3 @@ docstring-code-format = true
 "test_*.py" = ["D"]
 # Because `test_encoder` has huge literals in it.
 "pytests/test_encoder.py" = ["E501"]
-
-# This is the `docs` venv and is used for Read the Docs.
-[tool.hatch.envs.docs]
-# This venv is separate. Do not inherit from `default`.
-template = "docs"
-type = "pip-compile"
-pip-compile-hashes = true
-pip-compile-installer = "pip-sync"
-pip-compile-constraint = "default"
-pip-compile-verbose = true
-# sphinx-autodoc2 parses the source. Does not need Bytewax installed
-# in the venv.
-skip-install = true
-# To match .readthedocs.yml.
-python = "3.10"
-# If you add / remove dependencies here, also add / remove them from
-# the `default` env. `pip-compile-constraint` ensures we get exactly
-# the same versions in both.
-dependencies = [
-    "myst-parser",
-    "pydata-sphinx-theme",
-    "sphinx",
-    "sphinx-autodoc2",
-    "sphinx-favicon",
-    "sphinxcontrib-mermaid",
-]
-
-[tool.hatch.envs.docs.scripts]
-doc-build = "sphinx-build -b html -E docs docs/_build"

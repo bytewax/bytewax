@@ -1,0 +1,4 @@
+colorama
+pytest
+pytest-benchmark
+pytest-codspeed
