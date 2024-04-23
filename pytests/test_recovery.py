@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 from datetime import timedelta
-from typing import Any, override
+from typing import Any
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -16,6 +16,7 @@ from bytewax.recovery import (
 from bytewax.serde import Serde, set_serde_obj
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
 from pytest import raises
+from typing_extensions import override
 
 ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
