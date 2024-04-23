@@ -22,26 +22,26 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install uv
-        run: python3 -m pip install --user uv
+        run: python3 -m pip install uv
+      - uses: mkroening/rust-toolchain-toml@main
       - uses: extractions/setup-just@v2
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release -o dist -i python-3.12
-          sccache: true
-      - name: Prep test venv
+      - name: Prep build venv
         shell: bash
         run: |
-          mkdir -p venvs/
-          uv venv venvs/test-py3.12/
-          . venvs/test-py3.12/bin/activate
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip sync --strict requirements/test-py3.12.txt
-          uv pip install -v --no-deps $WHEEL_FILE
+          uv venv -p 3.12 venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py3.12.txt
+      - name: Build wheel
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just build
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v2
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
           run: |
-            . test-py3.12/bin/activate
+            . venv/bin/activate
+            WHEEL_FILE=$(ls ./dist/*.whl)
+            uv pip install -v --no-deps $WHEEL_FILE
             just test-benchmark
