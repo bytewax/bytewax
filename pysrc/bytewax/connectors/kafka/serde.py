@@ -8,8 +8,6 @@ from typing import Dict, Optional, Union
 from confluent_kafka.schema_registry import Schema
 from confluent_kafka.serialization import Deserializer, SerializationContext, Serializer
 from fastavro import parse_schema, schemaless_reader, schemaless_writer
-from fastavro.types import AvroMessage
-from typing_extensions import override
 
 _logger = logging.getLogger(__name__)
 
@@ -45,8 +43,13 @@ class PlainAvroSerializer(Serializer):
             schema_str = schema
         self.schema = parse_schema(json.loads(schema_str), named_schemas=named_schemas)
 
-    @override
-    def __call__(self, obj: Dict, ctx: Optional[SerializationContext] = None) -> bytes:
+    # TODO: Re-enable once we get type hints for `confluent_kafka`.
+    # @override
+    def __call__(  # noqa: D102
+        self,
+        obj: Optional[object],
+        ctx: Optional[SerializationContext] = None,
+    ) -> Optional[bytes]:
         bytes_writer = io.BytesIO()
         schemaless_writer(bytes_writer, self.schema, obj)
         return bytes_writer.getvalue()
@@ -86,14 +89,17 @@ class PlainAvroDeserializer(Deserializer):
             schema_str = schema
         self.schema = parse_schema(json.loads(schema_str), named_schemas=named_schemas)
 
-    @override
-    def __call__(
-        self, obj: MaybeStrBytes, ctx: Optional[SerializationContext] = None
-    ) -> AvroMessage:
-        if obj is None:
+    # TODO: Re-enable once we get type hints for `confluent_kafka`.
+    # @override
+    def __call__(  # noqa: D102
+        self,
+        value: Optional[bytes],
+        ctx: Optional[SerializationContext] = None,
+    ) -> Optional[object]:
+        if value is None:
             msg = "Can't deserialize None data"
             raise ValueError(msg)
-        if isinstance(obj, str):
-            obj = obj.encode()
-        payload = io.BytesIO(obj)
+        if isinstance(value, str):
+            value = value.encode()
+        payload = io.BytesIO(value)
         return schemaless_reader(payload, self.schema, None)

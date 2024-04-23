@@ -259,29 +259,31 @@ class _KafkaSourcePartition(
         batch: List[SerializedKafkaSourceResult] = []
         last_offset = None
         for msg in msgs:
-            error = None
-            if msg.error() is not None:
-                if msg.error().code() == ConfluentKafkaError._PARTITION_EOF:
+            error = msg.error()
+            if error is not None:
+                if error.code() == ConfluentKafkaError._PARTITION_EOF:
                     # Set self._eof to True and only raise StopIteration
                     # at the next cycle, so that we can emit messages in
                     # this batch
                     self._eof = True
+                    error = None
                     break
                 elif self._raise_on_errors:
                     # Discard all the messages in this batch too
                     err_msg = (
                         f"error consuming from Kafka topic `{self._topic!r}`: "
-                        f"{msg.error()}"
+                        f"{error}"
                     )
                     raise RuntimeError(err_msg)
-                else:
-                    error = msg.error()
 
+            headers = msg.headers()
+            if headers is None:
+                headers = []
             kafka_msg = KafkaSourceMessage(
                 key=msg.key(),
                 value=msg.value(),
                 topic=msg.topic(),
-                headers=msg.headers(),
+                headers=headers,
                 latency=msg.latency(),
                 offset=msg.offset(),
                 partition=msg.partition(),

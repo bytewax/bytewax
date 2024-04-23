@@ -347,6 +347,7 @@ def serialize_key(
 
     def shim_mapper(msg: KafkaSinkMessage[dict, V]) -> KafkaSinkMessage[bytes, V]:
         key = serializer(msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY))
+        assert key is not None
         return msg._with_key(key)
 
     return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
@@ -379,6 +380,7 @@ def serialize_value(
         value = serializer(
             msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
         )
+        assert value is not None
         return msg._with_value(value)
 
     return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
@@ -417,9 +419,11 @@ def serialize(
         key = key_serializer(
             msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY)
         )
+        assert key is not None
         value = val_serializer(
             msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
         )
+        assert value is not None
         return msg._with_key_and_value(key, value)
 
     return _to_sink("to_sink", up).then(op.map, "map", shim_mapper)
