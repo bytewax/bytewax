@@ -54,12 +54,12 @@ stubgen: _assert-venv
     ruff format pysrc/bytewax/_bytewax.pyi
 
 # Format a Python file; automatically run via pre-commit
-fmt-py file="": _assert-venv
-    ruff format {{file}}
+fmt-py *files: _assert-venv
+    ruff format {{files}}
 
 # Format code blocks in a Markdown file; automatically run via pre-commit
-fmt-md file="": _assert-venv
-    cbfmt -w {{file}}
+fmt-md *files: _assert-venv
+    cbfmt -w {{files}}
 
 # Lint the code in the repo; runs in CI
 lint: _assert-venv
