@@ -36,7 +36,6 @@ from bytewax.connectors.kafka import (
     KafkaSource,
     KafkaSourceError,
     KafkaSourceMessage,
-    MaybeStrBytes,
     SerializedKafkaSinkMessage,
     SerializedKafkaSourceMessage,
     V,
@@ -172,7 +171,7 @@ def output(
     :arg step_id: Unique ID.
 
     :arg up: Stream of fully serialized messages. Key and value must
-        be {py:obj}`~bytewax.connectors.kafka.MaybeStrBytes`.
+        be `Optional[bytes]`.
 
     :arg brokers: List of `host:port` strings of Kafka brokers.
 
@@ -194,9 +193,9 @@ def output(
 @operator
 def deserialize_key(
     step_id: str,
-    up: Stream[KafkaSourceMessage[MaybeStrBytes, V]],
+    up: Stream[KafkaSourceMessage[Optional[bytes], V]],
     deserializer: confluent_kafka.serialization.Deserializer,
-) -> KafkaOpOut[KafkaSourceMessage[dict, V], KafkaError[MaybeStrBytes, V]]:
+) -> KafkaOpOut[KafkaSourceMessage[object, V], KafkaError[Optional[bytes], V]]:
     """Deserialize Kafka message keys.
 
     :arg step_id: Unique ID.
@@ -214,8 +213,8 @@ def deserialize_key(
     # the `oks` stream and the second one the `errs` stream for the
     # `_kafka_error_split` operator.
     def shim_mapper(
-        msg: KafkaSourceMessage[MaybeStrBytes, V],
-    ) -> Union[KafkaSourceMessage[dict, V], KafkaError[MaybeStrBytes, V]]:
+        msg: KafkaSourceMessage[Optional[bytes], V],
+    ) -> Union[KafkaSourceMessage[object, V], KafkaError[Optional[bytes], V]]:
         try:
             key = deserializer(
                 msg.key, SerializationContext(topic=msg.topic, field=MessageField.KEY)
@@ -231,9 +230,9 @@ def deserialize_key(
 @operator
 def deserialize_value(
     step_id: str,
-    up: Stream[KafkaSourceMessage[K, MaybeStrBytes]],
+    up: Stream[KafkaSourceMessage[K, Optional[bytes]]],
     deserializer: confluent_kafka.serialization.Deserializer,
-) -> KafkaOpOut[KafkaSourceMessage[K, dict], KafkaError[K, MaybeStrBytes]]:
+) -> KafkaOpOut[KafkaSourceMessage[K, object], KafkaError[K, Optional[bytes]]]:
     """Deserialize Kafka message values.
 
     :arg step_id: Unique ID.
@@ -248,8 +247,8 @@ def deserialize_value(
     """
 
     def shim_mapper(
-        msg: KafkaSourceMessage[K, MaybeStrBytes],
-    ) -> Union[KafkaSourceMessage[K, dict], KafkaError[K, MaybeStrBytes]]:
+        msg: KafkaSourceMessage[K, Optional[bytes]],
+    ) -> Union[KafkaSourceMessage[K, object], KafkaError[K, Optional[bytes]]]:
         try:
             value = deserializer(
                 msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
@@ -267,12 +266,12 @@ def deserialize_value(
 @operator
 def deserialize(
     step_id: str,
-    up: Stream[KafkaSourceMessage[MaybeStrBytes, MaybeStrBytes]],
+    up: Stream[KafkaSourceMessage[Optional[bytes], Optional[bytes]]],
     *,
     key_deserializer: confluent_kafka.serialization.Deserializer,
     val_deserializer: confluent_kafka.serialization.Deserializer,
 ) -> KafkaOpOut[
-    KafkaSourceMessage[dict, dict], KafkaError[MaybeStrBytes, MaybeStrBytes]
+    KafkaSourceMessage[object, object], KafkaError[Optional[bytes], Optional[bytes]]
 ]:
     """Deserialize Kafka messages.
 
@@ -296,9 +295,9 @@ def deserialize(
     # deserialize_key and deserialize_value so we can
     # return the original message if any of the 2 fail.
     def shim_mapper(
-        msg: KafkaSourceMessage[MaybeStrBytes, MaybeStrBytes],
+        msg: KafkaSourceMessage[Optional[bytes], Optional[bytes]],
     ) -> Union[
-        KafkaSourceMessage[dict, dict], KafkaError[MaybeStrBytes, MaybeStrBytes]
+        KafkaSourceMessage[object, object], KafkaError[Optional[bytes], Optional[bytes]]
     ]:
         try:
             key = key_deserializer(

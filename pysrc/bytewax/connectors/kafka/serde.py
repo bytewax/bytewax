@@ -11,8 +11,6 @@ from fastavro import parse_schema, schemaless_reader, schemaless_writer
 from fastavro.types import AvroMessage
 from typing_extensions import override
 
-from bytewax.connectors.kafka import MaybeStrBytes
-
 _logger = logging.getLogger(__name__)
 
 

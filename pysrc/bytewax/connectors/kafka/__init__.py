@@ -71,9 +71,6 @@ K2 = TypeVar("K2")
 V2 = TypeVar("V2")
 """Type of value in a modified Kafka message."""
 
-MaybeStrBytes: TypeAlias = Union[str, bytes, None]
-"""Kafka message keys and values are optional."""
-
 # Set up metrics for Kafka
 #
 # This is a global var, since the Prometheus REGISTRY
@@ -152,7 +149,8 @@ class KafkaSourceMessage(Generic[K, V]):
 
 
 SerializedKafkaSourceMessage: TypeAlias = KafkaSourceMessage[
-    MaybeStrBytes, MaybeStrBytes
+    Optional[bytes],
+    Optional[bytes],
 ]
 """A fully serialized Kafka message from the consumer."""
 
@@ -168,7 +166,7 @@ class KafkaError(Generic[K, V]):
     """Message attached to that error."""
 
 
-KafkaSourceError: TypeAlias = KafkaError[MaybeStrBytes, MaybeStrBytes]
+KafkaSourceError: TypeAlias = KafkaError[Optional[bytes], Optional[bytes]]
 """An error from the Kafka source with original message."""
 
 SerializedKafkaSourceResult: TypeAlias = Union[
@@ -462,7 +460,9 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
         )
 
 
-SerializedKafkaSinkMessage: TypeAlias = KafkaSinkMessage[MaybeStrBytes, MaybeStrBytes]
+SerializedKafkaSinkMessage: TypeAlias = KafkaSinkMessage[
+    Optional[bytes], Optional[bytes]
+]
 """A fully serialized Kafka message ready for the producer.
 
 Both key and value are optional.
