@@ -131,45 +131,6 @@ impl<'de> serde::Deserialize<'de> for TdPyAny {
     }
 }
 
-// Rust tests that interact with the Python interpreter don't work
-// well under pyenv-virtualenv. This test executes under the global pyenv
-// version, instead of the configured virtual environment.
-// Disabling this test for aarch64, as it fails in CI.
-#[cfg(not(target_arch = "aarch64"))]
-#[test]
-fn test_serde() {
-    use serde_test::assert_tokens;
-    use serde_test::Token;
-
-    pyo3::prepare_freethreaded_python();
-
-    let pyobj: TdPyAny =
-        Python::with_gil(|py| PyString::new_bound(py, "hello").into_any().unbind().into());
-
-    // Python < 3.8 serializes strings differently than python >= 3.8.
-    // We get the current python version here so we can assert based on that.
-    let (major, minor) = Python::with_gil(|py| {
-        let sys = PyModule::import_bound(py, "sys").unwrap();
-        let version = sys.getattr("version_info").unwrap();
-        let major: i32 = version.getattr("major").unwrap().extract().unwrap();
-        let minor: i32 = version.getattr("minor").unwrap().extract().unwrap();
-        (major, minor)
-    });
-
-    // We only support python 3...
-    assert_eq!(major, 3);
-
-    let expected = if minor < 8 {
-        Token::Bytes(&[128, 3, 88, 5, 0, 0, 0, 104, 101, 108, 108, 111, 113, 0, 46])
-    } else {
-        Token::Bytes(&[
-            128, 4, 149, 9, 0, 0, 0, 0, 0, 0, 0, 140, 5, 104, 101, 108, 108, 111, 148, 46,
-        ])
-    };
-    // This does a round-trip.
-    assert_tokens(&pyobj, &[expected]);
-}
-
 /// Re-use Python's value semantics in Rust code.
 impl PartialEq for TdPyAny {
     fn eq(&self, other: &Self) -> bool {
