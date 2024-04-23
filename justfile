@@ -46,7 +46,7 @@ develop: _assert-venv && stubgen
 
 # Build a release wheel for the current Python version and put it in `dist/`
 build: _assert-venv
-    maturin build --release -o dist/
+    RUSTFLAGS="-C force-frame-pointers=yes" maturin build --release -o dist/
 
 # Re-generate stub file of PyO3 parts of the library; automatically runs as part of `just develop`
 stubgen: _assert-venv

@@ -64,7 +64,7 @@ active.
 :::
 
 ```console
-(dev) $ RUSTFLAGS="-C debuginfo=1 -C force-frame-pointers" maturin develop --release
+(dev) $ RUSTFLAGS="-C debuginfo=1 -C force-frame-pointers=yes" maturin develop --release
 ```
 
 * `-C debuginfo=1` adds enough debug info to name functions.

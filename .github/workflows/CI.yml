@@ -76,6 +76,8 @@ jobs:
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
@@ -86,7 +88,7 @@ jobs:
         if: ${{ matrix.target == 'x86_64' }}
         shell: bash
         env:
-          TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
+          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
@@ -142,6 +144,8 @@ jobs:
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
@@ -152,7 +156,7 @@ jobs:
         if: ${{ matrix.target == 'x86_64' }}
         shell: bash
         env:
-          TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
+          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
@@ -201,6 +205,8 @@ jobs:
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
