@@ -39,14 +39,14 @@ contributions in general:
 The Bytewax project keeps a log of work items on GitHub in the [repo's
 issues](https://github.com/bytewax/bytewax/issues).
 
-#### New Issues
+### New Issues
 
 If you spot a problem with Bytewax, [search if an issue already
 exists](https://github.com/bytewax/bytewax/issues). If a related issue
 doesn't exist, you can open a new issue using a relevant [issue
 template](https://github.com/bytewax/bytewax/issues/new/choose).
 
-#### Solve an Issue
+### Solve an Issue
 
 Scan through our [existing
 issues](https://github.com/bytewax/bytewax/issues) to find one that
