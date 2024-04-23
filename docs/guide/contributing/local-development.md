@@ -68,6 +68,13 @@ Whenever you work on Bytewax, you must have the `dev` venv activated.
 Most of the other `just` recipes require this. They will error if the
 venv is not activated.
 
+:::{note}
+
+Prompts here will be prefixed with `(dev)` to show that the venv is
+active.
+
+:::
+
 ```console
 $ . venvs/dev/bin/activate
 (dev) $
@@ -98,7 +105,7 @@ stubs, and install it into the current venv. You can then use
 ```
 
 This will compile the library in _debug mode_ and will have poor
-performance. See <project:#xref-performance> for how to compile for
+performance. See <project:#xref-profiling> for how to compile for
 proper local benchmarking.
 
 ### Running a Dataflow

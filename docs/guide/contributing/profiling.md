@@ -10,23 +10,19 @@ Instructions are Linux only as of now.
 
 Install `perf` on Ubuntu with:
 
-```bash
-sudo apt install linux-tools-common
+```console
+$ sudo apt install linux-tools-common
 ```
 
 We'll also be using Hotspot to visualize the flame graphs.
 
-```bash
-sudo apt install hotspot
+```console
+$ sudo apt install hotspot
 ```
 
 Python must be compiled with the appropriate options to be able to
 reconstruct call stacks. This is easiest done via
 [`pyenv`](https://github.com/pyenv/pyenv).
-
-```bash
-curl https://pyenv.run | bash
-```
 
 ## 1. Compile Correctly
 
@@ -34,8 +30,8 @@ curl https://pyenv.run | bash
 
 First let's compile Python with the appropriate flags.
 
-```bash
-PYTHON_CONFIGURE_OPTS="--enable-optimizations --with-lto" PYTHON_CFLAGS="-gdwarf -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer" pyenv install 3.12.0
+```console
+$ PYTHON_CONFIGURE_OPTS="--enable-optimizations --with-lto" PYTHON_CFLAGS="-gdwarf -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer" pyenv install 3.12.0
 ```
 
 * `--enable-optimizations` and `--with-lto` give us a "release" build.
@@ -56,8 +52,19 @@ The performance characteristics of the library changes drastically
 when compiled in **release** mode, so before doing any profiling /
 benchmarking, we need to ensure we compile in that mode.
 
-```bash
-RUSTFLAGS="-C debuginfo=1 -C force-frame-pointers" maturin develop --release
+Ensure that you have activated the local development venv because
+`maturin develop` will install into that venv. See
+<project:#xref-dev-env> for how to set that up.
+
+:::{note}
+
+Prompts here will be prefixed with `(dev)` to show that the venv is
+active.
+
+:::
+
+```console
+(dev) $ RUSTFLAGS="-C debuginfo=1 -C force-frame-pointers" maturin develop --release
 ```
 
 * `-C debuginfo=1` adds enough debug info to name functions.
@@ -70,7 +77,7 @@ We can now use [`perf`](https://www.brendangregg.com/perf.html) to
 profile an execution of a dataflow:
 
 ```bash
-perf record -F max --sample-cpu --call-graph=dwarf --aio -- python -X perf -m bytewax.run example_dataflow
+(dev) $ perf record -F max --sample-cpu --call-graph=dwarf --aio -- python -X perf -m bytewax.run example_dataflow
 ```
 
 This will write `./perf.data` for later analysis.
