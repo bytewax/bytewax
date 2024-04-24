@@ -1,6 +1,7 @@
 -e .
 -r build.in
 -r doc.in
+-r doctest.in
 ipython
 mypy
 pip  # Remove once we have a version of maturin with --uv.
