@@ -490,6 +490,9 @@ that directory for any of the doctests.
 E.g. in our wordcount example we use a fixture file.
 
 ```{testcode}
+from bytewax.dataflow import Dataflow
+from bytewax.connectors.files import FileSource
+
 flow = Dataflow("wordcount_eg")
 inp = op.input("inp", flow, FileSource("wordcount.txt"))
 ```
