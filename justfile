@@ -17,7 +17,7 @@ get-started:
     mkdir -p venvs
     test -d venvs/dev/ || uv venv -p 3.12 venvs/dev/
     @echo 'Installing all the tools and dependencies'
-    just sync dev
+    just venv-sync dev
     @echo 'Ensuring Git pre-commit hooks are installed'
     venvs/dev/bin/pre-commit install
     @echo 'All done!'
