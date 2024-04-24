@@ -21,17 +21,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release -o dist -i python-3.12
-          sccache: true
-      - name: Install dependencies
+      - name: Install uv
+        run: python3 -m pip install uv
+      - uses: mkroening/rust-toolchain-toml@main
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
+        shell: bash
         run: |
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
+          uv venv -p 3.12 venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py3.12.txt
+      - name: Build wheel
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just build
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v2
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
-          run: pytest --benchmark-enable --benchmark-only --codspeed
+          run: |
+            . venv/bin/activate
+            WHEEL_FILE=$(ls ./dist/*.whl)
+            uv pip install -v --no-deps $WHEEL_FILE
+            just test-benchmark
