@@ -256,7 +256,7 @@ dump tool to fuzzy search with `grep` or
 the one you want.
 
 ```console
-(dev-3.10) $ python ./intersphinxdump.py | fzf
+(dev) $ python ./intersphinxdump.py | fzf
 ```
 
 ### Example Code

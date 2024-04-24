@@ -252,10 +252,11 @@ Then commit all changes in the `requirements/*.txt` files.
 ## Upgrading Dependencies
 
 `uv` will not modify a `requirements/*.txt` file just to bump a
-package version if it detects a new one. It will only modify existing
-locked versions if they no longer pass the constraints of the `*.in`
-files. If you want to upgrade all packages to their latest version,
-you should blow-away all the `*.txt` files and re-compile them.
+package version; it will only modify existing locked versions if they
+no longer pass the constraints of the `*.in` files, which only specify
+the coarsest constraints on the package versions. If you want to
+upgrade all packages to their latest version, you should blow-away all
+the `*.txt` files and re-compile them.
 
 ```console
 (dev) $ rm requirements/*.txt
