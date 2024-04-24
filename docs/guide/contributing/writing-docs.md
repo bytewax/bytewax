@@ -48,7 +48,7 @@ lists](inv:myst#syntax/fieldlists) which are `:name value:
 Description` lines. The field names should be the same as the
 [Sphinx](inv:sphinx#info-field-lists).
 
-```python
+```{testcode}
 def my_func(x: int, y: str) -> str:
     """Do the cool thing.
 
@@ -94,7 +94,7 @@ fn my_func(x: usize, y: String) -> String {
 
 You can add "post-variable docstrings" to document these.
 
-```python
+```{testcode}
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -479,6 +479,19 @@ run_main(flow)
 1
 2
 3
+```
+
+### Using Fixture Files
+
+`just test-doc` cds into the `docs/fixtures/` directory before running
+the test doc builder. This means you have access to all files within
+that directory for any of the doctests.
+
+E.g. in our wordcount example we use a fixture file.
+
+```{testcode}
+flow = Dataflow("wordcount_eg")
+inp = op.input("inp", flow, FileSource("wordcount.txt"))
 ```
 
 ### Doctest Code Block
