@@ -26,8 +26,14 @@ We want Bytewax to run under many different versions of the Python
 interpreter, so we need a quick way to create virtualenvs in different
 versions. I suggest using [`pyenv`](https://github.com/pyenv/pyenv)
 because it will let you re-compile Python easily with benchmarking
-flags. Follow the instructions there to install it. You can also use
-your OS's package manager to get access to `python3.12`.
+flags. Follow [the installation
+instructions](https://github.com/pyenv/pyenv?tab=readme-ov-file#installation).
+
+You can also use your OS's package manager to get access to different
+Python versions.
+
+Our blessed version of Python for doing development is Python 3.12
+(although the Bytewax library is designed to run on versions 3.8+).
 
 Ensure that you have Python 3.12 installed and available as a "global
 shim" so that it can be run anywhere. The following will make plain
@@ -42,8 +48,10 @@ $ pyenv global system 3.12
 
 We use [`uv`](https://github.com/astral-sh/uv) as a virtual
 environment creator, package installer, and dependency pin-er. There
-are a few different ways to install it, but I recommend installing it
-through either [`brew`](https://brew.sh/) on macOS or
+are [a few different ways to install
+it](https://github.com/astral-sh/uv?tab=readme-ov-file#getting-started),
+but I recommend installing it through either
+[`brew`](https://brew.sh/) on macOS or
 [`pipx`](https://pipx.pypa.io/stable/).
 
 (xref-dev-venv)=
@@ -51,7 +59,7 @@ through either [`brew`](https://brew.sh/) on macOS or
 
 We have a "getting started" `just` recipe that will:
 
-1. Set up a venv in `venvs/dev`.
+1. Set up a venv in `venvs/dev/`.
 
 2. Install all development dependencies into it in a reproducible way.
 
@@ -166,7 +174,7 @@ Running Sphinx v7.2.6
 [I 240124 12:03:11 server:335] Serving on http://127.0.0.1:8000
 ```
 
-The temporary built HTML files are put in `/docs/_build`. This
+The temporary built HTML files are put in `docs/_build/`. This
 directory _should not be checked in_. Production docs are built using
 Read the Docs and served from them.
 
