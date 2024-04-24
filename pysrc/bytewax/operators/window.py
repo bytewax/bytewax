@@ -354,11 +354,12 @@ class EventClock(Clock[V, Optional[_EventClockState]]):
     :::{note}
 
     By default, all timestamps returned by `ts_getter` also need to be
-    [aware datetimes](inv:python:term#aware-and-naive-objects) in UTC.
+    [aware datetimes](inv:python:std:label#datetime-naive-aware) in
+    UTC.
 
     This is because `now_getter` defaults to returning the current
     system time as [aware
-    datetimes](inv:python:term#aware-and-naive-objects) in UTC, and
+    datetimes](inv:python:std:label#datetime-naive-aware) in UTC, and
     comparisons are made to that.
 
     It's easiest to convert your timestamps to UTC in `ts_getter`, but
