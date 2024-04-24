@@ -16,13 +16,13 @@ Recovery partitions must be pre-initialized before running the
 dataflow. This is done by executing the {py:obj}`bytewax.recovery`
 module:
 
-```shell
-> python -m bytewax.recovery db_dir/ 1
+```console
+$ python -m bytewax.recovery db_dir/ 1
 ```
 
 This will create a recovery partition in the `db_dir/` directory:
 
-```
+```console
 $ ls db_dir/
 part-0.sqlite3
 ```
@@ -47,7 +47,7 @@ The `emit_value` will be passed downstream.
 Let's see a concrete example. Add the following code in a new file
 named `recovery.py`:
 
-```python
+```{testcode}
 import bytewax.operators as op
 
 from bytewax.dataflow import Dataflow
@@ -91,8 +91,19 @@ please see the concept section on <project:#recovery>.
 
 Running the example above, you should see the following output:
 
-```shell
-> python -m bytewax.run recovery -r db_dir/ -s 30 -b 0
+```console
+$ python -m bytewax.run recovery -r db_dir/ -s 30 -b 0
+```
+
+```{testcode}
+:hide:
+
+from bytewax.testing import run_main
+
+run_main(flow)
+```
+
+```{testoutput}
 ('ALL', 0)
 ('ALL', 1)
 ('ALL', 3)
@@ -112,14 +123,14 @@ Before we re-run our dataflow, let's change our input data to add some
 new values:
 
 
-```python
-inp = [0, 1, 2, 3, 4]
+```{testcode}
+inp.extend([3, 4])
 ```
 
 Now we can re-run our dataflow:
 
-```shell
-> python -m bytewax.run recovery -r db_dir/ -s 30 -b 0
+```console
+$ python -m bytewax.run recovery -r db_dir/ -s 30 -b 0
 ('ALL', 6)
 ('ALL', 10)
 ```

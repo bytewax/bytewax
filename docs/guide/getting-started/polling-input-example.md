@@ -19,7 +19,7 @@ basic logging, {py:obj}`datetime.timedelta` for time manipulation,
 [`requests`](https://requests.readthedocs.io/en/latest/) for HTTP
 requests, and various components from the Bytewax framework.
 
-```python
+```{testcode}
 import logging
 import requests
 
@@ -39,7 +39,7 @@ connectors. Below, we define a class `HNSource` that inherits from
 {py:obj}`~bytewax.inputs.SimplePollingSource`. This class will handle
 fetching the latest item ID from the Hacker News API.
 
-```python
+```{testcode}
 class HNSource(SimplePollingSource):
     def next_item(self):
         return (
@@ -54,7 +54,7 @@ class HNSource(SimplePollingSource):
 
 Initialize the dataflow and set up the pipeline.
 
-```python
+```{testcode}
 flow = Dataflow("hn_scraper")
 max_id = op.input("in", flow, HNSource(timedelta(seconds=15)))
 ```
@@ -70,7 +70,7 @@ in that you can maintain some idea of the current state. All stateful
 operators partition state by a key, so notice the previous step is
 emitting `"GLOBAL_ID"` in the key position.
 
-```python
+```{testcode}
 def mapper(old_max_id, new_max_id):
     if old_max_id is None:
         old_max_id = new_max_id - 10
@@ -89,7 +89,7 @@ defined when running the dataflow. This is particularly helpful for
 instances such as this where we might have a bottleneck in the
 downstream http request to fetch additional data.
 
-```python
+```{testcode}
 ids = op.flat_map("strip_key_flatten", ids, lambda key_ids: key_ids[1])
 ids = op.redistribute("redist", ids)
 ```
@@ -105,7 +105,7 @@ like a combination of {py:obj}`~bytewax.operators.filter` and
 a map operator and if the processing fails or results in None, those
 items will not be emitted.
 
-```python
+```{testcode}
 def download_metadata(hn_id) -> Optional[dict]:
     data = requests.get(
         f"https://hacker-news.firebaseio.com/v0/item/{hn_id}.json"
@@ -128,7 +128,7 @@ from the stories. We can then print the streams out separately.
 Building on this, you would most likely publish the separate streams
 to separate Kafka topics or tables in a database.
 
-```python
+```{testcode}
 split_stream = op.branch("split_comments", items, lambda item: item["type"] == "story")
 stories = split_stream.trues
 comments = split_stream.falses
@@ -144,10 +144,13 @@ Bytewax will handle the polling, data fetching, and processing in
 real-time. You should see the latest Hacker News stories printed to
 the standard output.
 
-```bash
-# running with 5 worker threads
-python -m bytewax.run periodic_hacker_news.py -w 5
+Here we can run with five worker threads in one process.
+
+```console
+$ python -m bytewax.run periodic_hacker_news.py -w 5
 ```
+
+% We can't run these doctests because it'd take 15 seconds to poll.
 
 _A quick aside on scaling. You can scale things across threads and
 processes with Bytewax. There are limitations to the thread approach
