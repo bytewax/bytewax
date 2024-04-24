@@ -12,7 +12,7 @@ You can define new custom operators in terms of already existing
 operators. To do this you define an **operator function** and decorate
 it with {py:obj}`~bytewax.dataflow.operator`.
 
-```python
+```{testcode}
 from bytewax.dataflow import Stream, operator
 import bytewax.operators as op
 
