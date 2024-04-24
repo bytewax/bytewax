@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  repo-tests:
+  repo-checks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,17 +31,33 @@ jobs:
             curl -fsSL -o cbfmt.tar.gz "https://github.com/lukas-reineke/cbfmt/releases/download/v0.2.0/cbfmt_linux-x86_64_v0.2.0.tar.gz"
             tar --strip-components 1 -xvf cbfmt.tar.gz
             mv cbfmt /usr/local/bin/
-      - name: Prep lint venv
+      - name: Prep venv
         shell: bash
         run: |
           uv venv venv
           . venv/bin/activate
           uv pip sync --strict requirements/dev.txt
+      - name: Check pre-commit hooks
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just lint-pc
       - name: Run lints
         shell: bash
         run: |
           . venv/bin/activate
-          just _test-repo
+          just lint
+      - name: Run Rust tests
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just test-rs
+      # TODO: Re-enable these once we fix them.
+      # - name: Run documentation tests
+      #   shell: bash
+      #   run: |
+      #     . venv/bin/activate
+      #     just test-doc
 
   linux:
     strategy:
@@ -82,7 +98,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Run tests
+      - name: Run Python tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
@@ -150,7 +166,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Run tests
+      - name: Run Python tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
@@ -211,7 +227,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Run tests
+      - name: Run Python tests
         run: |
           venv/Scripts/activate
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]

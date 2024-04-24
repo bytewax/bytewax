@@ -70,6 +70,10 @@ lint: _assert-venv
     mypy pysrc/ pytests/ docs/ *.py
     cargo clippy
 
+# Manually check that all pre-commit hooks pass; runs in CI
+lint-pc: _assert-venv
+    pre-commit run --all-files --show-diff-on-failure
+
 # Run the Rust tests; runs in CI
 test-rs:
     cargo test --no-default-features
@@ -88,15 +92,6 @@ test-doc: _assert-venv
 
 # Run all the checks that will be run in CI locally
 ci-pre: lint test-py test-rs test-doc test-benchmark
-
-# CI uses this command to run all non-Python tests
-_test-repo:
-    just lint
-    just test-rs
-    # TODO: Add back in `test-doc` once those are fixed.
-    # just test-doc
-    pre-commit run --all-files --show-diff-on-failure
-
 
 # Start an auto-refreshing doc development server
 doc-autobuild: _assert-venv
