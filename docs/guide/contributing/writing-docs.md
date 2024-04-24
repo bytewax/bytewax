@@ -259,12 +259,14 @@ the one you want.
 (dev) $ python ./intersphinxdump.py | fzf
 ```
 
-### Example Code
+### Example Python Code
 
-Use backtick code blocks with the `python` language type.
+Use backtick code blocks with the `{testcode}` language type. Use this
+instead of `python` to ensure that the code block is run as a doctest.
+It will still be syntax highlighted as if it was Python.
 
 ````markdown
-```python
+```{testcode}
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("doc_df")
@@ -276,11 +278,14 @@ Appears as:
 % cbfmt does not parse Markdown correctly and so this can't be quoted
 % with `>`. It'll not strip those out and pass them to the formatter.
 
-```python
+```{testcode}
 from bytewax.dataflow import Dataflow
 
 flow = Dataflow("doc_df")
 ```
+
+If you are really sure that you don't want the code to run as part of
+the doctest suite, you can use the `python` language instead.
 
 ### Shell Sessions
 
@@ -334,76 +339,50 @@ V --> O2[Kafka Producer `enriched_txns_dead_letter_queue`]
 
 ## Doctests
 
-`pytest` is setup to use
-[Sybil](https://sybil.readthedocs.io/en/latest/index.html) to attempt
-to run all Python code blocks in our documentation. This is so we
-catch documentation we forget to update as we advance the API.
+We have a Sphinx builder which to run all Python code blocks in our
+documentation. This is so we catch documentation we forget to update
+as we advance the API.
 
-Running `pytest` will run over all:
+Running `just test-doc` will run over all:
 
 - All documentation examples in Markdown files in `/docs`.
 
-- All examples in docstrings in `/pysrc`.
+- All examples in docstrings in `/pysrc` via the API docs pages.
 
 - Docstrings from PyO3 are tested via the stubs file in
-  `/pysrc/bytewax/_bytewax.pyi`. You must rebuild stubs to test these.
+  `/pysrc/bytewax/_bytewax.pyi` and then via the API docs pages. You
+  must rebuild stubs to test these.
 
-### Plain Code Blocks
+For more options and details on this system, see
+<inv:sphinx:py:module#sphinx.ext.doctest> in the Sphinx docs.
 
-If you have a plain Python code block, the code will be run to ensure
-no exceptions, but no output will be checked.
+### Code Block with No Output
+
+If you have a plain Python `{testcode}` block, the code will be run to
+ensure no exceptions, but no output will be checked.
 
 ````markdown
-```python
+```{testcode}
 x = 1 + 1
 ```
 ````
 
 Appears as:
 
-```python
+```{testcode}
 x = 1 + 1
 ```
 
-### Doctest Code Blocks
+### Code Block Checking Output
 
-If you want to test the output, make it a doctest-style code block,
-using the `doctest` directive. You should prefix each line with `>>>`
-if it is input and output on the following lines.
-
-````markdown
-```{doctest}
->>> 1 + 1
-2
-```
-````
-
-Appears as:
-
-```{doctest}
->>> 1 + 1
-2
-```
-
-### Test Code Blocks
-
-:::{note}
-
-Sybil doesn't fully support this yet, but I'm going to write it here
-for when it does. We should still write these style of examples, but
-they will not be automatically tested.
-
-:::
-
-If you'd like to have some commentary between the example code an the
-output, use the `testcode` and `testoutput` directives. The `testcode`
-block will automatically be highlighted as Python code.
+To assert some specific stdout from a code block, pair a
+`{testoutput}` block after a `{testcode}` one.
 
 ````markdown
 Here's some pre-commentary.
 
 ```{testcode}
-1 + 1
+print(1 + 1)
 ```
 
 Here's some middle-commentary.
@@ -420,7 +399,7 @@ Appears as:
 > Here's some pre-commentary.
 >
 > ```{testcode}
-> 1 + 1
+> print(1 + 1)
 > ```
 >
 > Here's some middle-commentary.
@@ -431,16 +410,109 @@ Appears as:
 >
 > Here's some post-commentary.
 
-### Skipping
+### Testing a Dataflow / Hidden Code
 
-To skip a doctest, use a Sybil skip comment. Add a line with `% skip:
-next` right above the code block. The entire code block will not be
-run.
+Sometimes to get these automated tests to run, you have to do setup to
+satisfy the interpreter, but it would distract from the flow of the
+documentation. In that case, you can hide `{testcode}` or
+`{testoutput}` blocks and they will not appear in the rendered
+documentation, but will still be tested. The power of this comes from
+you don't have to hide both blocks of a pair.
+
+This is commonly used to test the example output of a dataflow without
+needing to show the run function (since a real user would use the run
+script anyway).
 
 ````markdown
-% skip: next
+```{testcode}
+:hide:
 
-```python
-invalid code
+from bytewax.dataflow import Dataflow
+from bytewax.testing import run_main, TestingSource
+from bytewax.connectors.stdio import StdOutSink
+import bytewax.operators as op
+```
+
+```{testcode}
+flow = Dataflow("test_df")
+nums = op.input("inp", flow, TestingSource([1, 2, 3]))
+op.output("out", nums, StdOutSink())
+```
+
+```{testcode}
+:hide:
+
+run_main(flow)
+```
+
+```{testoutput}
+1
+2
+3
+```
+````
+
+Appears as:
+
+```{testcode}
+:hide:
+
+from bytewax.dataflow import Dataflow
+from bytewax.testing import run_main, TestingSource
+from bytewax.connectors.stdio import StdOutSink
+import bytewax.operators as op
+```
+
+```{testcode}
+flow = Dataflow("test_df")
+nums = op.input("inp", flow, TestingSource([1, 2, 3]))
+op.output("out", nums, StdOutSink())
+```
+
+```{testcode}
+:hide:
+
+run_main(flow)
+```
+
+```{testoutput}
+1
+2
+3
+```
+
+### Doctest Code Block
+
+If you want to show an interactive interpreter session to show the
+details of an example, make it a doctest-style code block, using the
+`doctest` directive. You should prefix each line with `>>>` if it is
+input and output on the following lines.
+
+````markdown
+```{doctest}
+>>> 1 + 1
+2
+```
+````
+
+Appears as:
+
+```{doctest}
+>>> 1 + 1
+2
+```
+
+### Skipping
+
+To skip a whole code block, use the `python` / `text` language instead
+of `{testcode}` / `{testoutput}`.
+
+To skip a single line in a `{doctest}` block, you can use an inline
+doctest option.
+
+````markdown
+```{doctest}
+>>> datetime.date.now()   # doctest: +SKIP
+datetime.date(2008, 1, 1)
 ```
 ````
