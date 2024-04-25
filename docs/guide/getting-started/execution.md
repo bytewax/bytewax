@@ -34,6 +34,8 @@ all of the available runtime options, run the following command:
 ### Running with waxctl
 
 waxctl can be used to run dataflows locally as well as remotely.
+You will still need a functioning Python installation and 
+Bytewax installed in the environment.
 You can see the available options with the command:
 
 ```console
