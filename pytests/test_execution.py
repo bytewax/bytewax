@@ -1,6 +1,7 @@
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 
 import bytewax.operators as op
@@ -59,7 +60,9 @@ def test_cluster_can_be_ctrl_c():
     flow_path = f"pytests.test_flows.simple:get_flow('{tmp_file.name}')"
     process = subprocess.Popen(
         [
-            "python",
+            # Ensure that we use the exact same Python interpreter as
+            # here; might be in a venv.
+            sys.executable,
             "-m",
             "bytewax.testing",
             flow_path,
