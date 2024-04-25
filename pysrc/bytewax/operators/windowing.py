@@ -35,7 +35,6 @@ from bytewax.operators import (
     _EMPTY,
     DK,
     DV,
-    JoinMode,
     KeyedStream,
     S,
     StatefulBatchLogic,
