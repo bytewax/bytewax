@@ -83,3 +83,7 @@ registry.db
 # Pyright / pylsp
 pyrightconfig.json
 .dir-locals.el
+
+# Devenv stuff
+.devenv.flake.nix
+devenv.*
