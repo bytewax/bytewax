@@ -292,10 +292,11 @@ param_eg.check_inp: {'user_id': '2', 'avatar_icon_code': 'dog_ico'}
 param_eg.check_with_url: {'user_id': '2', 'avatar_icon_url': 'http://domain.invalid/static/dog_v1.png'}
 ```
 
-You can also call out to an external service or API or data store in a
-{py:obj}`~bytewax.operators.map` step in the same way. But be careful
-that you are assuming the external data is static and you will not be
-emitting updates if it changes after the call.
+You can also call out to an external service or API or data store.
+Bytewax provides a convenience operator
+{py:obj}`~bytewax.operators.enrich_cached` to help with this. But be
+careful that you are assuming the external data is static and you will
+not be emitting updates if it changes after the call.
 
 ```python
 import bytewax.operators as op
@@ -329,13 +330,13 @@ inp = op.input(
 op.inspect("check_inp", inp)
 
 
-def icon_code_to_url(msg):
+def icon_code_to_url(msg, cache):
     code = msg.pop("avatar_icon_code")
-    msg["avatar_icon_url"] = query_icon_url_service(code)
+    msg["avatar_icon_url"] = cache.get(code)
     return msg
 
 
-with_urls = op.map("with_url", inp, icon_code_to_url)
+with_urls = op.enrich_cached("with_url", inp, query_icon_url_service, icon_code_to_url)
 op.inspect("check_with_url", with_urls)
 run_main(flow)
 ```
@@ -348,6 +349,9 @@ param_eg.check_with_url: {'user_id': '3', 'avatar_icon_url': 'http://domain.inva
 param_eg.check_inp: {'user_id': '2', 'avatar_icon_code': 'dog_ico'}
 param_eg.check_with_url: {'user_id': '2', 'avatar_icon_url': 'http://domain.invalid/static/dog_v1.png'}
 ```
+
+You can also use a {py:obj}`~bytewax.operators.map` step in the same
+way to manage the cache yourself manually.
 
 If you do want to monitor an external data source for changes, you'll
 want to find / make a connector that can introduce its change stream
