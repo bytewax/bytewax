@@ -82,7 +82,7 @@ The `waxctl run` command expects only one argument, a path or URI of a python sc
 ```console
 $ waxctl run simple.py
 
-You can also run a remote dataflow in a public GitHub repo with `waxctl`:
+You can also run a dataflow from code contained in a public GitHub repo with `waxctl`:
 
 ```console
 $ waxctl run https://raw.githubusercontent.com/bytewax/bytewax/main/examples/basic.py
