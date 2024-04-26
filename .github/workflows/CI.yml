@@ -21,6 +21,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - uses: actions/setup-python@v3
+        with:
+          python-version: 3.12
       - name: Install uv
         run: python3 -m pip install uv
       - uses: extractions/setup-just@v2
@@ -36,7 +38,7 @@ jobs:
       - name: Prep venv
         shell: bash
         run: |
-          uv venv venv
+          uv venv -p 3.12 venv
           . venv/bin/activate
           uv pip sync --strict requirements/dev.txt
       - name: Check pre-commit hooks
