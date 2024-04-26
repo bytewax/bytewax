@@ -40,6 +40,7 @@ You can see the available options with the command:
 
 ```console
 $ waxctl run --help
+```
 
 ## Selecting the dataflow
 
@@ -83,11 +84,13 @@ The `waxctl run` command expects only one argument, a path or URI of a python sc
 
 ```console
 $ waxctl run simple.py
+```
 
 You can also run a dataflow from code contained in a public GitHub repo with `waxctl`:
 
 ```console
 $ waxctl run https://raw.githubusercontent.com/bytewax/bytewax/main/examples/basic.py
+```
 
 ## Starting a Single Process
 
@@ -110,6 +113,7 @@ workers using the same file, changing only the command:
 
 ```console
 $ waxctl run simple.py --workers=4
+```
 
 (xref-cluster)=
 ## Starting a Cluster of Processes
@@ -167,12 +171,14 @@ the addresses for you.
 
 ```console
 $ waxctl run simple.py --processes=2 --workers=4
+```
 
 You can specify the initial port with the `-i` flag and add `--debug` for
 verbose output.
 
 ```console
 $ waxctl run simple.py --processes=2 --workers=4 --initial-port=2101 --debug
+```
 
 For more information about deployment options for Bytewax dataflows,
 please see <project:#xref-deployment>.
