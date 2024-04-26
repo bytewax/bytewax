@@ -115,6 +115,11 @@ def test_cluster_can_be_ctrl_c(tmp_path):
         except (subprocess.TimeoutExpired, TimeoutError, RuntimeError) as ex:
             process.kill()
             stdout, stderr = process.communicate()
+            print("--- Captured STDOUT of subprocess ---")
+            sys.stdout.buffer.write(stdout)
+            print("--- Captured STDERR of subprocess ---")
+            sys.stdout.buffer.write(stderr)
+            print("-------------------------------------")
             raise subprocess.CalledProcessError(
                 process.returncode,
                 cmd,
