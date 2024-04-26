@@ -220,7 +220,7 @@ toc_object_entries_show_parents = "hide"
 
 def _ignore_private(
     app: Sphinx, env: BuildEnvironment, node: sn.pending_xref, contnode: dn.TextElement
-) -> Optional[dn.reference]:
+) -> Optional[dn.Element]:
     """Ignore missing xrefs to private objects.
 
     Some of these are automatically created by `:py:function`
@@ -237,7 +237,7 @@ def _ignore_private(
 
 def _resolve_type_aliases(
     app: Sphinx, env: BuildEnvironment, node: sn.pending_xref, contnode: dn.TextElement
-) -> Optional[dn.reference]:
+) -> Optional[dn.Element]:
     """Try to resolve `:py:class:` xrefs as `:py:obj:` xrefs instead.
 
     For some reason the xrefs generated as part of `:py:function:` and
@@ -259,7 +259,7 @@ def _resolve_type_aliases(
 
 def _resolve_typing_extensions(
     app: Sphinx, env: BuildEnvironment, node: sn.pending_xref, contnode: dn.TextElement
-) -> Optional[dn.reference]:
+) -> Optional[dn.Element]:
     """Fixes to handle `typing_extensions.*` xrefs.
 
     For some reason the inventory that `typing_extensions` exports

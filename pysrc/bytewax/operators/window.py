@@ -33,6 +33,7 @@ from bytewax.operators import (
     KeyedStream,
     S,
     StatefulBatchLogic,
+    U,
     V,
     W,
     X,
@@ -353,11 +354,12 @@ class EventClock(Clock[V, Optional[_EventClockState]]):
     :::{note}
 
     By default, all timestamps returned by `ts_getter` also need to be
-    [aware datetimes](inv:python:term#aware-and-naive-objects) in UTC.
+    [aware datetimes](inv:python:std:label#datetime-naive-aware) in
+    UTC.
 
     This is because `now_getter` defaults to returning the current
     system time as [aware
-    datetimes](inv:python:term#aware-and-naive-objects) in UTC, and
+    datetimes](inv:python:std:label#datetime-naive-aware) in UTC, and
     comparisons are made to that.
 
     It's easiest to convert your timestamps to UTC in `ts_getter`, but
@@ -1248,11 +1250,23 @@ def window(
         return _WindowLogic(clock_logic, windower_logic, builder, logics)
 
     events = op.stateful_batch("stateful_batch", up, shim_builder)
-    return WindowOut(
-        events.then(op.filter_map_value, "unwrap_down", _unwrap_emit),
-        events.then(op.filter_map_value, "unwrap_late", _unwrap_late),
-        events.then(op.filter_map_value, "unwrap_meta", _unwrap_meta),
+
+    downs: KeyedStream[Tuple[int, W]] = op.filter_map_value(
+        "unwrap_down",
+        events,
+        _unwrap_emit,
     )
+    lates: KeyedStream[Tuple[int, V]] = op.filter_map_value(
+        "unwrap_late",
+        events,
+        _unwrap_late,
+    )
+    metas: KeyedStream[Tuple[int, WindowMetadata]] = op.filter_map_value(
+        "unwrap_meta",
+        events,
+        _unwrap_meta,
+    )
+    return WindowOut(downs, lates, metas)
 
 
 def _collect_list_folder(s: List[V], v: V) -> List[V]:
@@ -1514,6 +1528,60 @@ def _join_asdicts_flat_mapper(
 def _join_merger(s: _JoinState, t: _JoinState) -> _JoinState:
     s += t
     return s
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock,
+    windower: Windower,
+    side1: KeyedStream[V],
+    /,
+    *,
+    product: bool = False,
+) -> WindowOut[V, Tuple[V]]: ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock,
+    windower: Windower,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    /,
+    *,
+    product: bool = False,
+) -> WindowOut[V, Tuple[U, V]]: ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock,
+    windower: Windower,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    /,
+    *,
+    product: bool = False,
+) -> WindowOut[V, Tuple[U, V, W]]: ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock,
+    windower: Windower,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    side4: KeyedStream[X],
+    /,
+    *,
+    product: bool = False,
+) -> WindowOut[V, Tuple[U, V, W, X]]: ...
 
 
 @operator

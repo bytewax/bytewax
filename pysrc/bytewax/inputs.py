@@ -449,7 +449,7 @@ def batch_getter(
 
     """
     while True:
-        batch = []
+        batch: List[X] = []
         while len(batch) < batch_size:
             try:
                 item = getter()
@@ -484,7 +484,7 @@ def batch_getter_ex(
 
     """
     while True:
-        batch = []
+        batch: List[X] = []
         while len(batch) < batch_size:
             try:
                 item = getter()

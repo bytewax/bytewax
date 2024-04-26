@@ -20,10 +20,8 @@ Make a PR which commits the following:
 
 2. Commits updated stubs
 
-   ```sh
-   (.venv) bytewax/ $ maturin develop -E dev
-   (.venv) bytewax/ $ python stubgen.py bytewax._bytewax -o pysrc/bytewax/_bytewax.pyi
-   (.venv) bytewax/ $ ruff format pysrc/bytewax/_bytewax.pyi
+   ```console
+   (dev) $ just stubgen
    ```
 
    If there was no change to any of our PyO3 Rust API, there might be

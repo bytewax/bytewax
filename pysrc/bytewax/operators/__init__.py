@@ -44,6 +44,10 @@ Y = TypeVar("Y")
 """Type of modified downstream items."""
 
 
+U = TypeVar("U")
+"""Type of secondary upstream values."""
+
+
 V = TypeVar("V")
 """Type of upstream values."""
 
@@ -1272,6 +1276,53 @@ def _join_name_merge(
         for name, up in named_ups.items()
     ]
     return merge("merge", *with_names)
+
+
+# https://stackoverflow.com/questions/73200382/using-typevartuple-with-inner-typevar
+@overload
+def join(
+    step_id: str,
+    side1: KeyedStream[V],
+    /,
+    *,
+    running: bool = False,
+) -> KeyedStream[Tuple[V]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    /,
+    *,
+    running: bool = False,
+) -> KeyedStream[Tuple[U, V]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    /,
+    *,
+    running: bool = False,
+) -> KeyedStream[Tuple[U, V, W]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    side4: KeyedStream[X],
+    /,
+    *,
+    running: bool = False,
+) -> KeyedStream[Tuple[U, V, W, X]]: ...
 
 
 @operator

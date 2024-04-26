@@ -65,6 +65,7 @@ reference/migration.md
 :titlesonly:
 
 contributing/contributing.md
+contributing/local-development.md
 contributing/architecture.md
 contributing/profiling.md
 contributing/release.md

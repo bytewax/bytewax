@@ -26,6 +26,7 @@ var/
 include/
 man/
 venv/
+venvs/
 *.egg-info/
 .installed.cfg
 *.egg

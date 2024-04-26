@@ -4,7 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
-import jsonpickle
+import jsonpickle  # type: ignore
 from typing_extensions import override
 
 logger = logging.getLogger(__name__)

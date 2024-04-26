@@ -279,29 +279,11 @@ At a high level, Bytewax provides a few major benefits:
 
 ## Community
 
-[Slack](https://join.slack.com/t/bytewaxcommunity/shared_invite/zt-vkos2f6r-_SeT9pF2~n9ArOaeI3ND2w) Is the main forum for communication and discussion.
+[Slack](https://join.slack.com/t/bytewaxcommunity/shared_invite/zt-vkos2f6r-_SeT9pF2~n9ArOaeI3ND2w) is the main forum for communication and discussion.
 
-[GitHub Issues](https://github.com/bytewax/bytewax/issues) is reserved only for actual issues. Please use the slack community for discussions.
+[GitHub Issues](https://github.com/bytewax/bytewax/issues) is reserved only for actual issues. Please use the community Slack for discussions.
 
 [Code of Conduct](https://github.com/bytewax/bytewax/blob/main/CODE_OF_CONDUCT.md)
-
-## Usage
-
-Install the [latest release](https://github.com/bytewax/bytewax/releases/latest) with pip:
-
-```shell
-pip install bytewax
-```
-
-### Building From Source
-
-To build a specific branch, you will need to use Maturin and have Rust installed on your machine. Once those have been installed run
-
-```shell
-maturin develop -E dev
-```
-
-_Important_: If you are testing with a maturin built version from source, you should use `maturin build --release` since `maturin develop` will be slower.
 
 ## More Examples
 
@@ -313,7 +295,9 @@ Bytewax is licensed under the [Apache-2.0](https://opensource.org/licenses/APACH
 
 ## Contributing
 
-Contributions are welcome! This community and project would not be what it is without the [contributors](https://github.com/bytewax/bytewax/graphs/contributors). All contributions, from bug reports to new features, are welcome and encouraged. Please view the [contribution guidelines](/CONTRIBUTING.md) before getting started.
+Contributions are welcome! This community and project would not be what it is without the [contributors](https://github.com/bytewax/bytewax/graphs/contributors). All contributions, from bug reports to new features, are welcome and encouraged.
+
+Please view the [Contribution Guide](https://docs.bytewax.io/stable/guide/contributing/contributing.html) for how to get started.
 
 </br>
 </br>

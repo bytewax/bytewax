@@ -7,15 +7,15 @@ Markdown parsing.
 
 ## Adding User Guides
 
-Articles for the user guide live in `/docs/user_guide` and
-sub-directories within. You can add new Markdown files to add a new
-article, but they must be added to a [Sphinx table of
+Articles for the user guide live in `/docs/guide` and sub-directories
+within. You can add new Markdown files to add a new article, but they
+must be added to a [Sphinx table of
 contents](https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#toctree-directive)
 to know where to add them in the document hierarchy. (Sphinx does not
 require the directory structure to match the document structure.)
 
-The TOC for the user guide is in `/docs/user_guide/index.md`. You can
-add a new line with the path of that file the appropriate sub-section.
+The TOC for the user guide is in `/docs/guide/index.md`. You can add a
+new line with the path of that file the appropriate sub-section.
 
 ## API Docs
 
@@ -23,71 +23,13 @@ API reference documentation is automatically during the Sphinx build
 process via the [`sphinx-autodoc2`
 extension](https://sphinx-autodoc2.readthedocs.io/en/latest/index.html)
 generated from our Python source in `/pysrc`. The build process turns
-the source into automatically generated Markdown files in
-`/docs/apidocs`, which are then passed through the Sphinx builder.
+the source into automatically generated Markdown files in `/docs/api`,
+which are then passed through the Sphinx builder.
 
-## Local Testing
+## Local Prototyping
 
-Checked into this repo are some tools to allow you to quickly iterate
-on documentation without needing to make a PR or release.
-
-### Pipenv
-
-[`pipenv`](https://pipenv.pypa.io/en/latest/) is used to manage the
-blessed environment for building documentation because it supports
-creating reproducible environments. It lets you pin a specific version
-of the Python interpreter and all packages. These are saved via
-`/docs/Pipfile` and `/docs/Pipfile.lock`.
-
-You should install the latest version of `pipenv` globally and it will
-use the lockfile in the current directory. It won't affect any other
-Python environment tooling.
-
-```console
-$ pip install pipenv
-```
-
-`pipenv` will automatically use
-[`pyenv`](https://github.com/pyenv/pyenv) to install the correct
-version of the Python interpreter to make things consistent.
-
-You should use the two build scripts below which automatically setup
-`pipenv` for you.
-
-### Auto Builder
-
-The quickest way to iterate on your docs is to run the
-`./autobuild.sh` script from the `/docs` directory.
-
-```console
-$ cd docs
-$ ./autobuild.sh
-Creating a virtualenv for this project...
-...
-All dependencies are now up-to-date!
-...
-Running Sphinx v7.2.6
-...
-[I 240124 12:03:11 server:335] Serving on http://127.0.0.1:8000
-```
-
-The temporary built HTML files are put in `/docs/_build`. This
-directory should not be checked in. Production docs are built using
-Read the Docs and served from them.
-
-This starts a web server on <http://localhost:8000/> with the built
-docs and will watch the source files and rebuild on any change.
-
-:::{warning}
-
-The watching mechanism sometimes gets confused and trapped in an
-infinite loop, constantly rebuilding the docs on no changes. I think
-it has something to do with the fact that the Sphinx build process
-generates Markdown files for the API docs.
-
-If you `C-c` it and start it again, it will stop.
-
-:::
+You'll need to set up a local development environment. See
+<project:#xref-dev-env> and specifically <project:#xref-dev-docs>.
 
 ## MyST Cheat Sheet
 
@@ -235,7 +177,7 @@ Sphinx reference, or it is a path. You can't mix and match. This will
 not work.
 
 ```markdown
-Read [how to link to a specific section](/user_guide/contributing/writing-docs.md#xref-specific-section)
+Read [how to link to a specific section](/guide/contributing/writing-docs.md#xref-specific-section)
 ```
 
 Instead make an explicit reference target with `(xref-name)=`.
@@ -314,7 +256,7 @@ dump tool to fuzzy search with `grep` or
 the one you want.
 
 ```console
-$ PIPENV_IGNORE_VIRTUALENVS=1 pipenv run python ./intersphinxdump.py | fzf
+(dev) $ python ./intersphinxdump.py | fzf
 ```
 
 ### Example Code

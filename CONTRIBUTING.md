@@ -3,6 +3,9 @@
 Thank you for investing your time in contributing to our project! Any
 contribution you make will be included in future Bytewax releases ✨.
 
+To get an overview of the project, read the
+[README](https://github.com/bytewax/bytewax/README.md)
+
 Read our [Code of
 Conduct](https://github.com/bytewax/bytewax/CODE_OF_CONDUCT.md) to
 keep our community approachable and respectable.
@@ -14,11 +17,10 @@ to ensure you are in compliance.
 In this guide you will get an overview of the contribution workflow
 from opening an issue, creating a PR, reviewing, and merging the PR.
 
-## New contributor guide
+## New To Open Source?
 
-To get an overview of the project, read the
-[README](https://github.com/bytewax/bytewax/README.md). Here are some
-resources to help you get started with open source contributions:
+Here are some resources to help you get started with open source
+contributions in general:
 
 - [Finding ways to contribute to open source on
   GitHub](https://docs.github.com/en/get-started/exploring-projects-on-github/finding-ways-to-contribute-to-open-source-on-github)
@@ -32,32 +34,19 @@ resources to help you get started with open source contributions:
 - [Collaborating with pull
   requests](https://docs.github.com/en/github/collaborating-with-pull-requests)
 
+## Issues
 
-## Getting started
+The Bytewax project keeps a log of work items on GitHub in the [repo's
+issues](https://github.com/bytewax/bytewax/issues).
 
-Bytewax is a Python library backed by Rust code. The codebase is split
-between Python code in
-[`pysrc/bytewax`](https://github.com/bytewax/bytewax/tree/main/pysrc/bytewax)
-and Rust code in
-[`src`](https://github.com/bytewax/bytewax/tree/main/src). PyO3 is
-used as the interface between the two. Bytewax operators and the
-execution of dataflows are handled at the Rust layer. The inputs and
-outputs can be written in either Rust or in Python.
+### New Issues
 
-To develop with Bytewax locally you will need to install Rust and use
-[Maturin](https://github.com/PyO3/maturin) to build the code into a
-Python module locally.
-
-### Issues
-
-#### Create a new issue
-
-If you spot a problem with Bytewax, search if an issue already exists.
-If a related issue doesn't exist, you can open a new issue using a
-relevant [issue
+If you spot a problem with Bytewax, [search if an issue already
+exists](https://github.com/bytewax/bytewax/issues). If a related issue
+doesn't exist, you can open a new issue using a relevant [issue
 template](https://github.com/bytewax/bytewax/issues/new/choose).
 
-#### Solve an issue
+### Solve an Issue
 
 Scan through our [existing
 issues](https://github.com/bytewax/bytewax/issues) to find one that
@@ -74,25 +63,44 @@ Important Labels:
 - **Help Wanted** - These are issues we are looking for the community
   to help contribute to.
 
-### Make Changes
+## Contribution Steps
 
-#### Make changes locally
+### Fork and Clone
 
-1. Fork the repository.
+[Fork the canonical Bytewax
+repository](https://github.com/bytewax/bytewax/fork). Then clone your
+fork to your local machine.
 
-2. Install Rust (check version). We recommend using
-   [rustup](https://rustup.rs/) to manage your installation.
+### Setup Development Environment
 
-3. Install Maturin `pip install maturin` ([please check the
-   version](https://github.com/bytewax/bytewax/blob/main/pyproject.toml))
+Follow the instructions in [Local
+Development](https://docs.bytewax.io/stable/guide/contributing/local-development.html)
+to setup your local development environment.
 
-4. Run `maturin develop -E dev`
+### Modify and Commit
 
-5. Test your changes locally.
+Bytewax is a Python library backed by Rust code. The codebase is split
+between Python code in
+[`pysrc`](https://github.com/bytewax/bytewax/tree/main/pysrc) and Rust
+code in [`src`](https://github.com/bytewax/bytewax/tree/main/src).
 
-6. If possible, add a test that will run with CI. 🙇
+The Python code base contains:
 
-### Commit your update
+- All public API interface definitions.
+
+- Most dataflow operators.
+
+- Most IO connectors.
+
+The Rust code base contains:
+
+- Core Timely runtime.
+
+- Core Bytewax operators.
+
+- [PyO3](https://pyo3.rs/) interface to the runtime.
+
+- Recovery system machinery.
 
 Commit the changes once you are happy with them. Be sure to [sign your
 commit](https://docs.github.com/en/organizations/managing-organization-settings/managing-the-commit-signoff-policy-for-your-organization#about-commit-signoffs)
@@ -100,11 +108,11 @@ if using the command line interface.
 
 ### Pull Request
 
-When you're finished with the changes, create a pull request, also known as a PR.
+When you're finished with the changes, create a pull request, also
+known as a PR.
 
-- Apply the "Ready for review" label so that we can review your PR.
-  This template helps reviewers understand your changes as well as the
-  purpose of your pull request.
+- Submit your PR as a "draft" if it is not ready for immediate review.
+  Mark it as "ready to review" when ready.
 
 - Don't forget to [link PR to
   issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue)
@@ -114,9 +122,8 @@ When you're finished with the changes, create a pull request, also known as a PR
   edits](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/allowing-changes-to-a-pull-request-branch-created-from-a-fork)
   so the branch can be updated for a merge.
 
-  Once you submit your PR, a Docs team member will review your
-  proposal. We may ask questions or request for additional
-  information.
+  Once you submit your PR, a maintainer will review your proposal. We
+  may ask questions or request for additional information.
 
 - We may ask for changes to be made before a PR can be merged, either
   using [suggested
@@ -132,12 +139,9 @@ When you're finished with the changes, create a pull request, also known as a PR
   tutorial](https://github.com/skills/resolve-merge-conflicts) to help
   you resolve merge conflicts and other issues.
 
-### Your PR is merged!
+### Merge
 
 Congratulations 🎉🎉 The Bytewax community thanks you! ✨
 
 Once your PR is merged, your contributions will be included in the
-next release 😄. See the [release process
-docs](https://github.com/bytewax/bytewax/blob/main/RELEASE.md) for
-more information on how that is managed. A maintainer will run the
-release.
+next release 😄. A maintainer cuts new releases periodically.

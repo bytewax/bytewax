@@ -18,6 +18,7 @@ import importlib
 import inspect
 import itertools
 from argparse import ArgumentParser
+from ast import unparse  # novermin
 from dataclasses import dataclass
 from inspect import Parameter, Signature
 from types import (
@@ -33,12 +34,6 @@ from typing import List, Mapping, Optional, Tuple, Union
 
 import graphlib  # novermin
 from typing_extensions import Self, TypeVar
-
-try:
-    from ast import unparse  # novermin
-except ImportError:
-    from astor import to_source as unparse
-
 
 _N = TypeVar("_N")
 

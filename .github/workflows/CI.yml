@@ -5,8 +5,6 @@ on:
     branches:
       - main
     paths-ignore:
-      - "apidocs/**"
-      - "**.md"
       - ".github/ISSUE_TEMPLATE/**"
   pull_request: {}
   merge_group:
@@ -17,12 +15,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pre-commit:
+  repo-checks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v3
       - uses: actions/setup-python@v3
+      - name: Install uv
+        run: python3 -m pip install uv
+      - uses: extractions/setup-just@v2
       - uses: mkroening/rust-toolchain-toml@main
       - name: Install cbfmt
         run: |
@@ -30,9 +31,33 @@ jobs:
             curl -fsSL -o cbfmt.tar.gz "https://github.com/lukas-reineke/cbfmt/releases/download/v0.2.0/cbfmt_linux-x86_64_v0.2.0.tar.gz"
             tar --strip-components 1 -xvf cbfmt.tar.gz
             mv cbfmt /usr/local/bin/
-      - name: Install cbfmt sub-formatting commands
-        run: pip install .[cbfmt]
-      - uses: pre-commit/action@v3.0.0
+      - name: Prep venv
+        shell: bash
+        run: |
+          uv venv venv
+          . venv/bin/activate
+          uv pip sync --strict requirements/dev.txt
+      - name: Check pre-commit hooks
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just lint-pc
+      - name: Run lints
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just lint
+      - name: Run Rust tests
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just test-rs
+      # TODO: Re-enable these once we fix them.
+      # - name: Run documentation tests
+      #   shell: bash
+      #   run: |
+      #     . venv/bin/activate
+      #     just test-doc
 
   linux:
     strategy:
@@ -55,29 +80,38 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: python3 -m pip install uv
       - uses: mkroening/rust-toolchain-toml@main
-      - name: Run Rust tests
-        run: cargo test --no-default-features
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Run Python tests
         # Only run tests for the host architecture, as aarch64
         # and armv7 are cross-compiled.
         if: ${{ matrix.target == 'x86_64' }}
-      - uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          command: build
-          args: --release -o dist -i python${{ matrix.python-version }}
-          sccache: true
-      - name: Run tests
         shell: bash
         env:
-          TEST_KAFKA_BROKER : ${{ secrets.TEST_KAFKA_BROKER }}
+          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
+          . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
-          PY_IGNORE_IMPORTMISMATCH=1 pytest
-        if: ${{ matrix.target == 'x86_64' }}
+          uv pip install -v --no-deps $WHEEL_FILE
+          just test-py
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -98,9 +132,10 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: python3 -m pip install uv
       - name: Install aarch64-apple-darwin Rust target
         run: rustup target add aarch64-apple-darwin
-      # Caching
       # Install gnu-tar because BSD tar is buggy
       # https://github.com/actions/cache/issues/403
       - name: Install GNU tar
@@ -116,24 +151,35 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run Rust tests
-        run: cargo test --no-default-features
-        # Only run tests for the host architecture, as aarch64 is cross-compiled.
-        if: ${{ matrix.target != 'aarch64' }}
-      - uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          command: build
-          args: --release -o dist -i python${{ matrix.python-version }}
-          sccache: true
-      - name: Run tests
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
         shell: bash
         run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Run Python tests
+        # Only run tests for the host architecture, as aarch64
+        # and armv7 are cross-compiled.
+        if: ${{ matrix.target == 'x86_64' }}
+        shell: bash
+        env:
+          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
+          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
+          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
+        run: |
+          . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
-          pip install $WHEEL_FILE'[dev]' -v --force-reinstall
-          PY_IGNORE_IMPORTMISMATCH=1 pytest
-        # Only run tests for the host architecture, as aarch64 is cross-compiled.
-        if: ${{ matrix.target != 'aarch64' }}
+          uv pip install -v --no-deps $WHEEL_FILE
+          just test-py
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -164,21 +210,29 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: python3 -m pip install uv
       - uses: mkroening/rust-toolchain-toml@main
-      - name: Run Rust tests
-        run: cargo test --no-default-features
-      - uses: messense/maturin-action@v1
-        with:
-          command: build
-          args: --release -o dist --interpreter python${{ matrix.python-version }}
-          sccache: true
-      - name: Run tests
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
         run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          venv/Scripts/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Run Python tests
+        run: |
+          venv/Scripts/activate
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-          $WHEEL_FILE_DEV=$WHEEL_FILE+"[dev]"
-          pip install $WHEEL_FILE_DEV -v
-          $env:PY_IGNORE_IMPORTMISMATCH = '1'
-          pytest
+          uv pip install -v --no-deps $WHEEL_FILE
+          just test-py
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:

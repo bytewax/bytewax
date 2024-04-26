@@ -377,7 +377,7 @@ def _gen_inp_fields(sig: Signature, sig_annos: Dict[str, Any]) -> Dict[str, Any]
                 # If the stream is typed, get that inner type to apply to
                 # the `_MultiStream`.
                 try:
-                    stream_typ_arg = typing.get_args(anno)[0]
+                    stream_typ_arg: Any = typing.get_args(anno)[0]
                 except IndexError:
                     # If not, it's effectively typed `Any`.
                     stream_typ_arg = Any
