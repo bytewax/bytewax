@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: 3.12
       - name: Install uv
-        run: python3 -m pip install uv
+        run: pipx install uv
       - uses: extractions/setup-just@v2
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
@@ -85,7 +85,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install uv
+        run: pipx install uv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -136,7 +136,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install uv
+        run: pipx install uv
       # Install gnu-tar because BSD tar is buggy
       # https://github.com/actions/cache/issues/403
       - name: Install GNU tar
@@ -209,7 +209,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install uv
+        run: pipx install uv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         run: |
