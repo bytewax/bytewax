@@ -4,7 +4,9 @@
 Bytewax allows a dataflow to be run using multiple processes and/or
 threads, allowing you to scale your dataflow to take advantage of
 multiple cores on a single machine or multiple machines over the
-network.
+network. You can run a dataflow as a Python module or you can use
+[`waxctl`](#xref-waxctl) our command line tool to
+run a dataflow.
 
 Bytewax does not require a "coordinator" or "manager" process or
 machine to run a distributed dataflow. All worker processes perform
@@ -27,6 +29,17 @@ all of the available runtime options, run the following command:
 
 ```shell
 > python -m bytewax.run --help
+```
+
+### Running with waxctl
+
+waxctl can be used to run dataflows locally as well as remotely.
+You will still need a functioning Python installation and
+Bytewax installed in the environment.
+You can see the available options with the command:
+
+```console
+$ waxctl run --help
 ```
 
 ## Selecting the dataflow
@@ -65,6 +78,20 @@ To run this flow use `simple` because creating a file named
 > python -m bytewax.run simple
 ```
 
+### Running dataflows with waxctl
+
+The `waxctl run` command expects only one argument, a path or URI of a python script:
+
+```console
+$ waxctl run simple.py
+```
+
+You can also run a dataflow from code contained in a public GitHub repo with `waxctl`:
+
+```console
+$ waxctl run https://raw.githubusercontent.com/bytewax/bytewax/main/examples/basic.py
+```
+
 ## Starting a Single Process
 
 By default, executing {py:obj}`bytewax.run` will run your dataflow on
@@ -75,11 +102,17 @@ workers/processes, but the dataflow will not have any gain from
 parallelization.
 
 By changing the `-w/--workers-per-process` arguments, you can spawn
-mulitple workers per process. We can run the previous dataflow with 3
+multiple workers per process. We can run the previous dataflow with 3
 workers using the same file, changing only the command:
 
 ```shell
 > python -m bytewax.run -w3 simple
+```
+
+### Adding workers with waxctl
+
+```console
+$ waxctl run simple.py --workers=4
 ```
 
 (xref-cluster)=
@@ -131,6 +164,21 @@ And on the `cluster_two` machine as:
 > python -m bytewax.run simple -w3 -i1 -a "cluster_one:2101;cluster_two:2101"
 ```
 
+### Scaling processes with waxctl
+
+It is simple to start multiple processes with `waxctl` as it will configure
+the addresses for you.
+
+```console
+$ waxctl run simple.py --processes=2 --workers=4
+```
+
+You can specify the initial port with the `-i` flag and add `--debug` for
+verbose output.
+
+```console
+$ waxctl run simple.py --processes=2 --workers=4 --initial-port=2101 --debug
+```
+
 For more information about deployment options for Bytewax dataflows,
-please see the documentation for [`waxctl`](#xref-waxctl) our command
-line tool which facilitates deploying a dataflow.
+please see <project:#xref-deployment>.

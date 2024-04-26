@@ -42,6 +42,7 @@ advanced-concepts/performance.md
 :caption: Deployment
 :titlesonly:
 
+deployment/overview.md
 deployment/container.md
 deployment/waxctl.md
 deployment/waxctl-aws.md
