@@ -168,9 +168,6 @@ jobs:
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Run Python tests
-        # Only run tests for the host architecture, as aarch64
-        # and armv7 are cross-compiled.
-        if: ${{ matrix.target == 'x86_64' }}
         shell: bash
         env:
           TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
