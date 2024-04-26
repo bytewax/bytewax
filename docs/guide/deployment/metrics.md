@@ -29,9 +29,9 @@ example.
 Create a folder where you'll keep the dataflow and two more files
 we'll need to run everything.
 
-```shell
-mkdir bytewax-tracing
-cd bytewax-tracing
+```console
+$ mkdir bytewax-tracing
+$ cd bytewax-tracing
 ```
 
 Then create a docker compose file to run jaeger with the opentelemetry
@@ -55,9 +55,9 @@ Now run `docker compose up` and everything should be up and running.
 
 Now we need the dataflow. Download the example in this folder:
 
-```shell
-curl https://raw.githubusercontent.com/bytewax/bytewax/main/examples/wikistream.py \
-  -o dataflow.py
+```console
+$ curl https://raw.githubusercontent.com/bytewax/bytewax/main/examples/wikistream.py \
+    -o dataflow.py
 ```
 
 To instrument your dataflow, call
@@ -65,7 +65,7 @@ To instrument your dataflow, call
 want, and keep the returned object around (if you don't assign to the
 `tracer` variable, tracing would not work)
 
-```python
+```{testcode}
 # file: dataflow.py
 from bytewax.tracing import OtlpTracingConfig, setup_tracing
 
@@ -83,16 +83,16 @@ tracer = setup_tracing(
 
 Create a virtual environment and install the needed dependencies:
 
-```shell
-python3 -m venv .venv
-source .venv/bin/activate # Or activate.fish on fish shell
-pip install bytewax sseclient-py urllib3 aiohttp_sse_client
+```console
+$ python3 -m venv .venv
+$ source .venv/bin/activate # Or activate.fish on fish shell
+(.venv) $ pip install bytewax sseclient-py urllib3 aiohttp_sse_client
 ```
 
 Now you can run it with:
 
-```shell
-python -m bytewax.run dataflow
+```console
+(.venv) $ python -m bytewax.run dataflow
 ```
 
 Open your browser at [http://127.0.0.1:16686](http://127.0.0.1:16686)

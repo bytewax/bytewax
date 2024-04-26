@@ -328,16 +328,18 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
 class SimplePollingSource(FixedPartitionedSource[X, None]):
     """Calls a user defined function at a regular interval.
 
-    ```python
-    >>> class URLSource(SimplePollingSource):
-    ...     def __init__(self):
-    ...         super(interval=timedelta(seconds=10))
-    ...
-    ...     def next_item(self):
-    ...         res = requests.get("https://example.com")
-    ...         if not res.ok:
-    ...             raise SimplePollingSource.Retry(timedelta(seconds=1))
-    ...         return res.text
+    ```{testcode}
+    from bytewax.inputs import SimplePollingSource
+
+    class URLSource(SimplePollingSource):
+        def __init__(self):
+            super(interval=timedelta(seconds=10))
+
+        def next_item(self):
+            res = requests.get("https://example.com")
+            if not res.ok:
+                raise SimplePollingSource.Retry(timedelta(seconds=1))
+            return res.text
     ```
 
     There is no parallelism; only one worker will poll this source.

@@ -70,7 +70,7 @@ Make a PR which commits the following:
 
    It now is should be written as
 
-   ```python
+   ```{testcode}
    from bytewax.dataflow import Dataflow
 
    flow = Dataflow("flow_id")
@@ -79,6 +79,10 @@ Make a PR which commits the following:
 
    Then add sub-sections for each of the breaking changes with before
    and after example code.
+
+   You should change any `{testcode}` blocks in the previous versions
+   into `python` now that they are no valid code with this new version
+   of Bytewax.
 
 Then check before merging:
 

@@ -101,18 +101,23 @@ def cluster_main(
 
     Blocks until execution is complete.
 
-    ```python
-    >>> from bytewax.dataflow import Dataflow
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, cluster_main
-    >>> from bytewax.connectors.stdio import StdOutSink
-    >>> flow = Dataflow("my_df")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> op.output("out", s, StdOutSink())
-    >>> # In a real example, use "host:port" of all other workers.
-    >>> addresses = []
-    >>> proc_id = 0
-    >>> cluster_main(flow, addresses, proc_id)
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource, cluster_main
+    from bytewax.connectors.stdio import StdOutSink
+
+    flow = Dataflow("my_df")
+    s = op.input("inp", flow, TestingSource(range(3)))
+    op.output("out", s, StdOutSink())
+
+    # In a real example, use "host:port" of all other workers.
+    addresses = []
+    proc_id = 0
+    cluster_main(flow, addresses, proc_id)
+    ```
+
+    ```{testoutput}
     0
     1
     2
@@ -171,15 +176,19 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
 
     This is only used for unit testing. See `bytewax.run`.
 
-    ```python
-    >>> from bytewax.dataflow import Dataflow
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.connectors.stdio import StdOutSink
-    >>> flow = Dataflow("my_df")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> op.output("out", s, StdOutSink())
-    >>> run_main(flow)
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource, run_main
+    from bytewax.connectors.stdio import StdOutSink
+    flow = Dataflow("my_df")
+    s = op.input("inp", flow, TestingSource(range(3)))
+    op.output("out", s, StdOutSink())
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     0
     1
     2
@@ -212,7 +221,7 @@ def setup_tracing(tracing_config=None, log_level=None):
     Note: To make this work, you have to keep a reference of the
     returned object.
 
-    % skip: next
+    % Skip this doctest because it requires starting the webserver.
 
     ```python
     from bytewax.tracing import setup_tracing
