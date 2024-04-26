@@ -2,7 +2,6 @@ import os
 import signal
 import subprocess
 import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
@@ -92,12 +91,12 @@ def test_cluster_can_be_ctrl_c(tmp_path):
             timeout_at = datetime.now(tz=timezone.utc) + timedelta(seconds=5)
             while len(output.splitlines()) < 1:
                 if datetime.now(tz=timezone.utc) >= timeout_at:
-                    raise subprocess.TimeoutExpired(
-                        "# dataflow didn't write output in time", 5
-                    )
+                    msg = "# dataflow didn't write output in time"
+                    raise subprocess.TimeoutExpired(msg, 5)
                 process.poll()
                 if process.returncode is not None:
-                    raise subprocess.TimeoutExpired("# dataflow exited too quickly", 0)
+                    msg = "# dataflow exited too quickly"
+                    raise subprocess.TimeoutExpired(msg, 0)
 
                 tmp_file.seek(0)
                 output = tmp_file.read()
