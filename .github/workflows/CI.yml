@@ -24,7 +24,9 @@ jobs:
       - name: Install uv
         run: python3 -m pip install uv
       - uses: extractions/setup-just@v2
-      - uses: mkroening/rust-toolchain-toml@main
+      # Need this because we're running `cargo clippy` and `fmt`
+      # directly.
+      - uses: dsherret/rust-toolchain-file@v1
       - name: Install cbfmt
         run: |
             mkdir /tmp/cbfmt && cd $_
@@ -82,7 +84,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
         run: python3 -m pip install uv
-      - uses: mkroening/rust-toolchain-toml@main
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -134,8 +135,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
         run: python3 -m pip install uv
-      - name: Install aarch64-apple-darwin Rust target
-        run: rustup target add aarch64-apple-darwin
       # Install gnu-tar because BSD tar is buggy
       # https://github.com/actions/cache/issues/403
       - name: Install GNU tar
@@ -212,7 +211,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
         run: python3 -m pip install uv
-      - uses: mkroening/rust-toolchain-toml@main
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         run: |
