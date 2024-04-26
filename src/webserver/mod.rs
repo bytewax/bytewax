@@ -63,11 +63,9 @@ async fn get_metrics() -> impl IntoResponse {
     .unwrap();
     let metric_families = default_registry().gather();
     let encoder = TextEncoder::new();
-    let mut rust_metrics = encoder
+    let rust_metrics = encoder
         .encode_to_string(&metric_families)
         .expect("Unable to encode metrics values");
-    // Remove trailing newline
-    rust_metrics.pop();
 
     format!("{rust_metrics}{py_metrics}")
 }
