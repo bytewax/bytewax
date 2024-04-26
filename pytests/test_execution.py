@@ -3,6 +3,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -52,14 +53,14 @@ def test_reraises_exception(entry_point):
         " processes on this console so interrupts pytest itself"
     ),
 )
-def test_cluster_can_be_ctrl_c():
+def test_cluster_can_be_ctrl_c(tmp_path):
     """Test that we can stop cluster execution by sending SIGINT (ctrl+c)."""
-    # Create a tmp file we can use to check the output
-    tmp_file = tempfile.NamedTemporaryFile()
-    # The dataflow we want to run is in ./test_flows/simple.py
-    flow_path = f"pytests.test_flows.simple:get_flow('{tmp_file.name}')"
-    process = subprocess.Popen(
-        [
+    tmp_path = tmp_path / "out.txt"
+
+    with open(tmp_path, "w+b") as tmp_file:
+        # The dataflow we want to run is in ./test_flows/simple.py
+        flow_path = f"pytests.test_flows.simple:get_flow('{tmp_file.name}')"
+        cmd = [
             # Ensure that we use the exact same Python interpreter as
             # here; might be in a venv.
             sys.executable,
@@ -76,23 +77,45 @@ def test_cluster_can_be_ctrl_c():
             # to the file as soon as possible
             "-s",
             "0",
-        ],
-        # Use PIPE to check the content of stdout
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+        ]
+        process = subprocess.Popen(
+            cmd,
+            # Use PIPE to check the content of stdout
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
-    # Now wait for the file to contain at least 10 lines
-    output = b""
-    while len(output.splitlines()) < 10:
-        tmp_file.seek(0)
-        output = tmp_file.read()
-    # And stop the dataflow by sending SIGINT (like ctrl+c)
-    process.send_signal(signal.SIGINT)
-    # Process termination should be handled properly
-    stdout, stderr = process.communicate()
-    assert b"KeyboardInterrupt:" in stderr
-    # The file should not contain all the lines since we stopped it
-    assert len(output.splitlines()) < 999
-    # Close and delete the file
-    tmp_file.close()
+        try:
+            # Wait for the file to contain at least a line to show the
+            # dataflow has started.
+            output = b""
+            timeout_at = datetime.now(tz=timezone.utc) + timedelta(seconds=5)
+            while len(output.splitlines()) < 1:
+                if datetime.now(tz=timezone.utc) >= timeout_at:
+                    raise subprocess.TimeoutExpired(
+                        "# dataflow didn't write output in time", 5
+                    )
+                process.poll()
+                if process.returncode is not None:
+                    raise subprocess.TimeoutExpired("# dataflow exited too quickly", 0)
+
+                tmp_file.seek(0)
+                output = tmp_file.read()
+
+            # And stop the dataflow by sending SIGINT (like ctrl+c)
+            process.send_signal(signal.SIGINT)
+
+            # Process termination should be handled properly
+            stdout, stderr = process.communicate(timeout=5)
+            assert b"KeyboardInterrupt:" in stderr
+
+            # The file should not contain all the lines since we stopped it
+            tmp_file.seek(0)
+            output = tmp_file.read()
+            assert len(output.splitlines()) < 999
+        except subprocess.TimeoutExpired as ex:
+            process.kill()
+            stdout, stderr = process.communicate()
+            raise subprocess.CalledProcessError(
+                process.returncode, cmd, stdout, stderr
+            ) from ex
