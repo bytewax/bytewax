@@ -137,15 +137,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
         run: pipx install uv
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -160,7 +151,6 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-          sccache: true
       - name: Run Python tests
         shell: bash
         env:
