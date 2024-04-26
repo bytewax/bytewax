@@ -91,12 +91,12 @@ def test_cluster_can_be_ctrl_c(tmp_path):
             timeout_at = datetime.now(tz=timezone.utc) + timedelta(seconds=5)
             while len(output.splitlines()) < 1:
                 if datetime.now(tz=timezone.utc) >= timeout_at:
-                    msg = "# dataflow didn't write output in time"
-                    raise subprocess.TimeoutExpired(msg, 5)
+                    msg = "dataflow didn't write output in time"
+                    raise TimeoutError(msg)
                 process.poll()
                 if process.returncode is not None:
-                    msg = "# dataflow exited too quickly"
-                    raise subprocess.TimeoutExpired(msg, 0)
+                    msg = "dataflow exited too quickly"
+                    raise RuntimeError(msg)
 
                 tmp_file.seek(0)
                 output = tmp_file.read()
@@ -112,9 +112,12 @@ def test_cluster_can_be_ctrl_c(tmp_path):
             tmp_file.seek(0)
             output = tmp_file.read()
             assert len(output.splitlines()) < 999
-        except subprocess.TimeoutExpired as ex:
+        except (subprocess.TimeoutExpired, TimeoutError, RuntimeError) as ex:
             process.kill()
             stdout, stderr = process.communicate()
             raise subprocess.CalledProcessError(
-                process.returncode, cmd, stdout, stderr
+                process.returncode,
+                cmd,
+                stdout,
+                stderr,
             ) from ex
