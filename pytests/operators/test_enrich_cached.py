@@ -2,9 +2,9 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 import bytewax.operators as op
-from bytewax.operators import TTLCache
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSink, TestingSource, run_main, TimeTestingGetter
+from bytewax.operators import TTLCache
+from bytewax.testing import TestingSink, TestingSource, TimeTestingGetter, run_main
 
 
 def test_cache_get_init() -> None:
