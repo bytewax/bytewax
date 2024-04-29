@@ -415,10 +415,12 @@ pub(crate) fn test_cluster(
     } else {
         let mut ps: Vec<_> = (0..processes)
             .map(|proc_id| {
-                let mut args = std::env::args();
-                Command::new(args.next().unwrap())
+                let mut args = std::env::args().collect::<Vec<_>>();
+                dbg!(&args);
+                let exe = args.remove(0);
+                Command::new(exe)
                     .env("__BYTEWAX_PROC_ID", proc_id.to_string())
-                    .args(args.collect::<Vec<String>>())
+                    .args(args)
                     .spawn()
                     .unwrap()
             })
