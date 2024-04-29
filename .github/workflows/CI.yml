@@ -102,8 +102,8 @@ jobs:
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Run Python tests
-        # Only run tests for the host architecture, as aarch64
-        # and armv7 are cross-compiled.
+        # Only run tests for the host architecture, as aarch64 and
+        # armv7 are cross-compiled on Ubuntu runners.
         if: ${{ matrix.target == 'x86_64' }}
         shell: bash
         env:
@@ -152,6 +152,9 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
       - name: Run Python tests
+        # Only run tests for the host architecture, as x86_64 is
+        # cross-compiled on macOS runners.
+        if: ${{ matrix.target == 'aarch64' }}
         shell: bash
         env:
           TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
