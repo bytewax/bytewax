@@ -98,7 +98,7 @@ jobs:
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
         with:
-          target: ${{ matrix.platform.target }}
+          target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Run Python tests
@@ -149,7 +149,7 @@ jobs:
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
         with:
-          target: ${{ matrix.platform.target }}
+          target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
       - name: Run Python tests
         shell: bash
@@ -205,7 +205,7 @@ jobs:
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
         with:
-          target: ${{ matrix.platform.target }}
+          target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Run Python tests
