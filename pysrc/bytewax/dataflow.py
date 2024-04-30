@@ -59,13 +59,13 @@ def f_repr(f: Callable) -> str:
 
     The built in repr just shows a memory address.
 
-    ```python
+    ```{doctest}
+    >>> from bytewax.dataflow import f_repr
     >>> def my_f(x):
     ...     pass
     >>> f_repr(my_f)
-    "<function 'bytewax.dataflow.my_f' line 1>"
+    "<function '....my_f' line 1>"
     ```
-
     """
     if isinstance(f, FunctionType):
         path = f"{f.__module__}.{f.__qualname__}"
@@ -264,27 +264,27 @@ class Stream(Generic[X_co]):
 
         The following two dataflow definitions are equivalent:
 
-        ```python
-        >>> import bytewax.operators as op
-        >>> from bytewax.testing import run_main, TestingSource
-        >>> from bytewax.dataflow import Dataflow
-        >>> def add_one(item):
-        ...     return item + 1
-        ```
+        ```{testcode}
+        import bytewax.operators as op
+        from bytewax.testing import TestingSource
+        from bytewax.dataflow import Dataflow
 
-        ```python
-        >>> flow = Dataflow("map_eg")
-        >>> s = op.input("inp", flow, TestingSource(range(3)))
-        >>> s = op.map("add_one", s, add_one)
+        flow = Dataflow("map_eg")
+        s = op.input("inp", flow, TestingSource(range(3)))
+
+        def add_one(item):
+            return item + 1
+
+        s = op.map("add_one", s, add_one)
         ```
 
         and
 
-        ```python
-        >>> flow = Dataflow("map_eg")
-        >>> s = op.input("inp", flow, TestingSource(range(3))).then(
-        ...     op.map, "add_one", add_one
-        ... )
+        ```{testcode}
+        flow = Dataflow("map_eg")
+        s = op.input("inp", flow, TestingSource(range(3))).then(
+            op.map, "add_one", add_one
+        )
         ```
 
         This kind of method chaining is called a "fluent style API".

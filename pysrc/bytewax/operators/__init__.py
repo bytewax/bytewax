@@ -106,17 +106,29 @@ def branch(
 ) -> BranchOut:
     """Divide items into two streams with a predicate.
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> flow = Dataflow("branch_eg")
-    >>> nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
-    >>> b_out = op.branch("even_odd", nums, lambda x: x % 2 == 0)
-    >>> evens = b_out.trues
-    >>> odds = b_out.falses
-    >>> _ = op.inspect("evens", evens)
-    >>> _ = op.inspect("odds", odds)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.dataflow import Dataflow
+    from bytewax.testing import run_main, TestingSource
+
+    flow = Dataflow("branch_eg")
+    nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
+    b_out = op.branch("even_odd", nums, lambda x: x % 2 == 0)
+    evens = b_out.trues
+    odds = b_out.falses
+    _ = op.inspect("evens", evens)
+    _ = op.inspect("odds", odds)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     branch_eg.odds: 1
     branch_eg.evens: 2
     branch_eg.odds: 3
@@ -219,14 +231,25 @@ def inspect_debug(
 ) -> Stream[X]:
     """Observe items, their worker, and their epoch for debugging.
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("inspect_debug_eg")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> _ = op.inspect_debug("help", s)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.dataflow import Dataflow
+
+    flow = Dataflow("inspect_debug_eg")
+    s = op.input("inp", flow, TestingSource(range(3)))
+    _ = op.inspect_debug("help", s)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     inspect_debug_eg.help W0 @1: 0
     inspect_debug_eg.help W0 @1: 1
     inspect_debug_eg.help W0 @1: 2
@@ -802,18 +825,33 @@ def flat_map(
 
     - Breaking up aggregations for further processing
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("flat_map_eg")
-    >>> inp = ["hello world"]
-    >>> s = op.input("inp", flow, TestingSource(inp))
-    >>> def split_into_words(sentence):
-    ...     return sentence.split()
-    >>> s = op.flat_map("split_words", s, split_into_words)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.dataflow import Dataflow
+
+    flow = Dataflow("flat_map_eg")
+
+    inp = ["hello world"]
+    s = op.input("inp", flow, TestingSource(inp))
+
+    def split_into_words(sentence):
+        return sentence.split()
+
+    s = op.flat_map("split_words", s, split_into_words)
+
+    _ = op.inspect("out", s)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     flat_map_eg.out: 'hello'
     flat_map_eg.out: 'world'
     ```
@@ -915,17 +953,31 @@ def filter(  # noqa: A001
 
     - Removing stop words
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("filter_eg")
-    >>> s = op.input("inp", flow, TestingSource(range(4)))
-    >>> def is_odd(item):
-    ...     return item % 2 != 0
-    >>> s = op.filter("filter_odd", s, is_odd)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.dataflow import Dataflow
+
+
+    flow = Dataflow("filter_eg")
+    s = op.input("inp", flow, TestingSource(range(4)))
+
+    def is_odd(item):
+        return item % 2 != 0
+
+    s = op.filter("filter_odd", s, is_odd)
+    _ = op.inspect("out", s)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     filter_eg.out: 1
     filter_eg.out: 3
     ```
@@ -1004,29 +1056,42 @@ def filter_map(
     This is like a combination of `map` and then `filter` with a
     predicate removing `None` values.
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("filter_map_eg")
-    >>> s = op.input(
-    ...     "inp",
-    ...     flow,
-    ...     TestingSource(
-    ...         [
-    ...             {"key": "a", "val": 1},
-    ...             {"bad": "obj"},
-    ...         ]
-    ...     ),
-    ... )
-    >>> def validate(data):
-    ...     if type(data) != dict or "key" not in data:
-    ...         return None
-    ...     else:
-    ...         return data["key"], data
-    >>> s = op.filter_map("validate", s, validate)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.dataflow import Dataflow
+
+    flow = Dataflow("filter_map_eg")
+    s = op.input(
+        "inp",
+        flow,
+        TestingSource(
+            [
+                {"key": "a", "val": 1},
+                {"bad": "obj"},
+            ]
+        ),
+    )
+
+    def validate(data):
+        if type(data) != dict or "key" not in data:
+            return None
+        else:
+            return data["key"], data
+
+    s = op.filter_map("validate", s, validate)
+    _ = op.inspect("out", s)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     filter_map_eg.out: ('a', {'key': 'a', 'val': 1})
     ```
 
@@ -1153,14 +1218,25 @@ def inspect(
 ) -> Stream[X]:
     """Observe items for debugging.
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("my_flow")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> _ = op.inspect("help", s)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.dataflow import Dataflow
+
+    flow = Dataflow("my_flow")
+    s = op.input("inp", flow, TestingSource(range(3)))
+    _ = op.inspect("help", s)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     my_flow.help: 0
     my_flow.help: 1
     my_flow.help: 2
@@ -1450,17 +1526,30 @@ def map(  # noqa: A001
 
     - Selection of fields.
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("map_eg")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> def add_one(item):
-    ...     return item + 10
-    >>> s = op.map("add_one", s, add_one)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.dataflow import Dataflow
+
+    flow = Dataflow("map_eg")
+    s = op.input("inp", flow, TestingSource(range(3)))
+
+    def add_one(item):
+        return item + 10
+
+    s = op.map("add_one", s, add_one)
+    _ = op.inspect("out", s)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     map_eg.out: 10
     map_eg.out: 11
     map_eg.out: 12
@@ -1742,28 +1831,43 @@ def stateful_map(
 
     - State machines
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("stateful_map_eg")
-    >>> inp = [
-    ...     "a",
-    ...     "a",
-    ...     "a",
-    ...     "b",
-    ...     "a",
-    ... ]
-    >>> s = op.input("inp", flow, TestingSource(inp))
-    >>> s = op.key_on("self_as_key", s, lambda x: x)
-    >>> def check(running_count, _item):
-    ...     if running_count is None:
-    ...         running_count = 0
-    ...     running_count += 1
-    ...     return (running_count, running_count)
-    >>> s = op.stateful_map("running_count", s, check)
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource, run_main
+    from bytewax.dataflow import Dataflow
+
+    flow = Dataflow("stateful_map_eg")
+
+    inp = [
+        "a",
+        "a",
+        "a",
+        "b",
+        "a",
+    ]
+    s = op.input("inp", flow, TestingSource(inp))
+
+    s = op.key_on("self_as_key", s, lambda x: x)
+
+    def check(running_count, _item):
+        if running_count is None:
+            running_count = 0
+        running_count += 1
+        return (running_count, running_count)
+
+    s = op.stateful_map("running_count", s, check)
+    _ = op.inspect("out", s)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     stateful_map_eg.out: ('a', 1)
     stateful_map_eg.out: ('a', 2)
     stateful_map_eg.out: ('a', 3)

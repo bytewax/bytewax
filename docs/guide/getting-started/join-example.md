@@ -11,7 +11,7 @@ following example, we create two
 {py:obj}`~bytewax.testing.TestingSource` sources and add them to our
 {py:obj}`~bytewax.dataflow.Dataflow` as input.
 
-```python
+```{testcode}
 from bytewax import operators as op
 
 from bytewax.connectors.stdio import StdOutSink
@@ -37,21 +37,32 @@ sources, we'll need to create a {py:obj}`~bytewax.dataflow.Stream`
 that combines input from both of them, we can use the
 {py:obj}`~bytewax.operators.merge` operator to do so:
 
-```python
+```{testcode}
 merged_stream = op.merge("merge", inp1, inp2)
 ```
 
 Now that we have our merged stream, we can write it to standard out:
 
-```python
+```{testcode}
 op.inspect("debug", merged_stream)
 ```
 
-```shell
->  python -m bytewax.run merge_example
-{'user_id': "123", 'name': 'Bumble'}
-{'user_id': "123", 'email': 'bee@bytewax.com'}
-{'user_id': "234", 'email': 'hive@bytewax.com'}
+```console
+$ python -m bytewax.run merge_example
+```
+
+```{testcode}
+:hide:
+
+from bytewax.testing import run_main
+
+run_main(flow)
+```
+
+```{testoutput}
+join.debug: {'user_id': '123', 'name': 'Bumble'}
+join.debug: {'user_id': '123', 'email': 'bee@bytewax.com'}
+join.debug: {'user_id': '456', 'email': 'hive@bytewax.com'}
 ```
 
 The dataflow will stop once all input sources are completely
@@ -64,7 +75,7 @@ To create a streaming join of data from both of our input sources,
 we'll need to first choose a key that we want to join our streams on.
 In our example data, we'll use the `user_id` field.
 
-```python
+```{testcode}
 from bytewax import operators as op
 
 from bytewax.connectors.stdio import StdOutSink
@@ -95,7 +106,7 @@ stream. The {py:obj}`~bytewax.operators.inspect` operator can be used
 multiple times and counts as an output (recall that every dataflow
 requires an output).
 
-```python
+```{testcode}
 merged_stream = op.join("join", keyed_inp_1, keyed_inp_2)
 op.inspect("debug", merged_stream)
 ```
@@ -103,9 +114,18 @@ op.inspect("debug", merged_stream)
 Running this example, we should see the following output for our
 stream, which includes the `step_id` for our `inspect` operator.
 
-```shell
-> python -m bytewax.run join_example
-join.debug: ('123', ({'user_id': '123', 'name': 'Bumble'}, {'user_id': '123', 'email': 'bee@bytewax.com'})
+```console
+$ python -m bytewax.run join_example
+```
+
+```{testcode}
+:hide:
+
+run_main(flow)
+```
+
+```{testoutput}
+join.debug: ('123', ({'user_id': '123', 'name': 'Bumble'}, {'user_id': '123', 'email': 'bee@bytewax.com'}))
 ```
 
 Notice that we don't see any output for `user_id` 456. Since we didn't

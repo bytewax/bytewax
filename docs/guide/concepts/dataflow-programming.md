@@ -46,10 +46,10 @@ mapper function to each upstream item and lets you return a list of
 items to individually emit into the downstream. Here's a quick example
 that splits a stream of sentences into a stream of individual words.
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 
 flow = Dataflow("flat_map_eg")
 inp = op.input("inp", flow, TestingSource(["hello world", "how are you"]))
@@ -62,6 +62,13 @@ def split_sentence(sentence):
 
 split = op.flat_map("split", inp, split_sentence)
 op.inspect("check_split", split)
+```
+
+```{testcode}
+:hide:
+
+from bytewax.testing import run_main
+
 run_main(flow)
 ```
 
@@ -81,7 +88,7 @@ flat_map_eg.check_split: 'you'
 There's nothing special about a logic function. It is a normal Python
 function and you can call it directly to test or debug its behavior.
 
-```python
+```{testcode}
 print(split_sentence("so many words here"))
 ```
 
@@ -126,9 +133,9 @@ copy of the data in the stream in a different way. Notice below the
 multipled by ten. {py:obj}`~bytewax.operators.merge` is an operator
 that does the reverse, and combines together multiple streams.
 
-```python
+```{testcode}
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 
@@ -141,11 +148,16 @@ tens = op.map("do_tens", nums, lambda x: x * 10)
 op.inspect("check_tens", tens)
 all = op.merge("merge", doubles, tens)
 op.inspect("check_merge", all)
-run_main(flow)
 ```
 
 We added a ton of {py:obj}`~bytewax.operators.inspect` steps so we can
 see the items flowing through every point in this dataflow.
+
+```{testcode}
+:hide:
+
+run_main(flow)
+```
 
 ```{testoutput}
 copied_math.check_nums: 1
@@ -169,9 +181,9 @@ If you'd like to take a stream and selectively send the items within
 down one of two streams (instead of copying all of them), you can use
 the {py:obj}`~bytewax.operators.branch` operator.
 
-```python
+```{testcode}
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 
@@ -187,6 +199,11 @@ halves = op.map("do_half", evens, lambda x: x / 2)
 op.inspect("check_halves", halves)
 all = op.merge("merge", halves, odds)
 op.inspect("check_merge", all)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -246,10 +263,10 @@ any logic functions and use it. This can be an easy way to implement a
 In this example, we turn the `"avatar_icon_code"` into an URL using a
 static lookup table.
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 
 ICON_TO_URL = {
     "dog_ico": "http://domain.invalid/static/dog_v1.png",
@@ -280,6 +297,11 @@ def icon_code_to_url(msg):
 
 with_urls = op.map("with_url", inp, icon_code_to_url)
 op.inspect("check_with_url", with_urls)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -297,10 +319,10 @@ You can also call out to an external service or API or data store in a
 that you are assuming the external data is static and you will not be
 emitting updates if it changes after the call.
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 
 
 def query_icon_url_service(code):
@@ -337,6 +359,11 @@ def icon_code_to_url(msg):
 
 with_urls = op.map("with_url", inp, icon_code_to_url)
 op.inspect("check_with_url", with_urls)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -411,10 +438,10 @@ first return value.
 Let's calculate the running mean of the last 3 transactions for a
 user.
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 
 src_items = [
     {"user_id": 1, "txn_amount": 100.0},
@@ -437,7 +464,7 @@ pluck out the user ID using {py:obj}`~bytewax.operators.key_on` and
 use a logic function that picks the user ID field and casts to a
 string.
 
-```python
+```{testcode}
 keyed_inp = op.key_on("key", inp, lambda msg: str(msg["user_id"]))
 op.inspect("check_keyed", keyed_inp)
 ```
@@ -448,7 +475,7 @@ transaction amount directly to make downstream steps simpler. The
 maps just the `value` part of `(key, value)` 2-tuples. Since we just
 added a key, this makes this function less tricky.
 
-```python
+```{testcode}
 keyed_amounts = op.map_value("pick_amount", keyed_inp, lambda msg: msg["txn_amount"])
 op.inspect("check_keyed_amount", keyed_amounts)
 ```
@@ -456,7 +483,9 @@ op.inspect("check_keyed_amount", keyed_amounts)
 Let's inspect the steps we've made thus far to see the
 transformations: add a user ID key, unpack the dictionary.
 
-```python
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -488,7 +517,7 @@ Now that we've done all the prep work to key the stream and prepare
 the values, let's actually write out the running mean calculating
 operator using {py:obj}`~bytewax.operators.stateful_map`.
 
-```python
+```{testcode}
 flow = Dataflow("stateful_map_eg")
 inp = op.input("inp", flow, TestingSource(src_items))
 keyed_inp = op.key_on("key", inp, lambda msg: str(msg["user_id"]))
@@ -509,7 +538,6 @@ def calc_running_mean(values, new_value):
 
 running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean)
 op.inspect("check_running_mean", running_means)
-run_main(flow)
 ```
 
 {py:obj}`~bytewax.operators.stateful_map` takes two logic functions:
@@ -523,6 +551,12 @@ run_main(flow)
   `(updated_state, emit_value)`. In our case, we want to add the new
   item to the running list, remove any old items if it's too long,
   then calculate the running mean.
+
+```{testcode}
+:hide:
+
+run_main(flow)
+```
 
 ```{testoutput}
 stateful_map_eg.check_running_mean: ('1', 100.0)
@@ -539,7 +573,7 @@ modify our mapper function slightly so we can watch the evolution of
 the state. Instead of just emitting the running mean, print out the
 state changes as they're happening.
 
-```python
+```{testcode}
 flow = Dataflow("stateful_map_eg")
 inp = op.input("inp", flow, TestingSource(src_items))
 keyed_inp = op.key_on("key", inp, lambda msg: str(msg["user_id"]))
@@ -567,6 +601,11 @@ def calc_running_mean(values, new_value):
 
 running_means = op.stateful_map("running_mean", keyed_amounts, calc_running_mean)
 op.inspect("check_running_mean", running_means)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -654,10 +693,10 @@ For example, all of the following dataflows are equivalent.
 
 Using a defined function:
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 
 flow = Dataflow("use_def")
 s = op.input("inp", flow, TestingSource(["hello world"]))
@@ -669,6 +708,11 @@ def split_sentence(sentence):
 
 s = op.flat_map("split", s, split_sentence)
 op.inspect("out", s)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -679,11 +723,16 @@ use_def.out: 'world'
 
 Or a lambda:
 
-```python
+```{testcode}
 flow = Dataflow("use_lambda")
 s = op.input("inp", flow, TestingSource(["hello world"]))
 s = op.flat_map("split", s, lambda s: s.split())
 op.inspect("out", s)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -694,11 +743,16 @@ use_lambda.out: 'world'
 
 Or an unbound method:
 
-```python
+```{testcode}
 flow = Dataflow("use_method")
 s = op.input("inp", flow, TestingSource(["hello world"]))
 s = op.flat_map("split", s, str.split)
 _ = op.inspect("out", s)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -722,10 +776,10 @@ to create functions that change by specific parameters dynamically:
 Let's demonstrate these two techniques. Let's say we want extract a
 specific field from a nested structure in a stream of messages.
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 
 flow = Dataflow("param_eg")
 inp = op.input(
@@ -761,6 +815,11 @@ admins = op.map(
     "pick_admin", inp, lambda msg: (msg["user_id"], msg["settings"]["admin"])
 )
 _ = op.inspect("check_admin", admins)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -784,10 +843,10 @@ each stream. We can refactor out the duplication in the picking
 functions into a builder function. The following dataflow is
 equivalent.
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource, run_main
+from bytewax.testing import TestingSource
 
 flow = Dataflow("param_eg")
 inp = op.input(
@@ -826,6 +885,11 @@ autosaves = op.map("pick_autosave", inp, key_pick_setting("autosave"))
 op.inspect("check_autosave", autosaves)
 admins = op.map("pick_admin", inp, key_pick_setting("admin"))
 op.inspect("check_admin", admins)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 
@@ -853,7 +917,7 @@ arguments on a function and it gives you back a function that you can
 still call to fill in the rest of the arguments. The following
 dataflow is equivalent.
 
-```python
+```{testcode}
 import functools
 
 import bytewax.operators as op
@@ -898,6 +962,11 @@ autosaves = op.map(
 op.inspect("check_autosave", autosaves)
 admins = op.map("pick_admin", inp, functools.partial(key_pick_setting, "admin"))
 op.inspect("check_admin", admins)
+```
+
+```{testcode}
+:hide:
+
 run_main(flow)
 ```
 

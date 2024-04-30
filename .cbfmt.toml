@@ -1,3 +1,4 @@
 [languages]
-rust = ["rustfmt"]
+"{testcode}" = ["ruff format -"]
 python = ["ruff format -"]
+rust = ["rustfmt"]

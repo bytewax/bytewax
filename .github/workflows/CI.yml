@@ -56,12 +56,11 @@ jobs:
         run: |
           . venv/bin/activate
           just test-rs
-      # TODO: Re-enable these once we fix them.
-      # - name: Run documentation tests
-      #   shell: bash
-      #   run: |
-      #     . venv/bin/activate
-      #     just test-doc
+      - name: Run documentation tests
+        shell: bash
+        run: |
+          . venv/bin/activate
+          just test-doc
 
   linux:
     strategy:

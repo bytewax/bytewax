@@ -8,7 +8,7 @@ the instructions for installing Bytewax in <project:#xref-installing>.
 
 Our dataflow starts with a few imports, so let's create those now.
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -21,7 +21,7 @@ To begin, create a {py:obj}`~bytewax.dataflow.Dataflow` instance in a
 variable named `flow`. This defines the empty dataflow we'll add steps
 to.
 
-```python
+```{testcode}
 flow = Dataflow("a_simple_example")
 ```
 
@@ -33,7 +33,7 @@ Every dataflow requires input. For this example, we'll use the
 `int`s.
 
 
-```python
+```{testcode}
 stream = op.input("input", flow, TestingSource(range(10)))
 ```
 
@@ -50,7 +50,7 @@ you can call more operators on. Let's use the
 {py:obj}`~bytewax.operators.map` operator to double each number from
 our input stream.
 
-```python
+```{testcode}
 def times_two(inp: int) -> int:
     return inp * 2
 
@@ -66,7 +66,7 @@ Finally, let's add an output step. At least one
 dataflow. We'll have our output directed to standard out using the
 {py:obj}`~bytewax.connectors.stdio.StdOutSink`.
 
-```python
+```{testcode}
 op.output("out", double, StdOutSink())
 ```
 
@@ -78,7 +78,7 @@ that does just that.
 
 To begin, save the following code in a file called `basic.py`.
 
-```python
+```{testcode}
 import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -99,8 +99,19 @@ op.output("out", double, StdOutSink())
 ```
 To run the dataflow, use the following command:
 
-```bash
-> python -m bytewax.run basic
+```console
+$ python -m bytewax.run basic
+```
+
+```{testcode}
+:hide:
+
+from bytewax.testing import run_main
+
+run_main(flow)
+```
+
+```{testoutput}
 0
 2
 4

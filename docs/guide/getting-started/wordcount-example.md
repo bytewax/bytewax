@@ -16,7 +16,7 @@ And by opposing end them.
 
 And a copy of the code in a file called `wordcount.py`.
 
-```python
+```{testcode}
 import operator
 import re
 
@@ -55,8 +55,19 @@ op.output("out", counts, StdOutSink())
 Now that we have our program and our input, we can run our example to
 see it in action:
 
-```shell
-> python -m bytewax.run wordcount
+```console
+$ python -m bytewax.run wordcount
+```
+
+```{testcode}
+:hide:
+
+from bytewax.testing import run_main
+
+run_main(flow)
+```
+
+```{testoutput}
 ("'tis", 1)
 ('a', 1)
 ('against', 1)
@@ -112,7 +123,7 @@ Let's define the steps that we want to execute for each line of input
 that we receive. We will add these steps as chains of **operators** on
 a **dataflow object**, {py:obj}`~bytewax.dataflow.Dataflow`.
 
-```python
+```{testcode}
 flow = Dataflow("wordcount_eg")
 inp = op.input("inp", flow, FileSource("wordcount.txt"))
 ```
@@ -136,7 +147,7 @@ If you look closely at our input, we have instances of both `To` and
 lowercase letters. At the same time, we'll introduce the
 {py:obj}`~bytewax.operators.map` operator.
 
-```python
+```{testcode}
 def lower(line):
     return line.lower()
 
@@ -158,14 +169,14 @@ we'll need to break that line up into individual words.
 Enter our `tokenize()` function, which uses a Python regular
 expression to split the line of input into a list of words:
 
-```python
+```{testcode}
 def tokenize(line):
     return re.findall(r'[^\s!,.?":;0-9]+', line)
 ```
 
 For example,
 
-```python
+```{testcode}
 to_be = "To be, or not to be, that is the question:"
 print(tokenize(to_be))
 ```
@@ -179,7 +190,7 @@ results in:
 To make use of `tokenize` function, we'll use the
 {py:obj}`~bytewax.operators.flat_map` operator:
 
-```python
+```{testcode}
 tokens = op.flat_map("tokenize_input", lowers, tokenize)
 ```
 
@@ -207,7 +218,7 @@ items for a given key are processed together. In our word count
 example, we can use the word itself as the key, so that each instance
 of that word is counted together.
 
-```python
+```{testcode}
 counts = op.count_final("count", tokens, lambda word: word)
 ```
 
@@ -217,7 +228,7 @@ The last part of our dataflow program will use an
 {py:obj}`~bytewax.operators.output` operator to mark the output of our
 reduction as the dataflow's final output.
 
-```python
+```{testcode}
 op.output("out", counts, StdOutSink())
 ```
 
@@ -237,38 +248,47 @@ output. We then print the output of the final step.
 
 Here is the complete output when running the example:
 
-```shell
-> python -m bytewax.run wordcount
-('opposing', 1)
-('and', 2)
-('of', 2)
-('end', 1)
-('whether', 1)
-('arrows', 1)
-('that', 1)
-('them', 1)
-('not', 1)
-('by', 1)
-('sea', 1)
-('arms', 1)
-('a', 1)
-('is', 1)
-('against', 1)
-('to', 4)
+```console
+$ python -m bytewax.run wordcount
+```
+
+```{testcode}
+:hide:
+
+run_main(flow)
+```
+
+```{testoutput}
 ("'tis", 1)
-('nobler', 1)
-('take', 1)
-('question', 1)
-('troubles', 1)
-('or', 2)
-('slings', 1)
-('mind', 1)
-('outrageous', 1)
-('suffer', 1)
+('a', 1)
+('against', 1)
+('and', 2)
+('arms', 1)
+('arrows', 1)
 ('be', 2)
-('in', 1)
-('the', 3)
+('by', 1)
+('end', 1)
 ('fortune', 1)
+('in', 1)
+('is', 1)
+('mind', 1)
+('nobler', 1)
+('not', 1)
+('of', 2)
+('opposing', 1)
+('or', 2)
+('outrageous', 1)
+('question', 1)
+('sea', 1)
+('slings', 1)
+('suffer', 1)
+('take', 1)
+('that', 1)
+('the', 3)
+('them', 1)
+('to', 4)
+('troubles', 1)
+('whether', 1)
 ```
 
 To learn more about possible modes of execution, see

@@ -17,7 +17,26 @@ always `None` and you can call your previous builder by hand in the
 
 Before:
 
-```python doctest:SKIP
+```python
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+
+flow = Dataflow("builder_eg")
+keyed_amounts = op.input(
+    "inp",
+    flow,
+    TestingSource(
+        [
+            ("KEY", 1.0),
+            ("KEY", 6.0),
+            ("KEY", 2.0),
+        ]
+    ),
+)
+
+
 def running_builder():
     return []
 
@@ -38,7 +57,20 @@ running_means = op.stateful_map(
 
 After:
 
-```python doctest:SKIP
+```{testcode}
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+
+flow = Dataflow("builder_eg")
+keyed_amounts = op.input("inp", flow, TestingSource([
+    ("KEY", 1.0),
+    ("KEY", 6.0),
+    ("KEY", 2.0),
+]))
+
+
 def calc_running_mean(values, new_value):
     # On the initial value for this key, instead of the operator calling the
     # builder for you, you can call it yourself when the state is un-initalized.
@@ -68,7 +100,7 @@ custom Python metrics.
 
 Before:
 
-```python doctest:SKIP
+```python
 from bytewax.inputs import DynamicSource
 
 
@@ -79,7 +111,7 @@ class PeriodicSource(DynamicSource):
 
 After:
 
-```python doctest:SKIP
+```{testcode}
 from bytewax.inputs import DynamicSource
 
 
@@ -104,7 +136,7 @@ never used them.
 If you need the current time, you still can manually get the current
 time:
 
-```python
+```{testcode}
 from datetime import datetime, timezone
 
 now = datetime.now(timezone.utc)
@@ -138,11 +170,14 @@ options here.
 
 Before:
 
-```python doctest:SKIP
+```python
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.kafka.registry import ConfluentSchemaRegistry
 
-sr_conf = {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
+flow = Dataflow("confluent_sr_eg")
+kinp = kop.input("inp", flow, brokers=["broker.test"], topics=["eg_topic"])
+
+sr_conf = {"url": "http://registry.test/", "basic.auth.user.info": "user:pass"}
 registry = ConfluentSchemaRegistry(SchemaRegistryClient(sr_conf))
 
 key_de = AvroDeserializer(client)
@@ -154,14 +189,19 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 
 After:
 
-```python doctest:SKIP
+```{testcode}
+from bytewax.dataflow import Dataflow
 from bytewax.connectors.kafka import operators as kop
+
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 
+flow = Dataflow("confluent_sr_eg")
+kinp = kop.input("inp", flow, brokers=["broker.test"], topics=["eg_topic"])
+
 # Confluent's SchemaRegistryClient
 client = SchemaRegistryClient(
-    {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
+    {"url": "http://registry.test/", "basic.auth.user.info": "user:pass"}
 )
 key_de = AvroDeserializer(client)
 val_de = AvroDeserializer(client)
@@ -180,7 +220,7 @@ compatible (de)serializer classes in
 
 Before:
 
-```python doctest:SKIP
+```python
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.kafka.registry import RedpandaSchemaRegistry, SchemaRef
 
@@ -195,16 +235,19 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 
 After:
 
-```python doctest:SKIP
+% Can't run this test because it calls out to the schema registry.
+
+```python
 from bytewax.connectors.kafka import operators as kop
-from confluent_kafka.schema_registry import SchemaRegistryClient
 from bytewax.connectors.kafka.serde import PlainAvroDeserializer
 
-REDPANDA_REGISTRY_URL = os.environ["REDPANDA_REGISTRY_URL"]
-# Redpanda's schema registry configuration
+from confluent_kafka.schema_registry import SchemaRegistryClient
+
+REDPANDA_REGISTRY_URL = "http://localhost:8080/schema-registry"
+
 client = SchemaRegistryClient({"url": REDPANDA_REGISTRY_URL})
 
-# Use plain avro instead of confluent's wire format.
+# Use plain Avro instead of Confluent's prefixed-Avro wire format.
 # We need to specify the schema in the deserializer too here.
 key_schema = client.get_latest_version("sensor-key").schema
 key_de = PlainAvroDeserializer(schema=key_schema)
@@ -234,7 +277,7 @@ can take and return streams.
 
 Before:
 
-```python doctest:SKIP
+```python
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSource
 from bytewax.connectors.stdio import StdOutput
@@ -281,7 +324,7 @@ input source.
 
 Before:
 
-```python doctest:SKIP
+```python
 from bytewax.connectors.kafka import KafkaInput, KafkaOutput
 from bytewax.connectors.stdio import StdOutput
 from bytewax.dataflow import Dataflow
@@ -379,7 +422,7 @@ to change your imports if you are using that class.
 
 Before:
 
-```python doctest:SKIP
+```python
 from bytewax.connectors.periodic import SimplePollingSource
 ```
 
@@ -731,7 +774,7 @@ Recovery:
 
 This is what a simple example looked like in `0.15`:
 
-```python doctest:SKIP
+```python
 import operator
 import re
 
@@ -787,14 +830,14 @@ changes.
 
 Let's start with the existing imports:
 
-```python doctest:SKIP
+```python
 from bytewax.inputs import ManualInputConfig
 from bytewax.outputs import StdOutputConfig
 from bytewax.execution import run_main
 ```
 
 Becomes:
-```python doctest:SKIP
+```python
 from bytewax.connectors.files import FileInput
 from bytewax.connectors.stdio import StdOutput
 ```
@@ -824,14 +867,14 @@ sure that you don't change this parameter between executions.
 
 The old `TumblingWindow` definition:
 
-```python doctest:SKIP
+```python
 clock_config = SystemClockConfig()
 window_config = TumblingWindowConfig(length=timedelta(seconds=5))
 ```
 
 becomes:
 
-```python doctest:SKIP
+```python
 clock_config = SystemClockConfig()
 window_config = TumblingWindow(
     length=timedelta(seconds=5), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
@@ -846,13 +889,13 @@ stateful operators do.
 
 So we move from this:
 
-```python doctest:SKIP
+```python
 flow.capture(StdOutputConfig())
 ```
 
 To this:
 
-```python doctest:SKIP
+```python
 flow.output("out", StdOutput())
 ```
 
@@ -860,7 +903,7 @@ flow.output("out", StdOutput())
 
 The complete code for the new simple example now looks like this:
 
-```python doctest:SKIP
+```python
 import operator
 import re
 
@@ -1036,7 +1079,7 @@ some execution entrypoints have been removed.
 
 This is what the `Simple example` looked like in `0.10`:
 
-```python doctest:SKIP
+```python
 import re
 
 from bytewax import Dataflow, run
@@ -1082,12 +1125,12 @@ changes.
 
 Let's start with the existing imports:
 
-```python doctest:SKIP
+```python
 from bytewas import Dataflow, run
 ```
 
 Becomes:
-```python doctest:SKIP
+```python
 from bytewax.dataflow import Dataflow
 from bytewax.execution import run_main
 ```
@@ -1107,7 +1150,7 @@ so the change is minimal.
 
 The input function goes from:
 
-```python doctest:SKIP
+```python
 def file_input():
     for line in open("wordcount.txt"):
         yield 1, line
@@ -1115,7 +1158,7 @@ def file_input():
 
 to:
 
-```python doctest:SKIP
+```python
 def input_builder(worker_index, worker_count, resume_state):
     state = None  # ignore recovery
     for line in open("wordcount.txt"):
@@ -1130,7 +1173,7 @@ Then we need to wrap the `input_builder` with `ManualInputConfig`,
 give it a name ("file_input" here) and pass it to the `input` operator
 (rather than the `run` function):
 
-```python doctest:SKIP
+```python
 from bytewax.inputs import ManualInputConfig
 
 
@@ -1159,13 +1202,13 @@ allows us to have tumbling windows defined by a length (`timedelta`),
 and we configure it to have windows of 5 seconds each.
 
 So the old `reduce_epoch`:
-```python doctest:SKIP
+```python
 flow.reduce_epoch(add)
 ```
 
 becomes `reduce_window`:
 
-```python doctest:SKIP
+```python
 from bytewax.window import SystemClockConfig, TumblingWindow
 
 
@@ -1187,7 +1230,7 @@ method.
 
 So we move from this:
 
-```python doctest:SKIP
+```python
 flow.capture()
 
 for epoch, item in run(flow, file_input()):
@@ -1196,7 +1239,7 @@ for epoch, item in run(flow, file_input()):
 
 To this:
 
-```python doctest:SKIP
+```python
 from bytewax.outputs import StdOutputConfig
 
 
@@ -1209,7 +1252,7 @@ run_main(flow)
 
 The complete code for the new simple example now looks like this:
 
-```python doctest:SKIP
+```python
 import operator
 import re
 

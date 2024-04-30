@@ -15,26 +15,41 @@ def map_dict_value(
     {py:obj}`~bytewax.operators.map` operator that work on a specific
     value in a dict, but leave the other values untouched.
 
-    ```python
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import run_main, TestingSource
-    >>> from bytewax.dataflow import Dataflow
-    >>> flow = Dataflow("lens_item_map_eg")
-    >>> s = op.input(
-    ...     "inp",
-    ...     flow,
-    ...     TestingSource(
-    ...         [
-    ...             {"name": "Rachel White", "email": "rachel@white.com"},
-    ...             {"name": "John Smith", "email": "john@smith.com"},
-    ...         ]
-    ...     ),
-    ... )
-    >>> def normalize(name):
-    ...     return name.upper()
-    >>> s = op.map("normalize", s, map_dict_value("name", normalize))
-    >>> _ = op.inspect("out", s)
-    >>> run_main(flow)
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.dataflow import Dataflow
+    from bytewax.operators.helpers import map_dict_value
+
+    flow = Dataflow("lens_item_map_eg")
+    s = op.input(
+        "inp",
+        flow,
+        TestingSource(
+            [
+                {"name": "Rachel White", "email": "rachel@white.com"},
+                {"name": "John Smith", "email": "john@smith.com"},
+            ]
+        ),
+    )
+
+    def normalize(name):
+        return name.upper()
+
+    s = op.map("normalize", s, map_dict_value("name", normalize))
+
+    _ = op.inspect("out", s)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     lens_item_map_eg.out: {'name': 'RACHEL WHITE', 'email': 'rachel@white.com'}
     lens_item_map_eg.out: {'name': 'JOHN SMITH', 'email': 'john@smith.com'}
     ```

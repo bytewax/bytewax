@@ -32,7 +32,7 @@ The string is in the format `<dataflow-module>[:<dataflow-getter>]`.
   a function defined in the module. If missing, this defaults to
   looking for the variable named `flow`.
 
-```
+```console
 $ python -m bytewax.run examples.simple
 ```
 
@@ -40,7 +40,7 @@ For example, if you are at the root of this repository, you can run
 the "simple.py" example by calling the script with the following
 argument:
 
-```
+```console
 $ python -m bytewax.run examples.simple:flow
 ```
 
@@ -49,7 +49,7 @@ you can use a string after the `:` to call the function, possibly with
 args:
 
 
-```
+```console
 $ python -m bytewax.run "my_dataflow:get_flow('/tmp/file')"
 ```
 
@@ -62,7 +62,7 @@ worker in the current process. This avoids the overhead of setting up
 communication between workers/processes, but the dataflow will not
 have any gain from parallelization.
 
-```
+```console
 $ python -m bytewax.run examples.simple
 ```
 
@@ -74,7 +74,7 @@ multiple workers within a single process.
 For example you can run the previous dataflow with 3 workers by
 changing only the command:
 
-```
+```console
 $ python -m bytewax.run -w3 examples.simple
 ```
 
@@ -102,12 +102,12 @@ different machines. The machines are known in the network as
 `cluster_one` and `cluster_two`. You should run the first process on
 `cluster_one` as follows:
 
-```
+```console
 $ python -m bytewax.run simple:flow -w3 -i0 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 And on the `cluster_two` machine as:
 
-```
+```console
 $ python -m bytewax.run simple:flow -w3 -i1 -a "cluster_one:2101;cluster_two:2101"
 ```

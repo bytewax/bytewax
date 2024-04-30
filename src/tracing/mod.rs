@@ -150,7 +150,7 @@ impl BytewaxTracer {
 /// Note: To make this work, you have to keep a reference of the
 /// returned object.
 ///
-/// % skip: next
+/// % Skip this doctest because it requires starting the webserver.
 ///
 /// ```python
 /// from bytewax.tracing import setup_tracing

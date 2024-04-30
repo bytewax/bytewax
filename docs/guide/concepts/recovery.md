@@ -46,13 +46,13 @@ processing.
 Recovery partitions must be pre-initialized before running the
 dataflow initially. First, create the directory to hold the partitions.
 
-```
+```console
 $ mkdir db_dir
 ```
 
 Then create the partitions by executing this module:
 
-```
+```console
 $ python -m bytewax.recovery db_dir/ 4
 ```
 
@@ -64,7 +64,7 @@ will ever rescale to.
 
 This will create a set of partitions:
 
-```
+```console
 $ ls db_dir/
 part-0.sqlite3
 part-1.sqlite3
@@ -82,7 +82,7 @@ only one worker will use it.
 Although the partition init script will not create these, partitions
 after execution may consist of multiple files:
 
-```
+```console
 $ ls db_dir/
 part-0.sqlite3
 part-0.sqlite3-shm
@@ -108,7 +108,7 @@ directory is fine.
 To enable recovery when you execute a dataflow, pass the `-r` flag to
 `bytewax.run` and specify the recovery directory.
 
-```
+```console
 $ python -m bytewax.run ... -r db_dir/
 ```
 

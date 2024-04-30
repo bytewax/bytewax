@@ -38,7 +38,7 @@ In the following example, we'll use a hypothetical
 [WebSockets](https://en.wikipedia.org/wiki/WebSocket) library that
 gives us the following `WSClient` class with async methods:
 
-```python
+```{testcode}
 from typing_extensions import Self
 
 
@@ -57,7 +57,7 @@ Given this API, first lets encapsulate all of the async calls into a
 single {external+python:std:term}`asynchronous generator` so we only
 have a single async entry point which we need to shim.
 
-```python
+```{testcode}
 from typing import AsyncIterator
 
 
@@ -108,7 +108,7 @@ more items, it'll wait up to 500 milliseconds or gather up to 100
 items before returning that batch, whichever comes first.
 {py:obj}`next` is used to advance that sync iterator.
 
-```python
+```{testcode}
 from typing import List
 
 from bytewax.inputs import batch_async, StatefulSourcePartition
@@ -129,7 +129,7 @@ class EgWebSocketSourcePartition(StatefulSourcePartition[bytes, None]):
 Then finally we wrap that up in the boilerplate to make a single
 partitioned source.
 
-```python
+```{testcode}
 from bytewax.inputs import FixedPartitionedSource
 
 
@@ -160,7 +160,7 @@ function to completion.
 This fits well when you are given a client library with the following
 shape:
 
-```python
+```{testcode}
 class WSClient:
     async def send(self, msg: bytes) -> None:
         """Send the following message."""
@@ -170,7 +170,7 @@ class WSClient:
 You could then use {py:obj}`asyncio.run` to call the `async def send`
 method synchronously for each item.
 
-```python
+```{testcode}
 import asyncio
 
 from bytewax.outputs import StatefulSinkPartition

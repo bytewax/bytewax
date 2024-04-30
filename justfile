@@ -88,7 +88,7 @@ test-benchmark:
 
 # Test all code in the documentation; runs in CI
 test-doc: _assert-venv
-    sphinx-build -b doctest -E docs/ docs/_build/
+    cd docs/fixtures/ && sphinx-build -b doctest -E .. ../_build/
 
 # Run all the checks that will be run in CI locally
 ci-pre: lint test-py test-rs test-doc test-benchmark

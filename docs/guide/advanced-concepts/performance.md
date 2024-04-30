@@ -163,7 +163,7 @@ sizes may improve throughput.
 `batch_size` is a configurable parameter when instantiating a
 {py:obj}`~bytewax.connectors.kafka.KafkaSource`:
 
-```python
+```{testcode}
 from bytewax.connectors.kafka import KafkaSource, KafkaSink, KafkaSinkMessage
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow

@@ -43,7 +43,7 @@ Pylance](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-py
 to enable type checking while you are editing. Enabling type checking
 can help you catch errors when developing your dataflows.
 
-```python
+```{testcode}
 import bytewax.operators as op
 
 from bytewax.dataflow import Dataflow

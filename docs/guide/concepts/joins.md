@@ -36,7 +36,7 @@ joined onto the same object:
 
 Let's setup a sample dataflow that gets that data into some streams:
 
-```python
+```{testcode}
 from bytewax.dataflow import Dataflow
 import bytewax.operators as op
 from bytewax.testing import TestingSource
@@ -77,7 +77,7 @@ Since `user_id` is an `int` in our input data, we need to pass it
 through `str`. And since it'd be redundant to keep the `"user_id"` key
 in the dict, we'll map the value to just include the relevant field.
 
-```python
+```{testcode}
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
 ```
@@ -85,7 +85,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["ema
 Let's {py:obj}`~bytewax.operators.inspect` our streams to double check
 we know what they look like:
 
-```python
+```{testcode}
 op.inspect("check_names", keyed_names)
 op.inspect("check_emails", keyed_emails)
 ```
@@ -93,9 +93,9 @@ op.inspect("check_emails", keyed_emails)
 ```{testcode}
 :hide:
 
-import bytewax.testing
+from bytewax.testing import run_main
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 Looks like we see our 2-tuples!
@@ -133,7 +133,7 @@ _inner join_ in SQL.
 
 Let's see that in action. To recap our example:
 
-```python
+```{testcode}
 flow = Dataflow("join_eg")
 
 names_l = [
@@ -155,7 +155,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["ema
 Then let's add a join operator taking the `keyed_names` stream as one
 side and `keyed_emails` stream as the other and view the output:
 
-```python
+```{testcode}
 joined = op.join("join", keyed_names, keyed_emails)
 
 op.inspect("check_join", joined)
@@ -164,7 +164,7 @@ op.inspect("check_join", joined)
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 Alright! It looks like we gathered the names and emails for each key.
@@ -180,7 +180,7 @@ What happens if we don't have a value for a key? Let's update our
 names input to add a name that won't have an email. Then run the
 dataflow again.
 
-```python
+```{testcode}
 names_l.clear()
 names_l.extend(
     [
@@ -194,7 +194,7 @@ names_l.extend(
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 Hmm. It seems we didn't get any output for Pooh.
@@ -212,7 +212,7 @@ Another ramification of this, is that if you see a second value on one
 side for a key, you will also not see any output. For example, let's
 update our input to have an email update for the Bee.
 
-```python
+```{testcode}
 names_l.clear()
 names_l.extend(
     [
@@ -234,7 +234,7 @@ emails_l.extend(
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 Notice we still don't see any new output for that user.
@@ -322,9 +322,9 @@ _full outer join_ in SQL. Pass `running=True` to
 joins are complete, as described in the previous section, and not
 running.
 
-Let's review what the dataflow would look like then:
+```{testcode}
+:hide:
 
-```python
 flow = Dataflow("join_eg")
 
 names_l = [
@@ -342,20 +342,24 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
+```
 
+Now instead of the above join, let's use the running join:
+
+```{testcode}
 joined = op.join("join", keyed_names, keyed_emails, running=True)
 ```
 
 Now let's run the dataflow again an inspect the output.
 
-```python
+```{testcode}
 op.inspect("check_join", joined)
 ```
 
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 Here's what we get. Let's visualize the progress and outputs of the
@@ -465,7 +469,7 @@ going to use a simple 1 hour tumbling window; the previous window
 closes and the next window starts at the top of each hour. We'll be
 using event time.
 
-```python
+```{testcode}
 from datetime import timedelta, datetime, timezone
 from bytewax.operators.window import EventClock, TumblingWindower
 
@@ -479,7 +483,7 @@ windower = TumblingWindower(
 Let's assume we have input sources that are similar in shape to
 before, but now have timestamps.
 
-```python
+```{testcode}
 flow = Dataflow("join_eg")
 
 names_l = [
@@ -514,14 +518,14 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 Since our objects are no longer just strings, let's keep the values
 untouched so we have access to the timestamps.
 
-```python
+```{testcode}
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 ```
 
 Let's inspect this just to double check we understand the shape.
 
-```python
+```{testcode}
 op.inspect("check_names", keyed_names)
 op.inspect("check_emails", keyed_emails)
 ```
@@ -529,7 +533,7 @@ op.inspect("check_emails", keyed_emails)
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 The values are entire {py:obj}`dict`s and we'll still access the
@@ -574,7 +578,7 @@ email (because no name came in that window).
 Now let's set up the windowed join and inspect the results to see if
 it matches that. To review, the entire dataflow is as follows.
 
-```python
+```{testcode}
 import bytewax.operators.window as op_w
 
 flow = Dataflow("join_eg")
@@ -618,7 +622,7 @@ op.inspect("check_join", joined_out.down)
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 Looks like that's what we see! Notice the `None` in the output for key
@@ -626,9 +630,9 @@ Looks like that's what we see! Notice the `None` in the output for key
 for analysis, but you can ignore that.
 
 ```{testoutput}
-join_eg.check_join: ('456', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'}, None)))
-join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
-join_eg.check_join: ('456', (WindowMetadata(open_time: 2023-12-14 01:00:00 UTC, close_time: 2023-12-14 02:00:00 UTC), (None, {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})))
+join_eg.check_join: ('456', (8328, ({'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Hive'}, None)))
+join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
+join_eg.check_join: ('456', (8329, (None, {'user_id': 456, 'at': datetime.datetime(2023, 12, 14, 1, 15, tzinfo=datetime.timezone.utc), 'email': 'hive@bytewax.io'})))
 ```
 
 You will have to decide in a downstream step how to handle these
@@ -649,7 +653,7 @@ For example, if we don't change the join parameters, but update the
 input in the above dataflow to include multiple values in a window for
 a key.
 
-```python
+```{testcode}
 names_l.clear()
 names_l.extend(
     [
@@ -681,19 +685,21 @@ emails_l.extend(
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 Notice how now we only have the latest email for the bee:
 
 ```{testoutput}
-join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
+join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
 ```
 
 Now if we re-define the dataflow and use `product=True`, we can see
 all of the values for the Bee's email in that window.
 
-```python
+```{testcode}
+:hide:
+
 import bytewax.operators.window as op_w
 
 flow = Dataflow("join_eg")
@@ -703,25 +709,27 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
+```
 
+```{testcode}
 joined_out = op_w.join_window(
     "join", clock, windower, keyed_names, keyed_emails, product=True
 )
-
-op.inspect("check_join", joined_out.down)
 ```
 
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+op.inspect("check_join", joined_out.down)
+
+run_main(flow)
 ```
 
 Notice there are now two output values for that key.
 
 ```{testoutput}
-join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
-join_eg.check_join: ('123', (WindowMetadata(open_time: 2023-12-14 00:00:00 UTC, close_time: 2023-12-14 01:00:00 UTC), ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
+join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
+join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
 ```
 
 ## Named Joins
@@ -744,7 +752,7 @@ to write that downstream code.
 For example, given our original streaming join. If you remember the
 output was 2-tuples because there were two sides to the join.
 
-```python
+```{testcode}
 flow = Dataflow("join_eg")
 
 names_l = [
@@ -771,7 +779,7 @@ op.inspect("check_join", joined)
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 ```{testoutput}
@@ -782,7 +790,7 @@ join_eg.check_join: ('456', ('Hive', 'hive@bytewax.io'))
 If we change this to use an equivalent
 {py:obj}`~bytewax.operators.join_named` instead:
 
-```python
+```{testcode}
 flow = Dataflow("join_eg")
 
 names_l = [
@@ -809,7 +817,7 @@ op.inspect("check_join", joined)
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 Notice how the output is now `dict`s and how the kwargs `name` and

@@ -31,7 +31,7 @@ together.
 
 Copy the following code into a file named `collect_example.py`:
 
-```python
+```{testcode}
 from datetime import timedelta
 
 import bytewax.operators as op
@@ -51,14 +51,16 @@ op.output("out", collected_stream, StdOutSink())
 
 Now we have our dataflow, we can run our example:
 
-```shell
-> python -m bytewax.run collect_example
+```console
+$ python -m bytewax.run collect_example
 ```
 
 ```{testcode}
 :hide:
 
-bytewax.testing.run_main(flow)
+from bytewax.testing import run_main
+
+run_main(flow)
 ```
 
 You should see output:
@@ -83,7 +85,7 @@ given item belongs to, and to determine when an item is late.
 Let's start by and importing the relevant classes, creating a
 dataflow, and configuring some test input.
 
-```python
+```{testcode}
 from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
@@ -143,7 +145,7 @@ parameter, which says that all windows that we collect will be aligned
 to the given `datetime`. We'll use the value that we created above for
 our event data.
 
-```python
+```{testcode}
 clock = EventClock(lambda e: e["time"], wait_for_system_duration=timedelta(seconds=0))
 windower = TumblingWindower(length=timedelta(seconds=10), align_to=align_to)
 ```
@@ -156,7 +158,7 @@ window. We'll use the
 {py:obj}`~bytewax.operators.window.collect_window` operator to collect
 all of the events for a given user in each window.
 
-```python
+```{testcode}
 win_out = win.collect_window("add", keyed_stream, clock, windower)
 ```
 
@@ -182,7 +184,7 @@ window.
 
 We'll write this to standard output using our output operator:
 
-```python
+```{testcode}
 op.output("out", win_out.down, StdOutSink())
 ```
 
@@ -190,8 +192,8 @@ op.output("out", win_out.down, StdOutSink())
 
 We can run our dataflow with:
 
-```shell
-python -m bytewax.run window_example
+```console
+$ python -m bytewax.run window_example
 ```
 
 Running our dataflow, we should see the following output:
@@ -199,14 +201,13 @@ Running our dataflow, we should see the following output:
 ```{testcode}
 :hide:
 
-import bytewax.testing
-
-bytewax.testing.run_main(flow)
+run_main(flow)
 ```
 
 ```{testoutput}
 ('a', (0, [{'time': datetime.datetime(2022, 1, 1, 0, 0, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}, {'time': datetime.datetime(2022, 1, 1, 0, 0, 4, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}, {'time': datetime.datetime(2022, 1, 1, 0, 0, 8, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}]))
-('b', (0, [{'time': datetime.datetime(2022, 1, 1, 0, 0, 5, tzinfo=datetime.timezone.utc), 'user': 'b', 'val': 1}]))('a', (1, [{'time': datetime.datetime(2022, 1, 1, 0, 0, 12, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}, {'time': datetime.datetime(2022, 1, 1, 0, 0, 13, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}]))
+('b', (0, [{'time': datetime.datetime(2022, 1, 1, 0, 0, 5, tzinfo=datetime.timezone.utc), 'user': 'b', 'val': 1}]))
+('a', (1, [{'time': datetime.datetime(2022, 1, 1, 0, 0, 12, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}, {'time': datetime.datetime(2022, 1, 1, 0, 0, 13, tzinfo=datetime.timezone.utc), 'user': 'a', 'val': 1}]))
 ('b', (1, [{'time': datetime.datetime(2022, 1, 1, 0, 0, 14, tzinfo=datetime.timezone.utc), 'user': 'b', 'val': 1}]))
 ```
 

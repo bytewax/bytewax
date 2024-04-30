@@ -6,13 +6,17 @@ environment setup.
 
 ## Environment Tools
 
-### Installing Rust
+### Install Rustup
 
 Install a Rust compiler stack. See the [Rust Project's installation
 documentation](https://www.rust-lang.org/learn/get-started) on how to
 do that using `rustup`.
 
-### Installing `just`
+You don't have to actually install a specific version of the
+toolchain, just install `rustup`. The build process below will ensure
+you use the correct version.
+
+### Install `just`
 
 We use [`just`](https://just.systems/man/en/) as a command runner for
 actions / recipes related to developing Bytewax. Please follow [the
@@ -20,7 +24,7 @@ installation
 instructions](https://github.com/casey/just?tab=readme-ov-file#installation).
 There's probably a package for your OS already.
 
-### Installing `pyenv` and Python 3.12
+### Install `pyenv` and Python 3.12
 
 We want Bytewax to run under many different versions of the Python
 interpreter, so we need a quick way to create virtualenvs in different
@@ -44,7 +48,7 @@ via `python3.12`.
 $ pyenv global system 3.12
 ```
 
-### Installing `uv`
+### Install `uv`
 
 We use [`uv`](https://github.com/astral-sh/uv) as a virtual
 environment creator, package installer, and dependency pin-er. There

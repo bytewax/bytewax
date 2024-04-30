@@ -27,8 +27,8 @@ semantics of the operators.
 The {py:obj}`bytewax.run` module is executed to run dataflows. To see
 all of the available runtime options, run the following command:
 
-```shell
-> python -m bytewax.run --help
+```console
+$ python -m bytewax.run --help
 ```
 
 ### Running with waxctl
@@ -57,8 +57,8 @@ Bytewax](#xref-installing) before you begin.
 
 Create a new file named `./simple.py` with the following contents:
 
-```python
-# ./simple.py
+```{testcode}
+# In simple.py
 import bytewax.operators as op
 
 from bytewax.dataflow import Dataflow
@@ -74,8 +74,22 @@ op.output("out", plus_one, StdOutSink())
 To run this flow use `simple` because creating a file named
 `simple.py` results in a module just named `simple`:
 
-```shell
-> python -m bytewax.run simple
+```console
+$ python -m bytewax.run simple
+```
+
+```{testcode}
+:hide:
+
+from bytewax.testing import run_main
+
+run_main(flow)
+```
+
+```{testoutput}
+1
+2
+3
 ```
 
 ### Running dataflows with waxctl
@@ -105,8 +119,8 @@ By changing the `-w/--workers-per-process` arguments, you can spawn
 multiple workers per process. We can run the previous dataflow with 3
 workers using the same file, changing only the command:
 
-```shell
-> python -m bytewax.run -w3 simple
+```console
+$ python -m bytewax.run -w3 simple
 ```
 
 ### Adding workers with waxctl
@@ -140,28 +154,28 @@ where the machines are known via DNS in the network as `cluster_one`
 and `cluster_two`, you should run the first process on `cluster_one`
 as follows:
 
-```shell
-> python -m bytewax.run simple -i0 -a "cluster_one:2101;cluster_two:2101"
+```console
+$ python -m bytewax.run simple -i0 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 And on the `cluster_two` machine as:
 
-```shell
-> python -m bytewax.run simple -i1 -a "cluster_one:2101;cluster_two:2101"
+```console
+$ python -m bytewax.run simple -i1 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 As before, each process can start multiple workers with the `-w` flag
 for increased parallelism. To start the same dataflow with a total of
 6 workers:
 
-```shell
-> python -m bytewax.run simple -w3 -i0 -a "cluster_one:2101;cluster_two:2101"
+```console
+$ python -m bytewax.run simple -w3 -i0 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 And on the `cluster_two` machine as:
 
-```shell
-> python -m bytewax.run simple -w3 -i1 -a "cluster_one:2101;cluster_two:2101"
+```console
+$ python -m bytewax.run simple -w3 -i1 -a "cluster_one:2101;cluster_two:2101"
 ```
 
 ### Scaling processes with waxctl

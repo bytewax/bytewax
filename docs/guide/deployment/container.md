@@ -10,7 +10,7 @@ Let's start with a simple dataflow.
 
 Create a new file `dataflow.py` with the following content:
 
-```python
+```{testcode}
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -86,7 +86,7 @@ $ docker build . -t bytewax-custom
 Modify the dataflow to read data from a kafka topic rather than the
 testing input:
 
-```python
+```{testcode}
 from bytewax import operators as op
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.stdio import StdOutSink
@@ -143,16 +143,16 @@ services:
 
 Run it with:
 
-```
-docker compose up
+```console
+$ docker compose up
 ```
 
 And you will see the output from the dataflow as soon as you start
 producing messages in the topic. To produce messages with this setup,
 you can use the `rpk` tool included in the redpanda docker images:
 
-```
-docker exec -it redpanda rpk topic produce in_topic
+```console
+$ docker exec -it redpanda rpk topic produce in_topic
 ```
 
 Write a message and press "Enter", then check the output from the
@@ -211,7 +211,7 @@ $ mkdir dataflows
 Then create a file `dataflows/my_flow.py` with the following simple
 dataflow:
 
-```python
+```{testcode}
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
@@ -276,7 +276,7 @@ Process ended.
 You can inherit the base bytewax image and just install the missing
 dependencies in a `RUN` step:
 
-```
+```Dockerfile
 # Dockerfile
 FROM bytewax/bytewax
 
