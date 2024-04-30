@@ -330,7 +330,7 @@ inp = op.input(
 op.inspect("check_inp", inp)
 
 
-def icon_code_to_url(msg, cache):
+def icon_code_to_url(cache, msg):
     code = msg.pop("avatar_icon_code")
     msg["avatar_icon_url"] = cache.get(code)
     return msg

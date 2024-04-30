@@ -58,7 +58,7 @@ def test_enrich_cached() -> None:
         "b": 2,
     }
 
-    def mapper(item: str, cache: TTLCache) -> int:
+    def mapper(cache: TTLCache[str, int], item: str) -> int:
         return cache.get(item)
 
     flow = Dataflow("test_df")

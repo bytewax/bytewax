@@ -840,7 +840,7 @@ def enrich_cached(
     step_id: str,
     up: Stream[X],
     getter: Callable[[DK], DV],
-    mapper: Callable[[X, TTLCache[DK, DV]], Y],
+    mapper: Callable[[TTLCache[DK, DV], X], Y],
     ttl: timedelta = timedelta.max,
     _now_getter: Callable[[], datetime] = _get_system_utc,
 ) -> Stream[Y]:
@@ -885,7 +885,7 @@ def enrich_cached(
     op.inspect("check_inp", inp)
 
 
-    def icon_code_to_url(msg, cache):
+    def icon_code_to_url(cache, msg):
         code = msg.pop("avatar_icon_code")
         msg["avatar_icon_url"] = cache.get(code)
         return msg
@@ -939,7 +939,7 @@ def enrich_cached(
 
         now = _now_getter()
         for x in xs:
-            yield mapper(x, cache)
+            yield mapper(cache, x)
 
     return flat_map_batch("flat_map_batch", up, shim_mapper)
 
