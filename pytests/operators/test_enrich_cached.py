@@ -58,13 +58,16 @@ def test_enrich_cached() -> None:
         "b": 2,
     }
 
+    def getter(item: str) -> int:
+        return lookup[item]
+
     def mapper(cache: TTLCache[str, int], item: str) -> int:
         return cache.get(item)
 
     flow = Dataflow("test_df")
-    s = op.input("inp", flow, TestingSource(inp))
-    s = op.enrich_cached("enrich", s, lookup.get, mapper)
-    op.output("out", s, TestingSink(out))
+    inp_s = op.input("inp", flow, TestingSource(inp))
+    enrich_s = op.enrich_cached("enrich", inp_s, getter, mapper)
+    op.output("out", enrich_s, TestingSink(out))
 
     run_main(flow)
     assert out == [1, 2, 1]
