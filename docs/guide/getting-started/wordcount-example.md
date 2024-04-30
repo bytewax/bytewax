@@ -129,7 +129,7 @@ inp = op.input("inp", flow, FileSource("wordcount.txt"))
 ```
 
 To emit input into our dataflow, our program needs an **input
-operator** that takes an **source**. To start, we'll use one of our
+operator** that takes a **source**. To start, we'll use one of our
 prepackaged sources, {py:obj}`~bytewax.connectors.files.FileSource`.
 This will read the text file line-by-line and emit each line into the
 dataflow at that point.

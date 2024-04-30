@@ -44,7 +44,7 @@ Create a `Dockerfile` with the following content:
 
 # Start from a debian slim with python support
 FROM python:3.11-slim-bullseye
-# Setup a workdir where we can put our dataflow
+# Set up a workdir where we can put our dataflow
 WORKDIR /bytewax
 # Install bytewax and the dependencies you need here
 RUN pip install bytewax==|version|

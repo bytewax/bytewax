@@ -3,7 +3,7 @@
 
 _Here we're going to give a deep dive on how joins work in Bytewax. If
 you'd like a quick demo of "show me how to do a simple join", see
-<project:#xref-join-eg>.
+<project:#xref-join-eg>._
 
 A **join** is a way to combine items in two or more streams into a
 single stream, matching them by a **join key**.
@@ -34,7 +34,7 @@ joined onto the same object:
 {"user_id": 456, "name": "Hive", "email": "hive@bytewax.io"}
 ```
 
-Let's setup a sample dataflow that gets that data into some streams:
+Let's set up a sample dataflow that gets that data into some streams:
 
 ```{testcode}
 from bytewax.dataflow import Dataflow

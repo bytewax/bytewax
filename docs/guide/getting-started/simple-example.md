@@ -131,5 +131,5 @@ dataflow getter string. Because we saved our
 command line.
 
 Note that just executing the Python file will _not run it!_ You must
-use the {py:obj}`bytewax.run` script and it's options so it can setup
+use the {py:obj}`bytewax.run` script and its options so it can set up
 the runtime correctly.

@@ -257,7 +257,7 @@ Bytewax:
 1. State snapshots are routed in a consistent way to a fixed number of
    recovery partitions, regardless of cluster size.
 
-2. The primary assignment system that allow distributed reading and
+2. The primary assignment system that allows distributed reading and
    writing of recovery partitions.
 
 3. Loaded snapshots and incoming data are routed using the same keys
