@@ -1,4 +1,4 @@
-# Documentation Formatting
+# Writing Documentation
 
 Documentation are Markdown files in the `/docs` folder. It is built
 using [Sphinx](https://www.sphinx-doc.org/en/master/) and
