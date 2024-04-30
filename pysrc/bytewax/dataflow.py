@@ -64,7 +64,7 @@ def f_repr(f: Callable) -> str:
     >>> def my_f(x):
     ...     pass
     >>> f_repr(my_f)
-    "<function 'bytewax.dataflow.my_f' line 1>"
+    "<function '....my_f' line 1>"
     ```
     """
     if isinstance(f, FunctionType):

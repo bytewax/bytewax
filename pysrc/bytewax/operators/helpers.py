@@ -19,6 +19,7 @@ def map_dict_value(
     import bytewax.operators as op
     from bytewax.testing import TestingSource
     from bytewax.dataflow import Dataflow
+    from bytewax.operators.helpers import map_dict_value
 
     flow = Dataflow("lens_item_map_eg")
     s = op.input(
@@ -31,9 +32,12 @@ def map_dict_value(
             ]
         ),
     )
+
     def normalize(name):
         return name.upper()
+
     s = op.map("normalize", s, map_dict_value("name", normalize))
+
     _ = op.inspect("out", s)
     ```
 

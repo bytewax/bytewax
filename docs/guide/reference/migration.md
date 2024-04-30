@@ -18,6 +18,25 @@ always `None` and you can call your previous builder by hand in the
 Before:
 
 ```python
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+
+flow = Dataflow("builder_eg")
+keyed_amounts = op.input(
+    "inp",
+    flow,
+    TestingSource(
+        [
+            ("KEY", 1.0),
+            ("KEY", 6.0),
+            ("KEY", 2.0),
+        ]
+    ),
+)
+
+
 def running_builder():
     return []
 
@@ -39,6 +58,19 @@ running_means = op.stateful_map(
 After:
 
 ```{testcode}
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+
+flow = Dataflow("builder_eg")
+keyed_amounts = op.input("inp", flow, TestingSource([
+    ("KEY", 1.0),
+    ("KEY", 6.0),
+    ("KEY", 2.0),
+]))
+
+
 def calc_running_mean(values, new_value):
     # On the initial value for this key, instead of the operator calling the
     # builder for you, you can call it yourself when the state is un-initalized.
@@ -142,7 +174,10 @@ Before:
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.kafka.registry import ConfluentSchemaRegistry
 
-sr_conf = {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
+flow = Dataflow("confluent_sr_eg")
+kinp = kop.input("inp", flow, brokers=["broker.test"], topics=["eg_topic"])
+
+sr_conf = {"url": "http://registry.test/", "basic.auth.user.info": "user:pass"}
 registry = ConfluentSchemaRegistry(SchemaRegistryClient(sr_conf))
 
 key_de = AvroDeserializer(client)
@@ -155,13 +190,18 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 After:
 
 ```{testcode}
+from bytewax.dataflow import Dataflow
 from bytewax.connectors.kafka import operators as kop
+
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 
+flow = Dataflow("confluent_sr_eg")
+kinp = kop.input("inp", flow, brokers=["broker.test"], topics=["eg_topic"])
+
 # Confluent's SchemaRegistryClient
 client = SchemaRegistryClient(
-    {"url": CONFLUENT_URL, "basic.auth.user.info": CONFLUENT_USERINFO}
+    {"url": "http://registry.test/", "basic.auth.user.info": "user:pass"}
 )
 key_de = AvroDeserializer(client)
 val_de = AvroDeserializer(client)
@@ -195,16 +235,19 @@ msgs = kop.deserialize("de", kinp.oks, key_deserializer=key_de, val_deserializer
 
 After:
 
-```{testcode}
+% Can't run this test because it calls out to the schema registry.
+
+```python
 from bytewax.connectors.kafka import operators as kop
-from confluent_kafka.schema_registry import SchemaRegistryClient
 from bytewax.connectors.kafka.serde import PlainAvroDeserializer
 
-REDPANDA_REGISTRY_URL = os.environ["REDPANDA_REGISTRY_URL"]
-# Redpanda's schema registry configuration
+from confluent_kafka.schema_registry import SchemaRegistryClient
+
+REDPANDA_REGISTRY_URL = "http://localhost:8080/schema-registry"
+
 client = SchemaRegistryClient({"url": REDPANDA_REGISTRY_URL})
 
-# Use plain avro instead of confluent's wire format.
+# Use plain Avro instead of Confluent's prefixed-Avro wire format.
 # We need to specify the schema in the deserializer too here.
 key_schema = client.get_latest_version("sensor-key").schema
 key_de = PlainAvroDeserializer(schema=key_schema)
