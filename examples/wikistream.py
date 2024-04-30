@@ -59,13 +59,13 @@ server_counts = win.count_window(
     ),
     get_server_name,
 )
-# ("server.name", count_per_window)
+# ("server.name", (window_id, count_per_window))
 
 
 def keep_max(
-    max_count: Optional[int], new_window_count: Tuple[int, int]
+    max_count: Optional[int], id_count: Tuple[int, int]
 ) -> Tuple[Optional[int], int]:
-    _metadata, new_count = new_window_count
+    _win_id, new_count = id_count
     if max_count is None:
         new_max = new_count
     else:
