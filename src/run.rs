@@ -6,7 +6,6 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -379,82 +378,9 @@ pub(crate) fn cli_main(
     Ok(())
 }
 
-/// Execute a Dataflow by spawning multiple Python processes.
-///
-/// Blocks until execution is complete.
-///
-/// This function should only be used for testing purposes.
-#[pyfunction]
-#[pyo3(
-    signature = (flow, *, epoch_interval = None, recovery_config = None, processes = 1, workers_per_process = 1)
-)]
-pub(crate) fn test_cluster(
-    py: Python,
-    flow: Dataflow,
-    epoch_interval: Option<EpochInterval>,
-    recovery_config: Option<Py<RecoveryConfig>>,
-    processes: usize,
-    workers_per_process: usize,
-) -> PyResult<()> {
-    let proc_id = std::env::var("__BYTEWAX_PROC_ID").ok();
-
-    let addresses = (0..processes)
-        .map(|proc_id| format!("localhost:{}", proc_id as u64 + 2101))
-        .collect();
-
-    if let Some(proc_id) = proc_id {
-        cluster_main(
-            py,
-            flow,
-            Some(addresses),
-            proc_id.parse().unwrap(),
-            epoch_interval,
-            recovery_config,
-            workers_per_process,
-        )?;
-    } else {
-        let mut ps: Vec<_> = (0..processes)
-            .map(|proc_id| {
-                let mut args = std::env::args().collect::<Vec<_>>();
-                dbg!(&args);
-                let exe = args.remove(0);
-                Command::new(exe)
-                    .env("__BYTEWAX_PROC_ID", proc_id.to_string())
-                    .args(args)
-                    .spawn()
-                    .unwrap()
-            })
-            .collect();
-        // Allow threads here in order to not block any other
-        // background threads from taking the GIL
-        py.allow_threads(|| -> PyResult<()> {
-            let cooldown = Duration::from_millis(1);
-            loop {
-                if ps.iter_mut().all(|ps| !matches!(ps.try_wait(), Ok(None))) {
-                    return Ok(());
-                }
-
-                let check = Python::with_gil(|py| py.check_signals());
-                if check.is_err() {
-                    for process in ps.iter_mut() {
-                        process.kill()?;
-                    }
-                    // The ? here will always exit since we just checked
-                    // that `check` is Result::Err.
-                    check
-                        .reraise("interrupt signal received, all processes have been shut down")?;
-                }
-                thread::sleep(cooldown);
-            }
-        })?;
-    }
-    Ok(())
-}
-
 pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
     m.add_function(wrap_pyfunction!(cli_main, m)?)?;
-    m.add_function(wrap_pyfunction!(test_cluster, m)?)?;
     Ok(())
 }

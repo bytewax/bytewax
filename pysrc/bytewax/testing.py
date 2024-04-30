@@ -1,16 +1,17 @@
 """Helper tools for testing dataflows."""
 
+import asyncio
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from typing import Any, Iterable, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
 from typing_extensions import override
 
 from bytewax._bytewax import (
     cluster_main,
     run_main,
-    test_cluster,
 )
 from bytewax.inputs import (
     AbortExecution,
@@ -19,11 +20,9 @@ from bytewax.inputs import (
     X,
 )
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
-from bytewax.recovery import RecoveryConfig
 from bytewax.run import (
     _create_arg_parser,
     _EnvDefault,
-    _locate_dataflow,
     _prepare_import,
 )
 
@@ -31,10 +30,10 @@ __all__ = [
     "TestingSink",
     "TestingSource",
     "TimeTestingGetter",
-    "cluster_main",
     "ffwd_iter",
     "poll_next_batch",
     "run_main",
+    "cluster_main",
 ]
 
 
@@ -268,6 +267,65 @@ def poll_next_batch(part, timeout=timedelta(seconds=5)):
     return batch
 
 
+def _unparse_args(args: Dict[str, Any]) -> Iterable[str]:
+    for key, val in args.items():
+        if val is not None:
+            flag_key = key.replace("_", "-")
+            yield f"--{flag_key}"
+            if isinstance(val, timedelta):
+                yield str(int(val.total_seconds()))
+            else:
+                yield str(val)
+
+
+async def _create_wait_and_check(argv: List[str]) -> None:
+    try:
+        proc = await asyncio.create_subprocess_exec(*argv)
+        await proc.wait()
+    except asyncio.CancelledError:
+        proc.kill()
+        raise
+
+    if proc.returncode != 0:
+        msg = f"subprocess {argv!r} did not exit cleanly"
+        raise RuntimeError(msg)
+
+
+async def _testing_cli_main(
+    import_str: str,
+    processes: int,
+    other_args: Dict[str, Any],
+) -> None:
+    unparsed_args = list(_unparse_args(other_args))
+
+    addresses_str = ";".join(
+        f"localhost:{2101 + proc_id}" for proc_id in range(processes)
+    )
+
+    argvs = [
+        [
+            sys.executable,
+            "-m",
+            "bytewax.run",
+            import_str,
+            "-i",
+            str(proc_id),
+            "-a",
+            addresses_str,
+        ]
+        + unparsed_args
+        for proc_id in range(processes)
+    ]
+    tasks = [asyncio.create_task(_create_wait_and_check(argv)) for argv in argvs]
+    # Wish we could use TaskGroup, but thats 3.11+
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+
 def _parse_args():
     parser = _create_arg_parser()
 
@@ -281,7 +339,8 @@ def _parse_args():
         "-w",
         "--workers-per-process",
         type=int,
-        help="Number of workers for each process",
+        help="Number of workers for each process; defaults to 1",
+        default=1,
         action=_EnvDefault,
         envvar="BYTEWAX_WORKERS_PER_PROCESS",
     )
@@ -289,7 +348,8 @@ def _parse_args():
         "-p",
         "--processes",
         type=int,
-        help="Number of separate processes to run",
+        help="Number of separate processes to run; defaults to 1",
+        default=1,
         action=_EnvDefault,
         envvar="BYTEWAX_PROCESSES",
     )
@@ -301,20 +361,9 @@ def _parse_args():
 
 
 if __name__ == "__main__":
-    kwargs = vars(_parse_args())
+    args = vars(_parse_args())
 
-    kwargs["epoch_interval"] = kwargs.pop("snapshot_interval")
+    import_str = args.pop("import_str")
+    processes = args.pop("processes")
 
-    recovery_directory, backup_interval = (
-        kwargs.pop("recovery_directory"),
-        kwargs.pop("backup_interval"),
-    )
-    kwargs["recovery_config"] = None
-    if recovery_directory is not None:
-        kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
-
-    # Import the dataflow
-    module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
-    kwargs["flow"] = _locate_dataflow(module_str, attrs_str)
-
-    test_cluster(**kwargs)
+    asyncio.run(_testing_cli_main(import_str, processes, args))
