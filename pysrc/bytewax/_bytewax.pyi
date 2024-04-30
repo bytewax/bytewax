@@ -233,23 +233,6 @@ def setup_tracing(tracing_config=None, log_level=None):
     """
     ...
 
-def test_cluster(
-    flow,
-    *,
-    epoch_interval=None,
-    recovery_config=None,
-    processes=1,
-    workers_per_process=1,
-):
-    """Execute a Dataflow by spawning multiple Python processes.
-
-    Blocks until execution is complete.
-
-    This function should only be used for testing purposes.
-
-    """
-    ...
-
 class AbortExecution(RuntimeError):
     """Raise this from `next_batch` to abort for testing purposes."""
 

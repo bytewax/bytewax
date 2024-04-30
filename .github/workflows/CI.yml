@@ -21,10 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - uses: actions/setup-python@v3
+        with:
+          python-version: 3.12
       - name: Install uv
-        run: python3 -m pip install uv
+        run: pipx install uv
       - uses: extractions/setup-just@v2
-      - uses: mkroening/rust-toolchain-toml@main
+      # Need this because we're running `cargo clippy` and `fmt`
+      # directly.
+      - uses: dsherret/rust-toolchain-file@v1
       - name: Install cbfmt
         run: |
             mkdir /tmp/cbfmt && cd $_
@@ -34,7 +38,7 @@ jobs:
       - name: Prep venv
         shell: bash
         run: |
-          uv venv venv
+          uv venv -p 3.12 venv
           . venv/bin/activate
           uv pip sync --strict requirements/dev.txt
       - name: Check pre-commit hooks
@@ -67,7 +71,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -81,8 +85,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install uv
-      - uses: mkroening/rust-toolchain-toml@main
+        run: pipx install uv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -95,12 +98,12 @@ jobs:
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
         with:
-          target: ${{ matrix.platform.target }}
+          target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Run Python tests
-        # Only run tests for the host architecture, as aarch64
-        # and armv7 are cross-compiled.
+        # Only run tests for the host architecture, as aarch64 and
+        # armv7 are cross-compiled on Ubuntu runners.
         if: ${{ matrix.target == 'x86_64' }}
         shell: bash
         env:
@@ -133,24 +136,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install uv
-      - name: Install aarch64-apple-darwin Rust target
-        run: rustup target add aarch64-apple-darwin
-      # Install gnu-tar because BSD tar is buggy
-      # https://github.com/actions/cache/issues/403
-      - name: Install GNU tar
-        run: |
-          brew install gnu-tar
-          echo "/usr/local/opt/gnu-tar/libexec/gnubin" >> $GITHUB_PATH
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        run: pipx install uv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -163,13 +149,12 @@ jobs:
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
         with:
-          target: ${{ matrix.platform.target }}
+          target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-          sccache: true
       - name: Run Python tests
-        # Only run tests for the host architecture, as aarch64
-        # and armv7 are cross-compiled.
-        if: ${{ matrix.target == 'x86_64' }}
+        # Only run tests for the host architecture, as x86_64 is
+        # cross-compiled on macOS runners.
+        if: ${{ matrix.target == 'aarch64' }}
         shell: bash
         env:
           TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
@@ -197,7 +182,7 @@ jobs:
         run: |
           set PATH=%PATH%;%wix%bin;"%WindowsSdkVerBinPath%"\x86
       - uses: actions/checkout@v3
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -211,8 +196,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install uv
-        run: python3 -m pip install uv
-      - uses: mkroening/rust-toolchain-toml@main
+        run: pipx install uv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         run: |
@@ -224,7 +208,7 @@ jobs:
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
         with:
-          target: ${{ matrix.platform.target }}
+          target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Run Python tests
