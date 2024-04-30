@@ -103,7 +103,7 @@ after merging the PR.
 ## 3. Create Release on GitHub
 
 Go to the [create a new GitHub release page for our
-repo](https://github.com/bytewax/bytewax/releases/new).
+repo](https://github.com/bytewax/bytewax/releases).
 
 1. Choose a tag and enter a tag with the new version number `v1.2.3`.
 
