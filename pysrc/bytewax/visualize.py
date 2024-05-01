@@ -1,16 +1,29 @@
-"""Serialization of the dataflow data model."""
+"""Visualize dataflow structure.
 
+This is usually run as a script via `python -m bytewax.visualize`.
+
+See `python -m bytewax.visualize --help` for more info.
+
+"""
+
+import argparse
 import json
+import typing
 from collections import ChainMap
 from dataclasses import dataclass
 from functools import singledispatch
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
+
+from typing_extensions import Self
 
 from bytewax.dataflow import Dataflow, Operator
+from bytewax.run import _locate_dataflow, _prepare_import
 
 
 @dataclass(frozen=True)
 class RenderedPort:
+    """Port with streams resolved to globally-unique IDs."""
+
     port_name: str
     port_id: str
     from_port_ids: List[str]
@@ -19,16 +32,20 @@ class RenderedPort:
 
 @dataclass(frozen=True)
 class RenderedOperator:
+    """Operator with all ports resolved to globally-unique IDs."""
+
     op_type: str
     step_name: str
     step_id: str
     inp_ports: List[RenderedPort]
     out_ports: List[RenderedPort]
-    substeps: List["RenderedOperator"]
+    substeps: List[Self]
 
 
 @dataclass(frozen=True)
 class RenderedDataflow:
+    """Dataflow with streams, ports resolved to globally-unique IDs."""
+
     flow_id: str
     substeps: List[RenderedOperator]
 
@@ -123,7 +140,7 @@ def to_rendered(flow: Dataflow) -> RenderedDataflow:
 
 
 @singledispatch
-def json_for(obj) -> Any:
+def _json_for(obj) -> Any:
     """Hook to extend the JSON serialization.
 
     Register new types via `@json_for.register`. See
@@ -141,7 +158,7 @@ def json_for(obj) -> Any:
     raise TypeError()
 
 
-@json_for.register
+@_json_for.register
 def _json_for_df(df: RenderedDataflow) -> Dict:
     return {
         "typ": "RenderedDataflow",
@@ -150,7 +167,7 @@ def _json_for_df(df: RenderedDataflow) -> Dict:
     }
 
 
-@json_for.register
+@_json_for.register
 def _json_for_op(step: RenderedOperator) -> Dict:
     return {
         "typ": "RenderedOperator",
@@ -163,7 +180,7 @@ def _json_for_op(step: RenderedOperator) -> Dict:
     }
 
 
-@json_for.register
+@_json_for.register
 def _json_for_port(port: RenderedPort) -> Dict:
     return {
         "typ": "RenderedPort",
@@ -177,7 +194,7 @@ def _json_for_port(port: RenderedPort) -> Dict:
 class _Encoder(json.JSONEncoder):
     def default(self, o):
         try:
-            return json_for(o)
+            return _json_for(o)
         except TypeError:
             return super().default(o)
 
@@ -312,3 +329,70 @@ def to_mermaid(flow: Dataflow) -> str:
         lines += _to_mermaid_step(substep, port_id_to_port, port_id_to_step)
     lines.append("end")
     return "\n".join(lines)
+
+
+_Formats = Literal[
+    "json",
+    "mermaid",
+    "plantuml",
+]
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="python -m bytewax.visualize",
+        description="""Generate a diagram of dataflow structure.
+
+        You can pipe the output into a file to save it. You'll need to
+        use the relevant program to convert the diagram code into a
+        visualization.
+
+        See https://mermaid.js.org/ and https://plantuml.com/ . The
+        JSON format is bespoke and for debugging.""",
+    )
+    parser.add_argument(
+        "import_str",
+        type=str,
+        help="Dataflow import string in the format "
+        "<module_name>[:<dataflow_variable_or_factory>] "
+        "Example: src.dataflow or src.dataflow:flow or "
+        "src.dataflow:get_flow('string_argument')",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-format",
+        choices=typing.get_args(_Formats),
+        default="mermaid",
+        help="Output format to use; defaults to 'mermaid'",
+    )
+    parser.add_argument(
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="""Show nested inner operators; defaults to not; always
+        false for MermaidJS; always true for JSON""",
+    )
+
+    return parser.parse_args()
+
+
+def _visualize_main(import_str: str, output_format: _Formats, recursive: bool) -> None:
+    mod_str, attr_str = _prepare_import(import_str)
+    flow = _locate_dataflow(mod_str, attr_str)
+
+    if output_format == "json":
+        out = to_json(flow)
+    elif output_format == "mermaid":
+        out = to_mermaid(flow)
+    elif output_format == "plantuml":
+        out = to_plantuml(flow, recursive)
+    else:
+        msg = f"unknown visualization type {output_format!r}"
+        raise ValueError(msg)
+
+    print(out)
+
+
+if __name__ == "__main__":
+    args = vars(_parse_args())
+    _visualize_main(**args)

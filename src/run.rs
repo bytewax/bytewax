@@ -39,12 +39,12 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
     // Since the dataflow can't change at runtime, we encode it as a
     // string of JSON once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
-        let encoder_mod = PyModule::import_bound(py, "bytewax._encoder")?;
-        let to_json = encoder_mod.getattr("to_json")?;
+        let vis_mod = PyModule::import_bound(py, "bytewax.visualize")?;
+        let to_json = vis_mod.getattr("to_json")?;
 
         let dataflow_json = to_json
             .call1((df,))
-            .reraise("error calling `bytewax._encoder.to_json`")?
+            .reraise("error calling `bytewax.visualize.to_json`")?
             .to_string();
 
         // Since the dataflow can crash, write the dataflow JSON to a file

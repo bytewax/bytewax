@@ -101,5 +101,5 @@ docstring-code-format = true
 "examples/*.py" = ["D"]
 "pytests/test_flows/*.py" = ["D"]
 "test_*.py" = ["D"]
-# Because `test_encoder` has huge literals in it.
-"pytests/test_encoder.py" = ["E501"]
+# Because it has huge literals in it.
+"pytests/test_visualize.py" = ["E501"]

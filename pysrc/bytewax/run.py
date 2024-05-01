@@ -17,6 +17,7 @@ import os
 import sys
 from datetime import timedelta
 from pathlib import Path
+from typing import Tuple
 
 from bytewax._bytewax import cli_main
 from bytewax.recovery import RecoveryConfig
@@ -149,7 +150,7 @@ class _EnvDefault(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
-def _prepare_import(import_str):
+def _prepare_import(import_str: str) -> Tuple[str, str]:
     """Given a filename this will try to calculate the python path.
 
     Add it to the search path and return the actual module name that
@@ -183,7 +184,10 @@ def _prepare_import(import_str):
     if sys.path[0] != path:
         sys.path.insert(0, path)
 
-    return ".".join(module_name[::-1]) + f":{flow_name}"
+    mod_str = ".".join(module_name[::-1])
+    attr_str = flow_name
+
+    return (mod_str, attr_str)
 
 
 def _parse_timedelta(s):
@@ -279,8 +283,6 @@ def _parse_args():
 
     args = arg_parser.parse_args()
 
-    args.import_str = _prepare_import(args.import_str)
-
     # First of all check if a process_id was set with a different
     # env var, used in the helm chart for deploy
     env = os.environ
@@ -347,7 +349,7 @@ if __name__ == "__main__":
         kwargs["addresses"] = addresses.split(";")
 
     # Import the dataflow
-    module_str, _, attrs_str = kwargs.pop("import_str").partition(":")
-    kwargs["flow"] = _locate_dataflow(module_str, attrs_str)
+    mod_str, attr_str = _prepare_import(kwargs.pop("import_str"))
+    kwargs["flow"] = _locate_dataflow(mod_str, attr_str)
 
     cli_main(**kwargs)
