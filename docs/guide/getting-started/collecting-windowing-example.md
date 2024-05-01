@@ -74,13 +74,14 @@ You should see output:
 
 ## Windowing
 
-Windowing operators (which live in {py:obj}`bytewax.operators.window`)
-perform computation over a time-based window of data where time can be
-defined as the system time that the data is processed, known as
-**processing time**, or time as a property of the data itself referred
-to as **event time**. For this example, we're going to use event time.
-Time will be used in our window operators to decide which windows a
-given item belongs to, and to determine when an item is late.
+Windowing operators (which live in
+{py:obj}`bytewax.operators.windowing`) perform computation over a
+time-based window of data where time can be defined as the system time
+that the data is processed, known as **processing time**, or time as a
+property of the data itself referred to as **event time**. For this
+example, we're going to use event time. Time will be used in our
+window operators to decide which windows a given item belongs to, and
+to determine when an item is late.
 
 Let's start by and importing the relevant classes, creating a
 dataflow, and configuring some test input.
@@ -220,4 +221,4 @@ window.
 Bytewax offers multiple processing shapes, window assignment types and
 other configuration options. For more detailed information about
 windowing, please see the <project:#xref-windowing> section, and the
-windowing API documentation in {py:obj}`bytewax.operators.window`.
+windowing API documentation in {py:obj}`bytewax.operators.windowing`.

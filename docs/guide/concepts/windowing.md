@@ -218,7 +218,7 @@ should be grouped together in a window, we now pick a **windowing
 operator** which gives you patterns for how to combine the values in
 each window to produce a result.
 
-See the {py:obj}`bytewax.operators.window` module for a list of our
+See the {py:obj}`bytewax.operators.windowing` module for a list of our
 windowing operators and their behavior.
 
 All windowing operators emit `(key, (metadata, value))` nested tuples
