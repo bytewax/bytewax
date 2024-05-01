@@ -23,7 +23,6 @@ from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from bytewax.run import (
     _create_arg_parser,
     _EnvDefault,
-    _prepare_import,
 )
 
 __all__ = [
