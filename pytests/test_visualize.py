@@ -1,7 +1,7 @@
 import json
 
 import bytewax.operators as op
-from bytewax._encoder import to_json
+from bytewax.visualize import to_json
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource
 
