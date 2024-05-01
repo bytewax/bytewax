@@ -3,20 +3,7 @@ import sys
 from datetime import timedelta
 from unittest.mock import patch
 
-from bytewax.run import _parse_args
-
-
-def test_parse_args():
-    testargs = [
-        "fake_command",
-        # This should be converted to a python module syntax.
-        "examples/basic.py:flow",
-    ]
-    # Mock sys.argv to test that the parsing phase works well
-    with patch.object(sys, "argv", testargs):
-        parsed = _parse_args()
-        # Test the custom handling of the import_str
-        assert parsed.import_str == "examples.basic:flow"
+from bytewax.run import _parse_args, _prepare_import
 
 
 def test_parse_args_environ(tmpdir):
@@ -69,3 +56,15 @@ def test_parse_backup_interval_zero():
     with patch.object(sys, "argv", testargs):
         parsed = _parse_args()
         assert parsed.backup_interval == timedelta(seconds=0)
+
+
+def test_prepare_import_file():
+    mod_str, attr_str = _prepare_import("examples/basic.py:flow")
+    assert mod_str == "examples.basic"
+    assert attr_str == "flow"
+
+
+def test_prepare_import_package():
+    mod_str, attr_str = _prepare_import("examples.basic:flow")
+    assert mod_str == "examples.basic"
+    assert attr_str == "flow"

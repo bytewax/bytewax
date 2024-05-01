@@ -354,10 +354,7 @@ def _parse_args():
         envvar="BYTEWAX_PROCESSES",
     )
 
-    args = parser.parse_args()
-    args.import_str = _prepare_import(args.import_str)
-
-    return args
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
