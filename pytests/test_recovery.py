@@ -1,8 +1,6 @@
-import json
 import os
 import shutil
 from datetime import timedelta
-from typing import Any
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -13,10 +11,8 @@ from bytewax.recovery import (
     RecoveryConfig,
     init_db_dir,
 )
-from bytewax.serde import Serde, set_serde_obj
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
 from pytest import raises
-from typing_extensions import override
 
 ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
@@ -273,35 +269,3 @@ def test_inconsistent_parts(tmp_path):
     shutil.copy(tmp_path / "part-0.run0", tmp_path / "part-0.sqlite3")
     with raises(InconsistentPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-
-
-def test_custom_serde(tmp_path):
-    class JSONSerde(Serde):
-        @override
-        def ser(self, obj: Any) -> bytes:
-            return json.dumps(obj).encode("utf-8")
-
-        @override
-        def de(self, s: bytes) -> Any:
-            print(s)
-            return json.loads(s)
-
-    init_db_dir(tmp_path, 1)
-    set_serde_obj(JSONSerde())
-    recovery_config = RecoveryConfig(str(tmp_path), backup_interval=ZERO_TD)
-    inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
-    out = []
-
-    flow = Dataflow("test_df")
-    s = op.input("inp", flow, TestingSource(inp))
-    op.output("out", s, TestingSink(out))
-
-    # Setting the epoch interval to 0 sec means we will have a
-    # snapshot after each item.
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-    assert out == [0, 1, 2]
-
-    # We should resume as if it was an EOF.
-    out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-    assert out == [3, 4]

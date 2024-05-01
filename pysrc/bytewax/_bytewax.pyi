@@ -204,16 +204,6 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """
     ...
 
-def set_serde_obj(serde_object):
-    """Override Bytewax's internal serialization for Python objects.
-
-    :arg serde_obj: The Serde object to use.
-
-    :type serde_obj: bytewax.serde.Serde
-
-    """
-    ...
-
 def setup_tracing(tracing_config=None, log_level=None):
     """Setup Bytewax's internal tracing and logging.
 
