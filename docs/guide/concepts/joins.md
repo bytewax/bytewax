@@ -58,8 +58,8 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 
 Bytewax provides the {py:obj}`~bytewax.operators.join`,
 {py:obj}`~bytewax.operators.join_named`,
-{py:obj}`~bytewax.operators.window.join_window`,
-{py:obj}`~bytewax.operators.window.join_window_named` operators to
+{py:obj}`~bytewax.operators.windowing.join_window`,
+{py:obj}`~bytewax.operators.windowing.join_window_named` operators to
 provide this functionality.
 
 ## Join Keys
@@ -459,8 +459,8 @@ need to know the join values over an infinite stream when you aren't
 sure that you'll see values on all sides of the join.
 
 Bytewax provides the operators
-{py:obj}`~bytewax.operators.window.join_window` and
-{py:obj}`~bytewax.operators.window.join_window_named` to implement
+{py:obj}`~bytewax.operators.windowing.join_window` and
+{py:obj}`~bytewax.operators.windowing.join_window_named` to implement
 this.
 
 For the details of all the types of windows you can define and
@@ -471,7 +471,7 @@ using event time.
 
 ```{testcode}
 from datetime import timedelta, datetime, timezone
-from bytewax.operators.window import EventClock, TumblingWindower
+from bytewax.operators.windowing import EventClock, TumblingWindower
 
 clock = EventClock(ts_getter=lambda x: x["at"], wait_for_system_duration=timedelta(0))
 windower = TumblingWindower(
@@ -579,7 +579,7 @@ Now let's set up the windowed join and inspect the results to see if
 it matches that. To review, the entire dataflow is as follows.
 
 ```{testcode}
-import bytewax.operators.window as op_w
+import bytewax.operators.windowing as win
 
 flow = Dataflow("join_eg")
 
@@ -614,7 +614,7 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 
-joined_out = op_w.join_window("join", clock, windower, keyed_names, keyed_emails)
+joined_out = win.join_window("join", clock, windower, keyed_names, keyed_emails)
 
 op.inspect("check_join", joined_out.down)
 ```
@@ -700,7 +700,7 @@ all of the values for the Bee's email in that window.
 ```{testcode}
 :hide:
 
-import bytewax.operators.window as op_w
+import bytewax.operators.windowing as win
 
 flow = Dataflow("join_eg")
 
@@ -712,7 +712,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 ```
 
 ```{testcode}
-joined_out = op_w.join_window(
+joined_out = win.join_window(
     "join", clock, windower, keyed_names, keyed_emails, product=True
 )
 ```
@@ -737,8 +737,8 @@ join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(202
 The two previously described join operators have **named** versions.
 {py:obj}`~bytewax.operators.join`, has
 {py:obj}`~bytewax.operators.join_named` and
-{py:obj}`~bytewax.operators.window.join_window` has
-{py:obj}`~bytewax.operators.window.join_window_named`.
+{py:obj}`~bytewax.operators.windowing.join_window` has
+{py:obj}`~bytewax.operators.windowing.join_window_named`.
 
 The named versions have identical parameters and join semantics, but
 in stead of emitting {py:obj}`tuple`s downstream, they emit

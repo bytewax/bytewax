@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from bytewax.operators.window import (
+from bytewax.operators.windowing import (
     UTC_MAX,
     UTC_MIN,
     _EventClockLogic,

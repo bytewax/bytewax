@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from bytewax.operators.window import UTC_MAX, _SystemClockLogic
+from bytewax.operators.windowing import UTC_MAX, _SystemClockLogic
 from bytewax.testing import TimeTestingGetter
 
 
