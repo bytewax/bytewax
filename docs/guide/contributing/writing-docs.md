@@ -337,6 +337,31 @@ K1 & K2 --> J1[Join on User ID] --> V[Validator] --> S[Enriched Serializer] --> 
 V --> O2[Kafka Producer `enriched_txns_dead_letter_queue`]
 ```
 
+### Current Version Number
+
+Sometimes you want to show a command that includes the latest version
+of Bytewax with version number. Instead of updating this number in
+every file, Sphinx has a variable that has the current version number
+in it that we can substitute in. To enable substitutions in a code
+block, unfortunately, we have to use the directive form and enable
+substitutions:
+
+````markdown
+```{code-block} console
+:substitutions:
+
+$ pip install bytewax==|version|
+```
+````
+
+Appears as:
+
+```{code-block} console
+:substitutions:
+
+$ pip install bytewax==|version|
+```
+
 ## Doctests
 
 We have a Sphinx builder which to run all Python code blocks in our

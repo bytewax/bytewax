@@ -125,6 +125,8 @@ docutils==0.20.1 \
     #   myst-parser
     #   pydata-sphinx-theme
     #   sphinx
+    #   sphinx-prompt
+    #   sphinx-substitution-extensions
 idna==3.7 \
     --hash=sha256:028ff3aadf0609c1fd278d8ea3089299412a7a8b9bd005dd08b9f8285bcb5cfc \
     --hash=sha256:82fee1fc78add43492d3a1898bfa6d8a904cc97d8427f683ed8e798d07761aa0
@@ -234,6 +236,7 @@ pygments==2.17.2 \
     #   accessible-pygments
     #   pydata-sphinx-theme
     #   sphinx
+    #   sphinx-prompt
 pyyaml==6.0.1 \
     --hash=sha256:04ac92ad1925b2cff1db0cfebffb6ffc43457495c9b3c39d3fcae417d7125dc5 \
     --hash=sha256:062582fca9fabdd2c8b54a3ef1c978d786e0f6b3a1510e0ac93ef59e0ddae2bc \
@@ -306,12 +309,21 @@ sphinx==7.3.7 \
     #   myst-parser
     #   pydata-sphinx-theme
     #   sphinx-favicon
+    #   sphinx-prompt
+    #   sphinx-substitution-extensions
 sphinx-autodoc2==0.5.0 \
     --hash=sha256:7d76044aa81d6af74447080182b6868c7eb066874edc835e8ddf810735b6565a \
     --hash=sha256:e867013b1512f9d6d7e6f6799f8b537d6884462acd118ef361f3f619a60b5c9e
 sphinx-favicon==1.0.1 \
     --hash=sha256:7c93d6b634cb4c9687ceab67a8526f05d3b02679df94e273e51a43282e6b034c \
     --hash=sha256:df796de32125609c1b4a8964db74270ebf4502089c27cd53f542354dc0b57e8e
+sphinx-prompt==1.8.0 \
+    --hash=sha256:369ecc633f0711886f9b3a078c83264245be1adf46abeeb9b88b5519e4b51007 \
+    --hash=sha256:47482f86fcec29662fdfd23e7c04ef03582714195d01f5d565403320084372ed
+    # via sphinx-substitution-extensions
+sphinx-substitution-extensions==2024.2.25 \
+    --hash=sha256:1e22951dbe5052b5b7866897196317da3fb2640776b608828ffe6c675e607b95 \
+    --hash=sha256:9d489d462343ba14dabc7f290c4d305946a54541d978a21d1d9b904f1ff7afe4
 sphinxcontrib-applehelp==1.0.8 \
     --hash=sha256:c40a4f96f3776c4393d933412053962fac2b84f4c99a7982ba42e09576a70619 \
     --hash=sha256:cb61eb0ec1b61f349e5cc36b2028e9e7ca765be05e49641c97241274753067b4

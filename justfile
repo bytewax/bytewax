@@ -96,7 +96,7 @@ ci-pre: lint test-py test-rs test-doc test-benchmark
 
 # Start an auto-refreshing doc development server
 doc-autobuild: _assert-venv
-    sphinx-autobuild -E docs/ docs/_build/
+    sphinx-autobuild --ignore '**/.*' -E docs/ docs/_build/
 
 # Build the docs into static HTML files in `docs/_build/`
 doc-build: _assert-venv
