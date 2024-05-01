@@ -16,6 +16,20 @@ You don't have to actually install a specific version of the
 toolchain, just install `rustup`. The build process below will ensure
 you use the correct version.
 
+You can verify the installation was successful via the command
+
+```console
+$ cargo --version
+```
+
+### Install `cbfmt`
+
+Once installed, you can simply run
+
+```console
+$ cargo install cbfmt
+```
+
 ### Install `just`
 
 We use [`just`](https://just.systems/man/en/) as a command runner for

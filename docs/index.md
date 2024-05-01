@@ -9,5 +9,11 @@
 ```{toctree}
 :titlesonly:
 
+/tutorial/index.rst
+```
+
+```{toctree}
+:titlesonly:
+
 /api/index.rst
 ```
