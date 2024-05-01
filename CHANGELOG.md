@@ -55,6 +55,9 @@ notes on GitHub when we make a new release.__
 
 - Adds a {py:obj}`~bytewax.operators.filter_map_value` operator.
 
+- Adds a {py:obj}`~bytewax.operators.enrich_cached` operator for
+  easier joining with an external data source.
+
 ## v0.19.1
 
 - Fixes a bug where using a system clock on certain architectures

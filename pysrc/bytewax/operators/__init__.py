@@ -60,6 +60,14 @@ S = TypeVar("S")
 """Type of state snapshots."""
 
 
+DK = TypeVar("DK")
+"""Type of {py:obj}`dict` keys."""
+
+
+DV = TypeVar("DV")
+"""Type of {py:obj}`dict` values."""
+
+
 KeyedStream: TypeAlias = Stream[Tuple[str, V]]
 """A {py:obj}`~bytewax.dataflow.Stream` of `(key, value)` 2-tuples."""
 
@@ -72,6 +80,10 @@ def _identity(x: X) -> X:
 
 def _untyped_none() -> Any:
     return None
+
+
+def _get_system_utc() -> datetime:
+    return datetime.now(tz=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -805,6 +817,154 @@ def count_final(
     """
     down: KeyedStream[int] = map("init_count", up, lambda x: (key(x), 1))
     return reduce_final("sum", down, lambda s, x: s + x)
+
+
+@dataclass
+class TTLCache(Generic[DK, DV]):
+    """A simple TTL cache."""
+
+    v_getter: Callable[[DK], DV]
+    now_getter: Callable[[], datetime]
+    ttl: timedelta
+    _cache: Dict[DK, Tuple[datetime, DV]] = field(default_factory=dict)
+
+    def get(self, k: DK) -> DV:
+        """Get the cached value for a key.
+
+        Will cache and return the updated value if TTL has expired.
+
+        :arg k: Key.
+
+        :returns: Value.
+
+        """
+        now = self.now_getter()
+        try:
+            ts, v = self._cache[k]
+            if now - ts > self.ttl:
+                raise KeyError()
+        except KeyError:
+            v = self.v_getter(k)
+            self._cache[k] = (now, v)
+
+        return v
+
+    def remove(self, k: DK) -> None:
+        """Remove the cached value for this key.
+
+        :arg k: Key.
+
+        """
+        del self._cache[k]
+
+
+@operator
+def enrich_cached(
+    step_id: str,
+    up: Stream[X],
+    getter: Callable[[DK], DV],
+    mapper: Callable[[TTLCache[DK, DV], X], Y],
+    ttl: timedelta = timedelta.max,
+    _now_getter: Callable[[], datetime] = _get_system_utc,
+) -> Stream[Y]:
+    """Enrich / join items using a cached lookup.
+
+    Use this if you'd like to join items in the dataflow with
+    unsychronized pulled / polled data from an external service. This
+    assumes that the joined data is static and will not emit updates.
+    Since there is no integration with the recovery system, it's
+    possible that results will change across resumes if the joined
+    data source changes.
+
+    The joined data is cached by a key you specify.
+
+    ```{testcode}
+    import bytewax.operators as op
+    from bytewax.dataflow import Dataflow
+    from bytewax.testing import TestingSource, run_main
+
+
+    def query_icon_url_service(code):
+        if code == "dog_ico":
+            return "http://domain.invalid/static/dog_v1.png"
+        elif code == "cat_ico":
+            return "http://domain.invalid/static/cat_v2.png"
+        elif code == "rabbit_ico":
+            return "http://domain.invalid/static/rabbit_v1.png"
+
+
+    flow = Dataflow("param_eg")
+    inp = op.input(
+        "inp",
+        flow,
+        TestingSource(
+            [
+                {"user_id": "1", "avatar_icon_code": "dog_ico"},
+                {"user_id": "3", "avatar_icon_code": "rabbit_ico"},
+                {"user_id": "2", "avatar_icon_code": "dog_ico"},
+            ]
+        ),
+    )
+    op.inspect("check_inp", inp)
+
+
+    def icon_code_to_url(cache, msg):
+        code = msg.pop("avatar_icon_code")
+        msg["avatar_icon_url"] = cache.get(code)
+        return msg
+
+
+    with_urls = op.enrich_cached(
+        "with_url",
+        inp,
+        query_icon_url_service,
+        icon_code_to_url,
+    )
+    op.inspect("check_with_url", with_urls)
+    ```
+
+    If you have a join source which is push-based or need to emit
+    updates when either side of the join changes, instead consider
+    having that be a second {py:obj}`~bytewax.operators.input` to the
+    dataflow and using a running {py:obj}`~bytewax.operators.join`.
+    This reduces cache misses and startup overhead.
+
+    Each worker will keep a local cache of values. There is no max
+    size.
+
+    You can also use a {py:obj}`~bytewax.operators.map` step in the
+    same way to manage the cache yourself manually.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Stream.
+
+    :arg getter: On cache miss, get the new updated value for a key.
+
+    :arg mapper: Called on each item with access to the cache. Each
+        return value is emitted downstream.
+
+    :arg ttl: Re-get values in the cache that are older than this.
+
+    :returns: A stream of items returned by the mapper.
+
+    """
+    now = _now_getter()
+
+    def batch_now_getter() -> datetime:
+        nonlocal now
+        return now
+
+    cache = TTLCache(getter, batch_now_getter, ttl)
+
+    def shim_mapper(xs: Iterable[X]) -> Iterable[Y]:
+        nonlocal now
+
+        now = _now_getter()
+        for x in xs:
+            yield mapper(cache, x)
+
+    return flat_map_batch("flat_map_batch", up, shim_mapper)
 
 
 @operator

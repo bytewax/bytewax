@@ -30,6 +30,8 @@ from bytewax.dataflow import (
 )
 from bytewax.operators import (
     _EMPTY,
+    DK,
+    DV,
     KeyedStream,
     S,
     StatefulBatchLogic,
@@ -37,6 +39,7 @@ from bytewax.operators import (
     V,
     W,
     X,
+    _get_system_utc,
     _identity,
     _JoinState,
     _untyped_none,
@@ -64,14 +67,6 @@ SW = TypeVar("SW")
 
 C = TypeVar("C", bound=Iterable)
 """Type of downstream containers."""
-
-
-DK = TypeVar("DK")
-"""Type of {py:obj}`dict` keys."""
-
-
-DV = TypeVar("DV")
-"""Type of {py:obj}`dict` values."""
 
 
 class ClockLogic(ABC, Generic[V, S]):
@@ -318,10 +313,6 @@ class Clock(ABC, Generic[V, S]):
 
         """
         ...
-
-
-def _get_system_utc() -> datetime:
-    return datetime.now(tz=timezone.utc)
 
 
 @dataclass
