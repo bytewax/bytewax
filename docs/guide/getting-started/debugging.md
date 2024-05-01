@@ -37,7 +37,8 @@ documentation of the operator carefully.
 The Bytewax library includes a small helper script to visualize
 dataflow structure. This can help you build more complicated dataflows
 easily. To use it run the {py:obj}`bytewax.visualize` module with the
-dataflow import path (just like when ):
+dataflow import path, [just like when using
+`bytewax.run`](#xref-flow-arg):
 
 ```console
 $ python -m bytewax.visualize examples.basic
@@ -64,12 +65,17 @@ end
 
 By default, this outputs the code for a
 [MermaidJS](https://mermaid.js.org/) diagram. There are various ways
-to render the diagram, but using https://mermaid.live/ is one easy
+to render the diagram, and using <https://mermaid.live/> is one easy
 way.
 
 For example, the following dataflow.
 
 ```{testcode}
+from bytewax.dataflow import Dataflow
+import bytewax.operators as op
+from bytewax.testing import TestingSource
+from bytewax.connectors.stdio import StdOutSink
+
 flow = Dataflow("basic")
 inp = op.input("inp", flow, TestingSource(range(10)))
 branch = op.branch("e_o", inp, lambda x: x % 2 == 0)
@@ -79,7 +85,6 @@ combo = op.merge("merge", evens, odds)
 combo = op.map("minus_one", combo, lambda x: x - 1)
 string_output = op.map("stringy", combo, lambda x: f"<dance>x</dance>")
 op.output("out", string_output, StdOutSink())
-
 ```
 
 Renders as:
