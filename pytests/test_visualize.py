@@ -381,8 +381,7 @@ def test_to_mermaid_linear():
         test_df.inp -- "down → up" --> test_df.add_one
         test_df.out["out (output)"]
         test_df.add_one -- "down → up" --> test_df.out
-        end
-        """
+        end"""
     )
 
 
@@ -407,8 +406,7 @@ def test_to_mermaid_nonlinear():
         test_df.add_one -- "down → up" --> test_df.out_one
         test_df.out_two["out_two (output)"]
         test_df.add_two -- "down → up" --> test_df.out_two
-        end
-        """
+        end"""
     )
 
 
@@ -430,6 +428,5 @@ def test_to_mermaid_multistream_inp():
         test_df.twos -- "down → ups" --> test_df.merge
         test_df.out["out (output)"]
         test_df.merge -- "down → up" --> test_df.out
-        end
-        """
+        end"""
     )

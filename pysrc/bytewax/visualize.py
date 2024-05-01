@@ -270,7 +270,6 @@ def to_plantuml(flow: Dataflow, recursive: bool = False) -> str:
     for substep in rflow.substeps:
         lines += _to_plantuml_step(substep, recursive)
     lines.append("@enduml")
-    lines.append("")
     return "\n".join(lines)
 
 
@@ -329,7 +328,6 @@ def to_mermaid(flow: Dataflow) -> str:
     for substep in rflow.substeps:
         lines += _to_mermaid_step(substep, port_id_to_port, port_id_to_step)
     lines.append("end")
-    lines.append("")
     return "\n".join(lines)
 
 
