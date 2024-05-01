@@ -9,6 +9,9 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Adds a dataflow structure visualizer. Run `python -m
+  bytewax.visualize`.
+
 - *Breaking change* The `unary` operator and `UnaryLogic` have been
   renamed to `stateful` and `StatefulLogic` respectively.
 

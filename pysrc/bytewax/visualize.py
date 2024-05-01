@@ -1,4 +1,4 @@
-"""Encode a dataflow model for visualization.
+"""Visualize dataflow structure.
 
 This is usually run as a script via `python -m bytewax.visualize`.
 
@@ -343,7 +343,7 @@ _Formats = Literal[
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m bytewax.visualize",
-        description="""Turn a dataflow model into a diagram format for visualization.
+        description="""Generate a diagram of dataflow structure.
 
         You can pipe the output into a file to save it. You'll need to
         use the relevant program to convert the diagram code into a
