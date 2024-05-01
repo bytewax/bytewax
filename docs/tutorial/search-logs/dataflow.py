@@ -15,7 +15,7 @@ import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.operators import window as wop
-from bytewax.operators.window import EventClockConfig, SessionWindow
+from bytewax.operators.window import EventClock, SessionWindower
 from bytewax.testing import TestingSource
 
 
