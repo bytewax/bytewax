@@ -217,7 +217,7 @@ flow = Dataflow("search_ctr")
 
 ### Generating Input Data
 
-Bytewax has a `TestingSource` class that takes an enumerable list of events that it will emit, one at a time into our dataflow. `TestingSource` will be initialized with the list of events we created earlier in the variable `client_events`.
+Bytewax has a {py:obj}`~bytewax.testing.TestingSource` class that takes an enumerable list of events that it will emit, one at a time into our dataflow. {py:obj}`~bytewax.testing.TestingSource` will be initialized with the list of events we created earlier in the variable `client_events`.
 
 ```python
 # Add input source
