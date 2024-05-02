@@ -28,7 +28,6 @@ This guide will teach you how to use Bytewax to detect and calculate the Click-T
 
 
 
-(xref-resources)=
 ## Resources
 
 <p style="text-align: center;">
