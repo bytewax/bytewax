@@ -6,7 +6,7 @@ Bytewax is instrumented to offer observability of your dataflow.
 The default configuration logs anything at the log level `ERROR` to
 standard output. You can control the log level by passing the
 `log_level` parameter to the `setup_tracing` function. If you want to
-see all the messages bytewax emits, set the level to `TRACE`.
+see all the messages Bytewax emits, set the level to `TRACE`.
 
 The `TRACE` level includes everything that would be sent to an
 opentelemetry compatible backend, like
