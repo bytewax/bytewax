@@ -27,18 +27,6 @@ This guide will teach you how to use Bytewax to detect and calculate the Click-T
 
 
 
-## Table of Contents
-
-- [Resources](#xref-resources)
-- [Introduction and problem statement](#xref-introduction)
-- [Strategy](#xref-strategy)
-- [Assumptions](#xref-assumptions)
-- [Imports and Setup](#xref-imports)
-- [Data Model](#xref-data-model)
-- [Defining user events, adding events, and calculating CTR](#xref-define-user-events)
-- [Creating our Dataflow](#xref-create-dataflow)
-- [Execution](#xref-execution-search-logs)
-- [Summary](#xref-summary)
 
 (xref-resources)=
 ## Resources
