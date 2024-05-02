@@ -29,9 +29,25 @@ sys.path.insert(0, os.path.abspath("."))
 project = "Bytewax"
 copyright = "2024, Bytewax, Inc"  # noqa: A001
 author = "Bytewax, Inc."
+
 with open("../Cargo.toml", "rb") as f:
     data = tomllib.load(f)
-release = data["package"]["version"]
+    pproj_version = data["package"]["version"]
+# This is the slug in the RtD URL.
+rtd_version = os.environ.get("READTHEDOCS_VERSION", "HEAD")
+rtd_type = os.environ.get("READTHEDOCS_VERSION_TYPE", "unknown")
+
+print("pyproject.toml version", pproj_version)
+print("READTHEDOCS_VERSION", rtd_version)
+print("READTHEDOCS_VERSION_TYPE", rtd_type)
+
+if rtd_type == "tag":
+    release = pproj_version
+elif rtd_type == "external":  # PR build
+    release = f"NOT_RELEASED.PR-{rtd_version}"
+else:
+    release = f"NOT_RELEASED.{rtd_version}"
+
 version = release
 
 # -- General configuration ---------------------------------------------------
