@@ -9,7 +9,7 @@
 ```{toctree}
 :titlesonly:
 
-/tutorial/index.rst
+/tutorial/index.md
 ```
 
 ```{toctree}
