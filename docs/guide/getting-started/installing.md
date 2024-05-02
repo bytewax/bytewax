@@ -25,8 +25,10 @@ We recommend that you pin the version of Bytewax that you are using in
 your project by specifying the version of Bytewax that you wish to
 install:
 
-```console
-$ pip install bytewax==0.18
+```{code-block} console
+:substitutions:
+
+$ pip install bytewax==|version|
 ```
 
 When upgrading between versions of Bytewax, be sure to review the
@@ -64,3 +66,4 @@ can install this by downloading the binaries from the
 ```console
 $ brew tap bytewax/tap
 $ brew install waxctl
+```

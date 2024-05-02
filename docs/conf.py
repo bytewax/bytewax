@@ -11,6 +11,7 @@ from typing import Optional
 
 import docutils.nodes as dn
 import sphinx.addnodes as sn
+import tomllib
 from sphinx.application import Sphinx
 from sphinx.environment import BuildEnvironment
 from sphinx.errors import NoUri
@@ -29,6 +30,26 @@ project = "Bytewax"
 copyright = "2024, Bytewax, Inc"  # noqa: A001
 author = "Bytewax, Inc."
 
+with open("../Cargo.toml", "rb") as f:
+    data = tomllib.load(f)
+    pproj_version = data["package"]["version"]
+# This is the slug in the RtD URL.
+rtd_version = os.environ.get("READTHEDOCS_VERSION", "HEAD")
+rtd_type = os.environ.get("READTHEDOCS_VERSION_TYPE", "unknown")
+
+print("pyproject.toml version", pproj_version)
+print("READTHEDOCS_VERSION", rtd_version)
+print("READTHEDOCS_VERSION_TYPE", rtd_type)
+
+if rtd_type == "tag":
+    release = pproj_version
+elif rtd_type == "external":  # PR build
+    release = f"NOT_RELEASED.PR-{rtd_version}"
+else:
+    release = f"NOT_RELEASED.{rtd_version}"
+
+version = release
+
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
@@ -38,6 +59,7 @@ extensions = [
     "sphinx.ext.doctest",
     "sphinx.ext.intersphinx",
     "sphinx_favicon",
+    "sphinx_substitution_extensions",
     "sphinxcontrib.mermaid",
 ]
 
@@ -46,7 +68,6 @@ intersphinx_mapping = {
         "https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/",
         None,
     ),
-    "fastavro": ("https://fastavro.readthedocs.io/en/latest/", None),
     "myst": ("https://myst-parser.readthedocs.io/en/latest/", None),
     "python": ("https://docs.python.org/3/", None),
     "sphinx": ("https://www.sphinx-doc.org/en/master/", None),
@@ -62,10 +83,6 @@ highlight_language = "text"
 nitpicky = True
 # Intersphinx xrefs that for some reason aren't listed. Ignore them.
 nitpick_ignore = [
-    (
-        "py:class",
-        "fastavro.types.AvroMessage",
-    ),
     ("py:obj", "confluent_kafka.OFFSET_BEGINNING"),
     ("py:obj", "confluent_kafka.OFFSET_END"),
 ]
@@ -156,6 +173,8 @@ myst_enable_extensions = [
     # arguments.
     # https://myst-parser.readthedocs.io/en/latest/syntax/optional.html#field-lists
     "fieldlist",
+    # Enable using `{code-block}` `:substitutions:` and `|version|` syntax.
+    "substitution",
 ]
 myst_fence_as_directive = [
     # MyST usually uses the syntax ```{mermaid} to have a directive.
@@ -166,6 +185,10 @@ myst_fence_as_directive = [
 myst_number_code_blocks = [
     "python",
 ]
+myst_substitutions = {
+    "release": release,
+    "version": version,
+}
 
 # -- Options for autodoc2 -----------------------------------------------------
 # https://sphinx-autodoc2.readthedocs.io/en/latest/config.html

@@ -197,7 +197,7 @@ op.inspect("debug", merged_stream)
 
 #### Output
 
-Output in Bytewax is described as a sink and these are grouped into [connectors](https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.html). There are a number of basic connectors in the bytewax repo to help you during development. In addition to the built-in connectors, it is possible to use the input and output API to build a custom sink and source. There is also a hub for connectors built by the community, partners and Bytewax. Below is an example of a custom connector for Postgres using the psycopg2 library.
+Output in Bytewax is described as a sink and these are grouped into [connectors](https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.html). There are a number of basic connectors in the Bytewax repo to help you during development. In addition to the built-in connectors, it is possible to use the input and output API to build a custom sink and source. There is also a hub for connectors built by the community, partners and Bytewax. Below is an example of a custom connector for Postgres using the psycopg2 library.
 
 % skip: next
 

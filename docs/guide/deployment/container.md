@@ -4,7 +4,7 @@
 In this chapter we are going to build a Docker image where we can run
 a dataflow, and present the prebuilt images we offer.
 
-## Your dataflow
+## Your Dataflow
 
 Let's start with a simple dataflow.
 
@@ -31,21 +31,23 @@ $ python -m bytewax.run dataflow
 4
 ```
 
-## Docker image
+## Docker Image
 
 You can run the dataflow inside a Docker image. You'll need an image
-with python support, and can just install bytewax and run the
+with Python support, and can just install Bytewax and run the
 dataflow.
 
 Create a `Dockerfile` with the following content:
 
-```Dockerfile
+```{code-block} Dockerfile
+:substitutions:
+
 # Start from a debian slim with python support
 FROM python:3.11-slim-bullseye
 # Setup a workdir where we can put our dataflow
 WORKDIR /bytewax
 # Install bytewax and the dependencies you need here
-RUN pip install bytewax==0.18.0
+RUN pip install bytewax==|version|
 # Copy the dataflow in the workdir
 COPY dataflow.py dataflow.py
 # And run it.
@@ -67,14 +69,16 @@ And check that everything's working:
 $ docker run --rm bytewax-custom
 ```
 
-## Example: docker compose, kafka connector and redpanda
+## Example: Docker Compose, Kafka Connector and Redpanda
 
 Modify the Dockerfile to install optional `kafka` dependencies in
-bytewax:
+Bytewax:
 
-```diff
-- RUN pip install bytewax==0.18.0
-+ RUN pip install bytewax[kafka]==0.18.0
+```{code-block} diff
+:substitutions:
+
+- RUN pip install bytewax==|version|
++ RUN pip install bytewax[kafka]==|version|
 ```
 
 Rebuild the image with:
@@ -97,7 +101,7 @@ inp = kop.input("in", flow, brokers=["redpanda:9092"], topics=["in_topic"])
 op.output("out", inp.oks, StdOutSink())
 ```
 
-Now we can create a docker-compose file that runs both a `Redpanda`
+Now we can create a docker-compose file that runs both a Redpanda
 instance and our dataflow. This is a simplified version of the docker
 compose file offered in redpanda's docs for a development setup.
 
@@ -149,7 +153,7 @@ $ docker compose up
 
 And you will see the output from the dataflow as soon as you start
 producing messages in the topic. To produce messages with this setup,
-you can use the `rpk` tool included in the redpanda docker images:
+you can use the `rpk` tool included in the Redpanda docker images:
 
 ```console
 $ docker exec -it redpanda rpk topic produce in_topic
@@ -160,8 +164,8 @@ dataflow.
 
 ## Bytewax Images in Docker Hub
 
-We showed how to build a custom image to run a bytewax dataflow, but
-bytewax also offers some premade images, that are optimizied for build
+We showed how to build a custom image to run a Bytewax dataflow, but
+Bytewax also offers some premade images, that are optimizied for build
 size and have customizations options so that you don't always have to
 create your own image from scratch. Releases are available in Docker
 Hub with these python versions: 3.8, 3.9, 3.10 and 3.11.
@@ -172,13 +176,16 @@ We implement the following naming convention:
 bytewax/bytewax:${BYTEWAX_VERSION}-python${PYTHON_VERSION}
 ```
 
-Following this convention, Bytewax `0.18.0` would have the images:
+Following this convention, Bytewax {{ version }} would have the
+images:
 
-```
-bytewax/bytewax:0.18.0-python3.8
-bytewax/bytewax:0.18.0-python3.9
-bytewax/bytewax:0.18.0-python3.10
-bytewax/bytewax:0.18.0-python3.11
+```{code-block}
+:substitutions:
+
+bytewax/bytewax:|version|-python3.8
+bytewax/bytewax:|version|-python3.9
+bytewax/bytewax:|version|-python3.10
+bytewax/bytewax:|version|-python3.11
 ```
 
 And for the latest version of Bytewax:
@@ -252,19 +259,16 @@ Bytewax's image includes a small number of modules: `bytewax` itself,
 So if you try to run a dataflow which requires additional modules, you
 will get a `ModuleNotFoundError`:
 
-```console
+```{code-block} console
+:substitutions:
+
 $ # Fetch an example dataflow that requires one external dependency
-$ wget https://raw.githubusercontent.com/bytewax/bytewax/v0.18.0/examples/wikistream.py -o dataflows/wikistream.py
+$ wget https://raw.githubusercontent.com/bytewax/bytewax/|version|/examples/wikistream.py -o dataflows/wikistream.py
 $ # Then run it
 $ docker run --rm --name=my-dataflow \
     -v $(pwd)/dataflows:/bytewax/dataflows \
     -e BYTEWAX_PYTHON_FILE_PATH=dataflows.wikistream \
     bytewax/bytewax
-```
-
-Output:
-
-```
 Traceback (most recent call last):
   ...
   File "/bytewax/dataflows/wikistream.py", line 9, in <module>
