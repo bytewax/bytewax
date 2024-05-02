@@ -354,7 +354,7 @@ $ pip install bytewax==|version|
 ```
 ````
 
-Appears as:
+Appears for the current version {{ version }} as:
 
 ```{code-block} console
 :substitutions:
