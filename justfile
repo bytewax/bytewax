@@ -63,7 +63,8 @@ fmt-md *files: _assert-venv
 
 # Lint the code in the repo; runs in CI
 lint: _assert-venv
-    vermin pysrc/ pytests/ docs/ examples/ *.py
+    vermin --config-file vermin-lib.ini pysrc/ pytests/ examples/
+    vermin --config-file vermin-dev.ini docs/ *.py
     ruff check pysrc/ pytests/ docs/ examples/ *.py
     # TODO: Add `examples/` to mypy checking. Will require a lot of
     # fixup?
