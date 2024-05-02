@@ -18,7 +18,7 @@ import importlib
 import inspect
 import itertools
 from argparse import ArgumentParser
-from ast import unparse  # novermin
+from ast import unparse
 from dataclasses import dataclass
 from inspect import Parameter, Signature
 from types import (
@@ -32,7 +32,7 @@ from types import (
 )
 from typing import List, Mapping, Optional, Tuple, Union
 
-import graphlib  # novermin
+import graphlib
 from typing_extensions import Self, TypeVar
 
 _N = TypeVar("_N")
