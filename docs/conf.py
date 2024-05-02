@@ -52,7 +52,6 @@ intersphinx_mapping = {
         "https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/",
         None,
     ),
-    "fastavro": ("https://fastavro.readthedocs.io/en/latest/", None),
     "myst": ("https://myst-parser.readthedocs.io/en/latest/", None),
     "python": ("https://docs.python.org/3/", None),
     "sphinx": ("https://www.sphinx-doc.org/en/master/", None),
@@ -68,10 +67,6 @@ highlight_language = "text"
 nitpicky = True
 # Intersphinx xrefs that for some reason aren't listed. Ignore them.
 nitpick_ignore = [
-    (
-        "py:class",
-        "fastavro.types.AvroMessage",
-    ),
     ("py:obj", "confluent_kafka.OFFSET_BEGINNING"),
     ("py:obj", "confluent_kafka.OFFSET_END"),
 ]
