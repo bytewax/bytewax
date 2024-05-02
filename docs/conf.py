@@ -45,7 +45,7 @@ if rtd_type == "tag":
     release = pproj_version
 elif rtd_type == "external":  # PR build
     release = f"NOT_RELEASED.PR-{rtd_version}"
-else:
+else:  # `latest` has type `"branch"`
     release = f"NOT_RELEASED.{rtd_version}"
 
 version = release
