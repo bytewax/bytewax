@@ -285,11 +285,11 @@ op.output("out", calc, StdOutSink())
 Now we're done with defining the dataflow. Let's run it!
 
 ```console
-> python -m bytewax.run dataflow:flow
->> User 1: 1 searches, 1 clicks
->> User 2: 1 searches, 2 clicks
->>('1', 1.0)
->>('2', 2.0)
+$ python -m bytewax.run dataflow:flow
+User 1: 1 searches, 1 clicks
+User 2: 1 searches, 2 clicks
+('1', 1.0)
+('2', 2.0)
 ```
 
 (xref-summary)=
