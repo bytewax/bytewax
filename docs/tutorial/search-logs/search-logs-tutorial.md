@@ -239,7 +239,7 @@ inp = op.input("inp", flow, TestingSource(client_events))
 
 ### Mapping user events
 
-We can use the `op` class along with `op.map("user_event", inp, user_event)` - this takes each event from the input and applies the `user_event` function. This function is transforming each event into a format suitable for grouping by user (key-value pairs where the key is the user ID).
+All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which we've imported here by a shorter name, `op`. We are using the {py:obj}`~bytewax.operators.map` operator - it takes each event from the input and applies the `user_event` function. This function is transforming each event into a format suitable for grouping by user (key-value pairs where the key is the user ID).
 
 ```python
 # Map user events function
