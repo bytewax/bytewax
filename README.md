@@ -89,8 +89,8 @@ There are multiple stateful operators available like `reduce`, `stateful_map` an
 from datetime import datetime, timedelta, timezone
 
 from bytewax.dataflow import Dataflow
-import bytewax.operators.window as win
-from bytewax.operators.window import EventClock, TumblingWindower
+import bytewax.operators.windowing as win
+from bytewax.operators.windowing import EventClock, TumblingWindower
 from bytewax.testing import TestingSource
 
 flow = Dataflow("window_eg")

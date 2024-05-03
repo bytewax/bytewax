@@ -7,7 +7,7 @@ from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.operators import window as window_op
-from bytewax.operators.window import EventClockConfig, SessionWindow
+from bytewax.operators.windowing import EventClockConfig, SessionWindow
 from bytewax.testing import TestingSource
 
 

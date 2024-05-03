@@ -27,7 +27,7 @@ from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.operators import window as window_op
-from bytewax.operators.window import EventClockConfig, TumblingWindow
+from bytewax.operators.windowing import EventClockConfig, TumblingWindow
 
 # Define the dataflow object and kafka input.
 flow = Dataflow("event time")

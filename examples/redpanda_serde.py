@@ -45,12 +45,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 import bytewax.operators as op
-import bytewax.operators.window as wop
+import bytewax.operators.windowing as win
 from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.kafka.serde import PlainAvroDeserializer, PlainAvroSerializer
 from bytewax.dataflow import Dataflow
-from bytewax.operators.window import SystemClockConfig, TumblingWindow
+from bytewax.operators.windowing import SystemClockConfig, TumblingWindow
 from confluent_kafka.schema_registry import SchemaRegistryClient
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ def accumulate(acc: List[str], msg: KafkaSourceMessage) -> List[str]:
 
 cc = SystemClockConfig()
 wc = TumblingWindow(timedelta(seconds=1), datetime(2023, 1, 1, tzinfo=timezone.utc))
-windows = wop.fold_window("calc_avg", keyed, cc, wc, list, accumulate)
+windows = win.fold_window("calc_avg", keyed, cc, wc, list, accumulate)
 
 
 # And do some calculations on each window

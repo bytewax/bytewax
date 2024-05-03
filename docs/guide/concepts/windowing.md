@@ -44,13 +44,13 @@ specific instance of a clock must be able to answer two questions:
 2. What is the current watermark?
 
 All clocks are an instance of
-{py:obj}`~bytewax.operators.window.Clock`. Let's discuss how each of
+{py:obj}`~bytewax.operators.windowing.Clock`. Let's discuss how each of
 the built-in clocks answers these two questions.
 
 ### System Time
 
 By instantiating a
-{py:obj}`~bytewax.operators.window.SystemClock` you can use system
+{py:obj}`~bytewax.operators.windowing.SystemClock` you can use system
 time in your windowing definition.
 
 1. The current system time is assigned to each value.
@@ -62,7 +62,7 @@ processing happens ASAP.
 
 ### Event Time
 
-By instantiating a {py:obj}`~bytewax.operators.window.EventClock` you
+By instantiating a {py:obj}`~bytewax.operators.windowing.EventClock` you
 can use event time in your windowing definition. This is more nuanced.
 
 1. The callback function `dt_getter` is used to extract and assign the
@@ -118,7 +118,7 @@ exhausted. In this case setting `wait_for_system_duration = `
 Now that we have a definition of time due to the clock, we separately
 pick a **windower** which defines how items are grouped together in
 time. All clocks are an instance of
-{py:obj}`~bytewax.operators.window.Windower`.
+{py:obj}`~bytewax.operators.windowing.Windower`.
 
 Windows are **closed** once the watermark passes their close time.
 This means no more data should arrive that could modify the window
@@ -128,7 +128,7 @@ state, so correct output can be emitted downstream.
 
 **Sliding windows** are windows which have a fixed length, origin time
 (the `align_to` argument), and spacing between starts of the windows.
-Create them with {py:obj}`~bytewax.operators.window.SlidingWindower`.
+Create them with {py:obj}`~bytewax.operators.windowing.SlidingWindower`.
 
 Windows must be aligned to a fixed and known origin time so that they
 are consistent across failures and restarts.
@@ -168,7 +168,7 @@ gantt
 
 **Tumbling windows** are sliding windows where `offset == length` so
 they are not overlapping and also contain no gaps. Create them with
-{py:obj}`~bytewax.operators.window.TumblingWindower`.
+{py:obj}`~bytewax.operators.windowing.TumblingWindower`.
 
 The following are 1 hour windows, aligned to a specific midnight.
 
@@ -187,7 +187,7 @@ gantt
 
 **Session windows** are windows that are dynamically created whenever
 there is a big enough gap in timestamps. Create them with
-{py:obj}`~bytewax.operators.window.SessionWindower`.
+{py:obj}`~bytewax.operators.windowing.SessionWindower`.
 
 The following are the session windows resulting from these values with
 a 30 minute gap.
@@ -218,11 +218,11 @@ should be grouped together in a window, we now pick a **windowing
 operator** which gives you patterns for how to combine the values in
 each window to produce a result.
 
-See the {py:obj}`bytewax.operators.window` module for a list of our
+See the {py:obj}`bytewax.operators.windowing` module for a list of our
 windowing operators and their behavior.
 
 All windowing operators emit `(key, (metadata, value))` nested tuples
-downstream. The {py:obj}`~bytewax.operators.window.WindowMetadata`
+downstream. The {py:obj}`~bytewax.operators.windowing.WindowMetadata`
 contains info about the window so you can do further processing. You
 can also add a {py:obj}`~bytewax.operators.map` step to drop the data
 if it is not needed.
@@ -254,7 +254,7 @@ as possible.
 
 Some clocks don't have a single correct answer on what to do during
 resume. E.g. if you use
-{py:obj}`~bytewax.operators.window.SystemClock` with 10 minute
+{py:obj}`~bytewax.operators.windowing.SystemClock` with 10 minute
 windows, but then resume on a 15 minute mark, the system will
 immediately close out the half-completed window started in the
 previous execution when the next execution resumes.

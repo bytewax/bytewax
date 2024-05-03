@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
-import bytewax.operators.window as win
+import bytewax.operators.windowing as win
 from bytewax.dataflow import Dataflow
-from bytewax.operators.window import (
+from bytewax.operators.windowing import (
     LATE_SESSION_ID,
     SessionWindower,
     SystemClock,

@@ -435,10 +435,11 @@ from bytewax.inputs import SimplePollingSource
 ### Window Metadata
 
 Window operators now emit
-{py:obj}`~bytewax.operators.window.WindowMetadata` objects downstream.
-These objects can be used to introspect the open_time and close_time
-of windows. This changes the output type of windowing operators from a
-stream of: `(key, values)` to a stream of `(key, (metadata, values))`.
+{py:obj}`~bytewax.operators.windowing.WindowMetadata` objects
+downstream. These objects can be used to introspect the open_time and
+close_time of windows. This changes the output type of windowing
+operators from a stream of: `(key, values)` to a stream of `(key,
+(metadata, values))`.
 
 ### Recovery flags
 

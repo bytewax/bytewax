@@ -339,7 +339,7 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     This can result in certain ordering of operators to result in poor
     parallelization across an entire execution cluster. If the
     previous step (like a
-    {py:obj}`bytewax.operators.window.reduce_window` or
+    {py:obj}`bytewax.operators.windowing.reduce_window` or
     {py:obj}`input` with a
     {py:obj}`~bytewax.inputs.FixedPartitionedSource`) concentrated
     items on a subset of workers in the cluster, but the next step is
@@ -769,7 +769,7 @@ def collect(
 ) -> KeyedStream[List[V]]:
     """Collect items into a list up to a size or a timeout.
 
-    See {py:obj}`bytewax.operators.window.collect_window` for more
+    See {py:obj}`bytewax.operators.windowing.collect_window` for more
     control over time.
 
     :arg step_id: Unique ID.
@@ -801,7 +801,7 @@ def count_final(
     """Count the number of occurrences of items in the entire stream.
 
     This will only return counts once the upstream is EOF. You'll need
-    to use {py:obj}`bytewax.operators.window.count_window` on infinite
+    to use {py:obj}`bytewax.operators.windowing.count_window` on infinite
     data.
 
     :arg step_id: Unique ID.

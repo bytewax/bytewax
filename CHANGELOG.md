@@ -22,37 +22,41 @@ notes on GitHub when we make a new release.__
   `StatefulLogic.notify_at` are now optional overrides. The defaults
   retain the state and emit nothing.
 
+- *Breaking change* Windowing operators have been moved from
+  `bytewax.operators.window` into `bytewax.operators.windowing`.
+
 - *Breaking change* `ClockConfig`s have had `Config` dropped from
   their name and are just `Clock`s. E.g. If you previously `from
   bytewax.operators.window import SystemClockConfig` now `from
-  bytewax.operators.window import SystemClock`.
+  bytewax.operators.windowing import SystemClock`.
 
 - *Breaking change* `WindowConfig`s have been renamed to `Windower`s.
   E.g. If you previously `from bytewax.operators.window import
-  SessionWindow` now `from bytewax.operators.window import
+  SessionWindow` now `from bytewax.operators.windowing import
   SessionWindower`.
 
 - *Breaking change* All windowing operators now return a set of
-  streams {py:obj}`~bytewax.operators.window.WindowOut`.
-  {py:obj}`~bytewax.operators.window.WindowMetadata` now is branched
-  into its own stream and is no longer part of the single downstream.
-  All window operator emitted items are labeled with the unique window
-  ID they came from to facilitate joining the data later.
+  streams {py:obj}`~bytewax.operators.windowing.WindowOut`.
+  {py:obj}`~bytewax.operators.windowing.WindowMetadata` now is
+  branched into its own stream and is no longer part of the single
+  downstream. All window operator emitted items are labeled with the
+  unique window ID they came from to facilitate joining the data
+  later.
 
-- *Breaking change* {py:obj}`~bytewax.operators.window.fold_window`
+- *Breaking change* {py:obj}`~bytewax.operators.windowing.fold_window`
   now requires a `merge` argument. This handles whenever the session
   windower determines that two windows must be merged because a new
   item bridged a gap.
 
 - Python interfaces are now provided for custom clocks and windowers.
-  Subclass {py:obj}`~bytewax.operators.window.Clock` (and a
-  corresponding {py:obj}`~bytewax.operators.window.ClockLogic`) or
-  {py:obj}`~bytewax.operators.window.Windower` (and a corresponding
-  {py:obj}`~bytewax.operators.window.WindowerLogic`) to define your
+  Subclass {py:obj}`~bytewax.operators.windowing.Clock` (and a
+  corresponding {py:obj}`~bytewax.operators.windowing.ClockLogic`) or
+  {py:obj}`~bytewax.operators.windowing.Windower` (and a corresponding
+  {py:obj}`~bytewax.operators.windowing.WindowerLogic`) to define your
   own senses of time and window definitions.
 
-- Adds a {py:obj}`~bytewax.operators.window.window` operator to allow
-  you to write more flexible custom windowing operators.
+- Adds a {py:obj}`~bytewax.operators.windowing.window` operator to
+  allow you to write more flexible custom windowing operators.
 
 - Session windows now work correctly with out-of-order data and joins.
 
