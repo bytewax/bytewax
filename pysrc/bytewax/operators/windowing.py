@@ -1593,7 +1593,7 @@ def join_window(
     windower: Windower[Any],
     *sides: KeyedStream[V],
     product: bool = ...,
-) -> WindowOut[V, Iterable[V]]: ...
+) -> WindowOut[V, Tuple[V, ...]]: ...
 
 
 @overload
@@ -1603,7 +1603,7 @@ def join_window(
     windower: Windower[Any],
     *sides: KeyedStream[Any],
     product: bool = ...,
-) -> WindowOut[Any, Iterable[Any]]: ...
+) -> WindowOut[Any, Tuple]: ...
 
 
 @operator

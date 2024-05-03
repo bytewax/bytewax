@@ -1626,7 +1626,7 @@ def join(
     step_id: str,
     *sides: KeyedStream[V],
     running: bool = ...,
-) -> KeyedStream[Iterable[V]]: ...
+) -> KeyedStream[Tuple[V, ...]]: ...
 
 
 @overload
@@ -1634,7 +1634,7 @@ def join(
     step_id: str,
     *sides: KeyedStream[Any],
     running: bool = ...,
-) -> KeyedStream[Iterable[Any]]: ...
+) -> KeyedStream[Tuple]: ...
 
 
 @operator
