@@ -183,7 +183,7 @@ class ClockLogic(ABC, Generic[V, S]):
 
 
 @dataclass
-class _SystemClockLogic(ClockLogic[V, None]):
+class _SystemClockLogic(ClockLogic[Any, None]):
     now_getter: Callable[[], datetime]
     _now: datetime = field(init=False)
 
@@ -195,7 +195,7 @@ class _SystemClockLogic(ClockLogic[V, None]):
         self._now = self.now_getter()
 
     @override
-    def on_item(self, value: V) -> Tuple[datetime, datetime]:
+    def on_item(self, value: Any) -> Tuple[datetime, datetime]:
         return (self._now, self._now)
 
     @override
@@ -317,7 +317,7 @@ class Clock(ABC, Generic[V, S]):
 
 
 @dataclass
-class SystemClock(Clock[V, None]):
+class SystemClock(Clock[Any, None]):
     """Uses the current system time as the timestamp for each item.
 
     The watermark is the current system time.
@@ -329,7 +329,7 @@ class SystemClock(Clock[V, None]):
     """
 
     @override
-    def build(self, resume_state: None) -> _SystemClockLogic[V]:
+    def build(self, resume_state: None) -> _SystemClockLogic:
         return _SystemClockLogic(_get_system_utc)
 
 
