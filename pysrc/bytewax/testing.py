@@ -1,10 +1,7 @@
 """Helper tools for testing dataflows."""
 
-<<<<<<< HEAD
 import asyncio
 import sys
-=======
->>>>>>> 27bd4e0a (Default serde to PickleSerde.)
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
