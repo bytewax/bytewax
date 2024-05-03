@@ -49,7 +49,6 @@ use tracing::instrument;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::pyo3_extensions::TdPyAny;
-use crate::serde::get_serde_obj;
 use crate::timely::*;
 use crate::unwrap_any;
 
@@ -1540,11 +1539,18 @@ where
                                     let ser_change = match snap_change {
                                         StateChange::Upsert(snap) => {
                                             let snap = PyObject::from(snap);
-                                            let serde_obj = unwrap_any!(get_serde_obj(py));
-                                            let ser_snap =
-                                                unwrap_any!(serde_obj
-                                                    .call_method1(intern!(py, "ser"), (snap,)));
-                                            let bytes = unwrap_any!(ser_snap.extract());
+                                            let bytes = unwrap_any!(|| -> PyResult<Vec<u8>> {
+                                                let pickle = py.import_bound("pickle")?;
+                                                Ok(pickle
+                                                    .call_method1(
+                                                        intern!(py, "dumps"),
+                                                        (snap.bind(py),),
+                                                    )?
+                                                    .downcast::<PyBytes>()?
+                                                    .as_bytes()
+                                                    .to_vec())
+                                            }(
+                                            ));
                                             Some(bytes)
                                         }
                                         StateChange::Discard => None,
@@ -1587,9 +1593,10 @@ where
                 let snap_change = match ser_change {
                     Some(ser_snap) => {
                         let snap = unwrap_any!(Python::with_gil(|py| -> PyResult<PyObject> {
-                            Ok(get_serde_obj(py)?
+                            let pickle = py.import_bound("pickle")?;
+                            Ok(pickle
                                 .call_method1(
-                                    intern!(py, "de"),
+                                    intern!(py, "loads"),
                                     (PyBytes::new_bound(py, &ser_snap),),
                                 )?
                                 .unbind())

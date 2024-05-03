@@ -1,13 +1,12 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
-use crate::serde::get_serde_obj;
 use crate::try_unwrap;
 
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::*;
+use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
 
@@ -63,7 +62,6 @@ impl std::fmt::Debug for TdPyAny {
 
 /// Serialize Python objects flowing through Timely that cross
 /// process bounds as bytes.
-/// See the Python documentation in `bytewax.serde`.
 impl serde::Serialize for TdPyAny {
     // We can't do better than isolating the Result<_, PyErr> part and
     // the explicitly converting.  1. `?` automatically trys to
@@ -87,9 +85,9 @@ impl serde::Serialize for TdPyAny {
     {
         Python::with_gil(|py| {
             let x = self.bind(py);
-            let binding = get_serde_obj(py)
-                .map_err(S::Error::custom)?
-                .call_method1(intern!(py, "ser"), (x,))
+            let pickle = py.import_bound("pickle").map_err(S::Error::custom)?;
+            let binding = pickle
+                .call_method1(intern!(py, "dumps"), (x,))
                 .map_err(S::Error::custom)?;
             let bytes = binding.downcast::<PyBytes>().map_err(S::Error::custom)?;
             serializer
@@ -113,8 +111,9 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let x = get_serde_obj(py)?
-                .call_method1(intern!(py, "de"), (bytes,))?
+            let pickle = py.import_bound("pickle")?;
+            let x = pickle
+                .call_method1(intern!(py, "loads"), (bytes,))?
                 .unbind()
                 .into();
             Ok(x)
