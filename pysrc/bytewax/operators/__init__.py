@@ -22,6 +22,7 @@ from typing import (
     Optional,
     Tuple,
     TypeVar,
+    Union,
     overload,
 )
 
@@ -54,6 +55,10 @@ V = TypeVar("V")
 
 W = TypeVar("W")
 """Type of modified downstream values."""
+
+
+W_co = TypeVar("W_co", covariant=True)
+"""Type of modified downstream values in a covariant container."""
 
 
 S = TypeVar("S")
@@ -281,8 +286,63 @@ def inspect_debug(
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
+@overload
+def merge(
+    step_id: str,
+    up1: Stream[X],
+    /,
+) -> Stream[X]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    up1: Stream[X],
+    up2: Stream[Y],
+    /,
+) -> Stream[Union[X, Y]]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    up1: Stream[X],
+    up2: Stream[Y],
+    up3: Stream[U],
+    /,
+) -> Stream[Union[X, Y, U]]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    up1: Stream[X],
+    up2: Stream[Y],
+    up3: Stream[U],
+    up4: Stream[V],
+    /,
+) -> Stream[Union[X, Y, U, V]]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    *ups: Stream[X],
+) -> Stream[X]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    *ups: Stream[Any],
+) -> Stream[Any]: ...
+
+
 @operator(_core=True)
-def merge(step_id: str, *ups: Stream[X]) -> Stream[X]:
+def merge(
+    step_id: str,
+    *ups: Stream[Any],
+) -> Stream[Any]:
     """Combine multiple streams together.
 
     :arg step_id: Unique ID.
@@ -1521,7 +1581,7 @@ def join(
     side1: KeyedStream[V],
     /,
     *,
-    running: bool = False,
+    running: bool = ...,
 ) -> KeyedStream[Tuple[V]]: ...
 
 
@@ -1532,7 +1592,7 @@ def join(
     side2: KeyedStream[V],
     /,
     *,
-    running: bool = False,
+    running: bool = ...,
 ) -> KeyedStream[Tuple[U, V]]: ...
 
 
@@ -1544,7 +1604,7 @@ def join(
     side3: KeyedStream[W],
     /,
     *,
-    running: bool = False,
+    running: bool = ...,
 ) -> KeyedStream[Tuple[U, V, W]]: ...
 
 
@@ -1557,8 +1617,24 @@ def join(
     side4: KeyedStream[X],
     /,
     *,
-    running: bool = False,
+    running: bool = ...,
 ) -> KeyedStream[Tuple[U, V, W, X]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    *sides: KeyedStream[V],
+    running: bool = ...,
+) -> KeyedStream[Tuple[V, ...]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    *sides: KeyedStream[Any],
+    running: bool = ...,
+) -> KeyedStream[Tuple]: ...
 
 
 @operator
@@ -1597,6 +1673,22 @@ def join(
     merged = _join_name_merge("add_names", **named_sides)
     joined = stateful("join", merged, shim_builder)
     return flat_map_value("astuple", joined, _JoinState.astuples)
+
+
+@overload
+def join_named(
+    step_id: str,
+    running: bool = ...,
+    **sides: KeyedStream[V],
+) -> KeyedStream[Dict[str, V]]: ...
+
+
+@overload
+def join_named(
+    step_id: str,
+    running: bool = ...,
+    **sides: KeyedStream[Any],
+) -> KeyedStream[Dict[str, Any]]: ...
 
 
 @operator
