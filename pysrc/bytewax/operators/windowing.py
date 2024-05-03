@@ -1194,8 +1194,8 @@ def _unwrap_meta(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, WindowMeta
 def window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     builder: Callable[[Optional[S]], WindowLogic[V, W, S]],
 ) -> WindowOut[V, W]:
     """Advanced generic windowing operator.
@@ -1310,8 +1310,8 @@ def _collect_get_callbacks(
 def collect_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
 ) -> WindowOut[V, List[V]]: ...
 
 
@@ -1319,8 +1319,8 @@ def collect_window(
 def collect_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     into: Type[List],
 ) -> WindowOut[V, List[V]]: ...
 
@@ -1329,8 +1329,8 @@ def collect_window(
 def collect_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     into: Type[Set],
 ) -> WindowOut[V, Set[V]]: ...
 
@@ -1339,8 +1339,8 @@ def collect_window(
 def collect_window(
     step_id: str,
     up: KeyedStream[Tuple[DK, DV]],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[Tuple[DK, DV], SC],
+    windower: Windower[Any],
     into: Type[Dict],
 ) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]: ...
 
@@ -1348,11 +1348,11 @@ def collect_window(
 @operator
 def collect_window(
     step_id: str,
-    up: KeyedStream[X],
-    clock: Clock,
-    windower: Windower,
+    up: KeyedStream[V],
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     into=list,
-) -> WindowOut:
+) -> WindowOut[V, Any]:
     """Collect items in a window into a container.
 
     See {py:obj}`bytewax.operators.collect` for the ability to set a
@@ -1383,8 +1383,8 @@ def collect_window(
 def count_window(
     step_id: str,
     up: Stream[X],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[X, SC],
+    windower: Windower[Any],
     key: Callable[[X], str],
 ) -> WindowOut[X, int]:
     """Count the number of occurrences of items in a window.
@@ -1445,8 +1445,8 @@ class _FoldWindowLogic(WindowLogic[V, S, S]):
 def fold_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     builder: Callable[[], S],
     folder: Callable[[S, V], S],
     merger: Callable[[S, S], S],
@@ -1524,62 +1524,62 @@ def _join_merger(s: _JoinState, t: _JoinState) -> _JoinState:
 @overload
 def join_window(
     step_id: str,
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     side1: KeyedStream[V],
     /,
     *,
-    product: bool = False,
+    product: bool = ...,
 ) -> WindowOut[V, Tuple[V]]: ...
 
 
 @overload
 def join_window(
     step_id: str,
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[Union[U, V], SC],
+    windower: Windower[Any],
     side1: KeyedStream[U],
     side2: KeyedStream[V],
     /,
     *,
-    product: bool = False,
-) -> WindowOut[V, Tuple[U, V]]: ...
+    product: bool = ...,
+) -> WindowOut[Union[U, V], Tuple[U, V]]: ...
 
 
 @overload
 def join_window(
     step_id: str,
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[Union[U, V, W], SC],
+    windower: Windower[Any],
     side1: KeyedStream[U],
     side2: KeyedStream[V],
     side3: KeyedStream[W],
     /,
     *,
-    product: bool = False,
-) -> WindowOut[V, Tuple[U, V, W]]: ...
+    product: bool = ...,
+) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]: ...
 
 
 @overload
 def join_window(
     step_id: str,
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[Union[U, V, W, X], SC],
+    windower: Windower[Any],
     side1: KeyedStream[U],
     side2: KeyedStream[V],
     side3: KeyedStream[W],
     side4: KeyedStream[X],
     /,
     *,
-    product: bool = False,
-) -> WindowOut[V, Tuple[U, V, W, X]]: ...
+    product: bool = ...,
+) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]: ...
 
 
 @operator
 def join_window(
     step_id: str,
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[Any, Any],
+    windower: Windower[Any],
     *sides: KeyedStream[Any],
     product: bool = False,
 ) -> WindowOut[Any, Tuple]:
@@ -1616,7 +1616,7 @@ def join_window(
     if isinstance(clock, EventClock):
         value_ts_getter = clock.ts_getter
 
-        def shim_getter(i_v):
+        def shim_getter(i_v: Tuple[str, V]) -> datetime:
             _, v = i_v
             return value_ts_getter(v)
 
@@ -1649,11 +1649,11 @@ def join_window(
 @operator
 def join_window_named(
     step_id: str,
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[Any, Any],
+    windower: Windower[Any],
     product: bool = False,
     **sides: KeyedStream[Any],
-) -> WindowOut[Any, Dict]:
+) -> WindowOut[Any, Dict[str, Any]]:
     """Gather together the value for a key on multiple named streams.
 
     :arg step_id: Unique ID.
@@ -1686,7 +1686,7 @@ def join_window_named(
     if isinstance(clock, EventClock):
         value_ts_getter = clock.ts_getter
 
-        def shim_getter(i_v):
+        def shim_getter(i_v: Tuple[str, V]) -> datetime:
             _, v = i_v
             return value_ts_getter(v)
 
@@ -1720,8 +1720,8 @@ def join_window_named(
 def max_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
 ) -> WindowOut[V, V]: ...
 
 
@@ -1729,8 +1729,8 @@ def max_window(
 def max_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     by: Callable[[V], Any],
 ) -> WindowOut[V, V]: ...
 
@@ -1739,8 +1739,8 @@ def max_window(
 def max_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     by=_identity,
 ) -> WindowOut[V, V]:
     """Find the maximum value for each key.
@@ -1767,8 +1767,8 @@ def max_window(
 def min_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
 ) -> WindowOut[V, V]: ...
 
 
@@ -1776,8 +1776,8 @@ def min_window(
 def min_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     by: Callable[[V], Any],
 ) -> WindowOut[V, V]: ...
 
@@ -1786,8 +1786,8 @@ def min_window(
 def min_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     by=_identity,
 ) -> WindowOut[V, V]:
     """Find the minumum value for each key.
@@ -1814,8 +1814,8 @@ def min_window(
 def reduce_window(
     step_id: str,
     up: KeyedStream[V],
-    clock: Clock,
-    windower: Windower,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     reducer: Callable[[V, V], V],
 ) -> WindowOut[V, V]:
     """Distill all values for a key down into a single value.
