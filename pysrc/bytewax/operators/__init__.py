@@ -321,11 +321,24 @@ def merge(
 
 
 @overload
-def merge(step_id: str, *ups: Stream[X]) -> Stream[X]: ...
+def merge(
+    step_id: str,
+    *ups: Stream[X],
+) -> Stream[X]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    *ups: Stream[Any],
+) -> Stream[Any]: ...
 
 
 @operator(_core=True)
-def merge(step_id: str, *ups: Stream[Any]) -> Stream[Any]:
+def merge(
+    step_id: str,
+    *ups: Stream[Any],
+) -> Stream[Any]:
     """Combine multiple streams together.
 
     :arg step_id: Unique ID.
@@ -1564,7 +1577,7 @@ def join(
     side1: KeyedStream[V],
     /,
     *,
-    running: bool = False,
+    running: bool = ...,
 ) -> KeyedStream[Tuple[V]]: ...
 
 
@@ -1575,7 +1588,7 @@ def join(
     side2: KeyedStream[V],
     /,
     *,
-    running: bool = False,
+    running: bool = ...,
 ) -> KeyedStream[Tuple[U, V]]: ...
 
 
@@ -1587,7 +1600,7 @@ def join(
     side3: KeyedStream[W],
     /,
     *,
-    running: bool = False,
+    running: bool = ...,
 ) -> KeyedStream[Tuple[U, V, W]]: ...
 
 
@@ -1600,8 +1613,24 @@ def join(
     side4: KeyedStream[X],
     /,
     *,
-    running: bool = False,
+    running: bool = ...,
 ) -> KeyedStream[Tuple[U, V, W, X]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    *sides: KeyedStream[V],
+    running: bool = ...,
+) -> KeyedStream[Iterable[V]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    *sides: KeyedStream[Any],
+    running: bool = ...,
+) -> KeyedStream[Iterable[Any]]: ...
 
 
 @operator
@@ -1640,6 +1669,22 @@ def join(
     merged = _join_name_merge("add_names", **named_sides)
     joined = stateful("join", merged, shim_builder)
     return flat_map_value("astuple", joined, _JoinState.astuples)
+
+
+@overload
+def join_named(
+    step_id: str,
+    running: bool = ...,
+    **sides: KeyedStream[V],
+) -> KeyedStream[Dict[str, V]]: ...
+
+
+@overload
+def join_named(
+    step_id: str,
+    running: bool = ...,
+    **sides: KeyedStream[Any],
+) -> KeyedStream[Dict[str, Any]]: ...
 
 
 @operator
