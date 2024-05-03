@@ -57,6 +57,10 @@ W = TypeVar("W")
 """Type of modified downstream values."""
 
 
+W_co = TypeVar("W_co", covariant=True)
+"""Type of modified downstream values in a covariant container."""
+
+
 S = TypeVar("S")
 """Type of state snapshots."""
 

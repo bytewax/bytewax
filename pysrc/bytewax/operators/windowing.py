@@ -38,6 +38,7 @@ from bytewax.operators import (
     U,
     V,
     W,
+    W_co,
     X,
     _get_system_utc,
     _identity,
@@ -1146,10 +1147,10 @@ class _WindowLogic(
 
 
 @dataclass(frozen=True)
-class WindowOut(Generic[V, W]):
+class WindowOut(Generic[V, W_co]):
     """Streams returned from a windowing operator."""
 
-    down: KeyedStream[Tuple[int, W]]
+    down: KeyedStream[Tuple[int, W_co]]
     """Items emitted from this operator.
 
     Sub-keyed by window ID.
@@ -1343,6 +1344,16 @@ def collect_window(
     windower: Windower[Any],
     into: Type[Dict],
 ) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]: ...
+
+
+@overload
+def collect_window(
+    step_id: str,
+    up: KeyedStream[V],
+    clock: Clock[V, Any],
+    windower: Windower[Any],
+    into=list,
+) -> WindowOut[V, Any]: ...
 
 
 @operator
@@ -1575,6 +1586,26 @@ def join_window(
 ) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]: ...
 
 
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
+    *sides: KeyedStream[V],
+    product: bool = ...,
+) -> WindowOut[V, Iterable[V]]: ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock[Any, SC],
+    windower: Windower[Any],
+    *sides: KeyedStream[Any],
+    product: bool = ...,
+) -> WindowOut[Any, Iterable[Any]]: ...
+
+
 @operator
 def join_window(
     step_id: str,
@@ -1644,6 +1675,26 @@ def join_window(
         joined_out.late,
         joined_out.meta,
     )
+
+
+@overload
+def join_window_named(
+    step_id: str,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
+    product: bool = ...,
+    **sides: KeyedStream[V],
+) -> WindowOut[V, Dict[str, V]]: ...
+
+
+@overload
+def join_window_named(
+    step_id: str,
+    clock: Clock[Any, SC],
+    windower: Windower[Any],
+    product: bool = ...,
+    **sides: KeyedStream[Any],
+) -> WindowOut[Any, Dict[str, Any]]: ...
 
 
 @operator
