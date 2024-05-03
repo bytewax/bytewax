@@ -22,6 +22,7 @@ from typing import (
     Optional,
     Tuple,
     TypeVar,
+    Union,
     overload,
 )
 
@@ -281,8 +282,50 @@ def inspect_debug(
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
 
+@overload
+def merge(
+    step_id: str,
+    up1: Stream[X],
+    /,
+) -> Stream[X]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    up1: Stream[X],
+    up2: Stream[Y],
+    /,
+) -> Stream[Union[X, Y]]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    up1: Stream[X],
+    up2: Stream[Y],
+    up3: Stream[U],
+    /,
+) -> Stream[Union[X, Y, U]]: ...
+
+
+@overload
+def merge(
+    step_id: str,
+    up1: Stream[X],
+    up2: Stream[Y],
+    up3: Stream[U],
+    up4: Stream[V],
+    /,
+) -> Stream[Union[X, Y, U, V]]: ...
+
+
+@overload
+def merge(step_id: str, *ups: Stream[X]) -> Stream[X]: ...
+
+
 @operator(_core=True)
-def merge(step_id: str, *ups: Stream[X]) -> Stream[X]:
+def merge(step_id: str, *ups: Stream[Any]) -> Stream[Any]:
     """Combine multiple streams together.
 
     :arg step_id: Unique ID.
