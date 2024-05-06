@@ -1,5 +1,5 @@
 # Building Sessions from Search Logs
-<a id="top"></a>
+
 <p align='center'>Here is an introductory example of using Bytewax to turn an incoming stream of event logs from a hypothetical search engine into metrics over search sessions. In this example, we're going to focus on the dataflow itself and aggregating state.</p>
 
 <table style="width:100%; border: none;">
@@ -53,7 +53,6 @@ Our focus on developing a dataflow using Bytewax—an open-source Python framewo
 - Web Developers: Focused on improving site architecture and user interface to enhance user engagement and satisfaction.
 - Product Managers: Who oversee digital platforms and are responsible for increasing user engagement and retention through data-driven methodologies.
 
-<a href="#top" class="jump-top">Jump to Top</a>
 
 
 (xref-strategy)=
@@ -75,7 +74,6 @@ In this tutorial, we will demonstrate how to build a dataflow using Bytewax to p
 - Sessions without a search shouldn't contribute.
 - Calculate one metric: **click through rate** (or **CTR**), if a user clicked on any result in a search.
 
-<a href="#top" class="jump-top">Jump to Top</a>
 
 (xref-imports)=
 ## Imports and Setup
@@ -174,7 +172,6 @@ client_events = [
 
 The client events will constitute the data input for our dataflow, simulating user interactions with the search engine. The events will include user IDs, search queries, search results, and click activity. This data will be used to calculate the Click-Through Rate (CTR) for each search session.
 
-<a href="#top" class="jump-top">Jump to Top</a>
 
 
 (xref-define-user-events)=
@@ -203,7 +200,6 @@ def calc_ctr(user__search_session):
     return (user, len(clicks) / len(searches) if searches else 0)
 ```
 
-<a href="#top" class="jump-top">Jump to Top</a>
 
 (xref-create-dataflow)=
 ## Creating our Dataflow
@@ -276,7 +272,7 @@ Finally, we can add an output step to our dataflow to return the results of the 
 # Output the results
 op.output("out", calc, StdOutSink())
 ```
-<a href="#top" class="jump-top">Jump to Top</a>
+
 
 
 (xref-execution-search-logs)=
@@ -297,7 +293,7 @@ User 2: 1 searches, 2 clicks
 
 That’s it, now you have an understanding of how you can build custom session windows, how you can define data classes to be used in Bytewax, and how to calculate the click-through rate on a stream of logs.
 
-<a href="#top" class="jump-top">Jump to Top</a>
+
 
 ## We want to hear from you!
 

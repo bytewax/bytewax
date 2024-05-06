@@ -15,7 +15,7 @@ import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.operators import window as win
-from bytewax.operators.window import EventClockConfig, SessionWindow
+from bytewax.operators.window import EventClock, SessionWindower
 from bytewax.testing import TestingSource
 
 
@@ -92,10 +92,10 @@ def calc_ctr(user__search_session):
 flow = Dataflow("search_ctr")
 inp = op.input("inp", flow, TestingSource(client_events))
 user_event_map = op.map("user_event", inp, user_event)
-event_time_config = EventClockConfig(
-    dt_getter=lambda e: e.time, wait_for_system_duration=timedelta(seconds=1)
+event_time_config = EventClock(
+    ts_getter=lambda e: e.time, wait_for_system_duration=timedelta(seconds=1)
 )
-clock_config = SessionWindow(gap=timedelta(seconds=10))
+clock_config = SessionWindower(gap=timedelta(seconds=10))
 window = win.collect_window(
     "windowed_data", user_event_map, clock=event_time_config, windower=clock_config
 )
