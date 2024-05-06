@@ -38,17 +38,11 @@ class RecoveryConfig:
 
     :type backup_interval: typing.Optional[datetime.timedelta]
 
-    :arg snapshot_serde: Format to use when encoding state snapshot
-        objects in the recovery partitions. Defaults to
-        {py:obj}`~bytewax.serde.JsonPickleSerde`.
-
-    :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
-
     """
 
     ...
 
-    def __init__(self, db_dir, backup_interval=None, snapshot_serde=None): ...
+    def __init__(self, db_dir, backup_interval=None): ...
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
@@ -57,8 +51,6 @@ class RecoveryConfig:
     def backup_interval(self): ...
     @property
     def db_dir(self): ...
-    @property
-    def snapshot_serde(self): ...
 
 class TracingConfig:
     """Base class for tracing/logging configuration.

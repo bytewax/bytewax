@@ -22,8 +22,10 @@ use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
+use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
+use pyo3::types::PyBytes;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 use rusqlite_migration::Migrations;
@@ -47,7 +49,6 @@ use tracing::instrument;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::pyo3_extensions::TdPyAny;
-use crate::serde::Serde;
 use crate::timely::*;
 use crate::unwrap_any;
 
@@ -286,7 +287,7 @@ struct SnapshotEpoch(u64);
 ///
 /// This represents a row in the `snaps` table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
+struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 
 /// Configuration settings for recovery.
 ///
@@ -302,34 +303,21 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<String>);
 ///     storage (e.g. S3). Defaults to zero duration.
 ///
 /// :type backup_interval: typing.Optional[datetime.timedelta]
-///
-/// :arg snapshot_serde: Format to use when encoding state snapshot
-///     objects in the recovery partitions. Defaults to
-///     {py:obj}`~bytewax.serde.JsonPickleSerde`.
-///
-/// :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
     db_dir: PathBuf,
     #[pyo3(get)]
     backup_interval: BackupInterval,
-    #[pyo3(get)]
-    snapshot_serde: Serde,
 }
 
 #[pymethods]
 impl RecoveryConfig {
     #[new]
-    fn new(
-        db_dir: PathBuf,
-        backup_interval: Option<BackupInterval>,
-        snapshot_serde: Option<Serde>,
-    ) -> Self {
+    fn new(db_dir: PathBuf, backup_interval: Option<BackupInterval>) -> Self {
         Self {
             db_dir,
             backup_interval: backup_interval.unwrap_or_default(),
-            snapshot_serde: snapshot_serde.unwrap_or_default(),
         }
     }
 }
@@ -364,7 +352,6 @@ impl RecoveryConfig {
 
         let bundle = RecoveryBundle {
             part_paths: Rc::new(part_paths),
-            serde: self.snapshot_serde.clone_ref(py),
             built_parts: Rc::new(RefCell::new(HashMap::new())),
         };
         let backup_interval = self.backup_interval;
@@ -382,7 +369,6 @@ pub(crate) struct RecoveryBundle {
     /// look up the relevant path. No [`RefCell`] because they don't
     /// need to modify it.
     part_paths: Rc<HashMap<PartitionIndex, PathBuf>>,
-    serde: Serde,
     /// This is a cache of already built [`RecoveryDB`].
     ///
     /// The map itself is an [`Rc<RefCell>`] because the builder
@@ -395,10 +381,9 @@ pub(crate) struct RecoveryBundle {
 }
 
 impl RecoveryBundle {
-    pub(crate) fn clone_ref(&self, py: Python) -> Self {
+    pub(crate) fn clone_ref(&self, _py: Python) -> Self {
         Self {
             part_paths: self.part_paths.clone(),
-            serde: self.serde.clone_ref(py),
             built_parts: self.built_parts.clone(),
         }
     }
@@ -514,7 +499,7 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
                  step_id TEXT NOT NULL,
                  state_key TEXT NOT NULL,
                  snap_epoch INTEGER NOT NULL,
-                 ser_change TEXT,
+                 ser_change BLOB,
                  PRIMARY KEY (step_id, state_key, snap_epoch)
                  ) STRICT",
             ),
@@ -1007,19 +992,19 @@ fn gc_leaves_only_final_snap() {
             StepId(String::from("step_1")),
             StateKey(String::from("a")),
             SnapshotEpoch(1),
-            Some(String::from("PICKLED_DATA1")),
+            Some("PICKLED_DATA1".as_bytes().to_vec()),
         ),
         SerializedSnapshot(
             StepId(String::from("step_1")),
             StateKey(String::from("a")),
             SnapshotEpoch(2),
-            Some(String::from("PICKLED_DATA2")),
+            Some("PICKLED_DATA2".as_bytes().to_vec()),
         ),
         SerializedSnapshot(
             StepId(String::from("step_1")),
             StateKey(String::from("a")),
             SnapshotEpoch(5),
-            Some(String::from("PICKLED_DATA5")),
+            Some("PICKLED_DATA5".as_bytes().to_vec()),
         ),
     ]);
     conn.committer(PartitionIndex(0)).commit(&5);
@@ -1529,17 +1514,18 @@ where
     /// Although the [`StepId`] and [`StateKey`] are both already
     /// within the [`SerializedSnapshot`], duplicate them in the key
     /// position so we can partition and route on them.
-    fn ser_snap(&self, serde: Serde) -> Stream<S, ((StepId, StateKey), SerializedSnapshot)>;
+    fn ser_snap(&self) -> Stream<S, ((StepId, StateKey), SerializedSnapshot)>;
 }
 
 impl<S> SerializeSnapshotOp<S> for Stream<S, Snapshot>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn ser_snap(&self, serde: Serde) -> Stream<S, ((StepId, StateKey), SerializedSnapshot)> {
+    fn ser_snap(&self) -> Stream<S, ((StepId, StateKey), SerializedSnapshot)> {
         // Effectively map-with-epoch.
         self.unary(Pipeline, "ser_snap", move |_init_cap, _info| {
             let mut inbuf = Vec::new();
+            let pickle = Python::with_gil(|py| unwrap_any!(py.import_bound("pickle")).unbind());
 
             move |snaps_input, ser_snaps_output| {
                 snaps_input.for_each(|cap, incoming| {
@@ -1554,9 +1540,19 @@ where
                                     let ser_change = match snap_change {
                                         StateChange::Upsert(snap) => {
                                             let snap = PyObject::from(snap);
-
-                                            let ser_snap = unwrap_any!(serde.ser(py, snap));
-                                            Some(ser_snap)
+                                            let bytes = unwrap_any!(|| -> PyResult<Vec<u8>> {
+                                                Ok(pickle
+                                                    .bind(py)
+                                                    .call_method1(
+                                                        intern!(py, "dumps"),
+                                                        (snap.bind(py),),
+                                                    )?
+                                                    .downcast::<PyBytes>()?
+                                                    .as_bytes()
+                                                    .to_vec())
+                                            }(
+                                            ));
+                                            Some(bytes)
                                         }
                                         StateChange::Discard => None,
                                     };
@@ -1585,20 +1581,28 @@ where
     S: Scope,
 {
     /// Deserialize state snapshots using the provided serde.
-    fn de_snap(&self, serde: Serde) -> Stream<S, Snapshot>;
+    fn de_snap(&self) -> Stream<S, Snapshot>;
 }
 
 impl<S> DeserializeSnapshotOp<S> for Stream<S, SerializedSnapshot>
 where
     S: Scope,
 {
-    fn de_snap(&self, serde: Serde) -> Stream<S, Snapshot> {
+    fn de_snap(&self) -> Stream<S, Snapshot> {
         self.map(
             move |SerializedSnapshot(step_id, state_key, _snap_epoch, ser_change)| {
                 let snap_change = match ser_change {
                     Some(ser_snap) => {
-                        let snap = unwrap_any!(Python::with_gil(|py| serde.de(py, ser_snap)));
-                        StateChange::Upsert(snap)
+                        let snap = unwrap_any!(Python::with_gil(|py| -> PyResult<PyObject> {
+                            let pickle = py.import_bound("pickle")?;
+                            Ok(pickle
+                                .call_method1(
+                                    intern!(py, "loads"),
+                                    (PyBytes::new_bound(py, &ser_snap),),
+                                )?
+                                .unbind())
+                        }));
+                        StateChange::Upsert(snap.into())
                     }
                     None => StateChange::Discard,
                 };
@@ -1643,7 +1647,7 @@ where
                 snap_epoch.0
             },
         )
-        .de_snap(bundle.serde)
+        .de_snap()
     }
 }
 
@@ -1728,7 +1732,7 @@ where
         let mut new_front_part = bundle.new_builder();
         let mut new_commit_part = bundle.new_builder();
 
-        let write_snap_clock = self.ser_snap(bundle.serde).partd_write(
+        let write_snap_clock = self.ser_snap().partd_write(
             String::from("recovery_snap_writer"),
             local_parts.clone(),
             BuildHasherDefault::<SeaHasher>::default(),

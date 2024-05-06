@@ -1081,7 +1081,10 @@ class _WindowLogic(
 
         for value in values:
             value_timestamp, watermark = self.clock.on_item(value)
-            assert watermark >= self._last_watermark
+            assert watermark >= self._last_watermark, (
+                f"New watermark {watermark} is not <= "
+                f"last watermark: {self._last_watermark}"
+            )
             self._last_watermark = watermark
 
             # Attempt to insert into relevant windows.

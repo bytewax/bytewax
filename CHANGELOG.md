@@ -12,6 +12,11 @@ notes on GitHub when we make a new release.__
 - Adds a dataflow structure visualizer. Run `python -m
   bytewax.visualize`.
 
+- *Breaking change* The internal format of recovery databases has been
+  changed from using `JsonPickle` to Python's built-in {py:obj}`pickle`.
+  Recovery stores that used the old format will not be usable after
+  upgrading.
+
 - *Breaking change* The `unary` operator and `UnaryLogic` have been
   renamed to `stateful` and `StatefulLogic` respectively.
 

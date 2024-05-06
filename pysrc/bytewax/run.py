@@ -201,7 +201,9 @@ def _create_arg_parser():
     that are used only for testing in the testing namespace.
     """
     parser = argparse.ArgumentParser(
-        prog="python -m bytewax.run", description="Run a bytewax dataflow"
+        prog="python -m bytewax.run",
+        description="Run a bytewax dataflow",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "import_str",
@@ -211,7 +213,6 @@ def _create_arg_parser():
         "Example: src.dataflow or src.dataflow:flow or "
         "src.dataflow:get_flow('string_argument')",
     )
-
     recovery = parser.add_argument_group(
         "Recovery", """See the `bytewax.recovery` module docstring for more info."""
     )
@@ -243,7 +244,6 @@ def _create_arg_parser():
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
     )
-
     return parser
 
 

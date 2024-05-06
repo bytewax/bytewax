@@ -18,7 +18,6 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 dependencies = [
-    "jsonpickle>=3",
     "typing_extensions>=4",
     "prometheus-client>=0.18"
 ]
