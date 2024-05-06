@@ -1525,6 +1525,7 @@ where
         // Effectively map-with-epoch.
         self.unary(Pipeline, "ser_snap", move |_init_cap, _info| {
             let mut inbuf = Vec::new();
+            let pickle = Python::with_gil(|py| unwrap_any!(py.import_bound("pickle")).unbind());
 
             move |snaps_input, ser_snaps_output| {
                 snaps_input.for_each(|cap, incoming| {
@@ -1540,8 +1541,8 @@ where
                                         StateChange::Upsert(snap) => {
                                             let snap = PyObject::from(snap);
                                             let bytes = unwrap_any!(|| -> PyResult<Vec<u8>> {
-                                                let pickle = py.import_bound("pickle")?;
                                                 Ok(pickle
+                                                    .bind(py)
                                                     .call_method1(
                                                         intern!(py, "dumps"),
                                                         (snap.bind(py),),

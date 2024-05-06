@@ -6,9 +6,12 @@ use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
+
+static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
 /// Represents a Python object flowing through a Timely dataflow.
 ///
@@ -85,8 +88,13 @@ impl serde::Serialize for TdPyAny {
     {
         Python::with_gil(|py| {
             let x = self.bind(py);
-            let pickle = py.import_bound("pickle").map_err(S::Error::custom)?;
+            let pickle = PICKLE_MODULE
+                .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
+                    Ok(py.import_bound("pickle")?.unbind())
+                })
+                .map_err(S::Error::custom)?;
             let binding = pickle
+                .bind(py)
                 .call_method1(intern!(py, "dumps"), (x,))
                 .map_err(S::Error::custom)?;
             let bytes = binding.downcast::<PyBytes>().map_err(S::Error::custom)?;
