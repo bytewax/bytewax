@@ -5,5 +5,5 @@ Tutorials
 :caption: Bytewax Tutorials
 :titlesonly:
 
-search-logs/search-logs-tutorial.md
+search-logs/index.md
 ```
