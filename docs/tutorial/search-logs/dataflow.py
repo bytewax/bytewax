@@ -14,8 +14,8 @@ from typing import List
 import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.operators import window as win
-from bytewax.operators.window import EventClock, SessionWindower
+from bytewax.operators import windowing as win
+from bytewax.operators.windowing import EventClock, SessionWindower
 from bytewax.testing import TestingSource
 
 
@@ -78,13 +78,13 @@ def user_event(event):
     return str(event.user), event
 
 
-def calc_ctr(user__search_session):
-    """Calculate the click-through rate (CTR) for each user session."""
-    user, (window_metadata, search_session) = user__search_session
-    searches = [event for event in search_session if isinstance(event, Search)]
-    clicks = [event for event in search_session if isinstance(event, ClickResult)]
+def calc_ctr(window_out):
+    """Calculate the click-through rate (CTR) for each user session from WindowOut."""
+    _, search_session = window_out  # Assuming window_out is (metadata, items)
+    user, events = search_session  # Adjust based on actual structure of WindowOut
+    searches = [event for event in events if isinstance(event, Search)]
+    clicks = [event for event in events if isinstance(event, ClickResult)]
     print(f"User {user}: {len(searches)} searches, {len(clicks)} clicks")
-
     return (user, len(clicks) / len(searches) if searches else 0)
 
 
@@ -92,12 +92,13 @@ def calc_ctr(user__search_session):
 flow = Dataflow("search_ctr")
 inp = op.input("inp", flow, TestingSource(client_events))
 user_event_map = op.map("user_event", inp, user_event)
-event_time_config = EventClock(
+event_time_config: EventClock = EventClock(
     ts_getter=lambda e: e.time, wait_for_system_duration=timedelta(seconds=1)
 )
 clock_config = SessionWindower(gap=timedelta(seconds=10))
 window = win.collect_window(
     "windowed_data", user_event_map, clock=event_time_config, windower=clock_config
 )
-calc = op.map("calc_ctr", window, calc_ctr)
+
+calc = op.map("calc_ctr", window.down, calc_ctr)
 op.output("out", calc, StdOutSink())

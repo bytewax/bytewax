@@ -292,9 +292,3 @@ User 2: 1 searches, 2 clicks
 ## Summary
 
 That’s it, now you have an understanding of how you can build custom session windows, how you can define data classes to be used in Bytewax, and how to calculate the click-through rate on a stream of logs.
-
-
-
-## We want to hear from you!
-
-If you have any trouble with the process or have ideas about how to improve this document, come talk to us in the [#troubleshooting Slack channel!](https://join.slack.com/t/bytewaxcommunity/shared)
