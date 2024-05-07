@@ -4,6 +4,7 @@ from typing import Any, List, Optional, Tuple
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.operators import StatefulLogic
+from bytewax.recovery import RecoveryConfig
 from bytewax.testing import TestingSink, TestingSource, run_main
 from typing_extensions import override
 
@@ -288,4 +289,53 @@ def test_stateful_snapshots_discard_per_key(recovery_config):
     assert out == [
         ("a", (None, "a3")),
         ("b", ("b2", "b3")),
+    ]
+
+
+def test_stateful_recovers_older_snapshots(recovery_config):
+    inp = [
+        ("a", "a1"),
+        TestingSource.ABORT(),
+        ("b", "b1"),
+        ("b", "DISCARD"),
+        TestingSource.ABORT(),
+        ("c", "c1"),
+        TestingSource.ABORT(),
+        ("a", "a2"),
+        ("b", "b2"),
+        ("c", "c2"),
+    ]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.stateful("stateful", s, KeepLastLogic)
+    op.output("out", s, TestingSink(out))
+
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("a", (None, "a1")),
+    ]
+
+    out.clear()
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("b", (None, "b1")),
+        ("b", ("b1", "DISCARD")),
+    ]
+
+    out.clear()
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("b", (None, "DISCARD")),
+        ("c", (None, "c1")),
+    ]
+
+    out.clear()
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("c", ("c1", "c1")),
+        ("a", ("a1", "a2")),
+        ("b", (None, "b2")),
+        ("c", ("c1", "c2")),
     ]

@@ -620,14 +620,16 @@ impl StateStoreCache {
                 .as_ref()
                 .unwrap()
                 .borrow_mut()
+                // Retrieve all the snapshots for the latest epoch saved
+                // in the recovery store that's <= than resume_from..
                 .prepare(
-                    "SELECT step_id, state_key, epoch, ser_change
-                FROM snaps
-                WHERE epoch = ?1 AND step_id = ?2
-                ",
+                    "SELECT step_id, state_key, MAX(epoch) as epoch, ser_change
+                    FROM snaps
+                    WHERE epoch <= ?1 AND step_id = ?2
+                    GROUP BY step_id, state_key",
                 )
                 .unwrap()
-                .query_map((self.resume_from.1 .0, &step_id.0), |row| {
+                .query_map((&self.resume_from.1 .0, &step_id.0), |row| {
                     Ok(SerializedSnapshot(
                         StepId(row.get(0)?),
                         StateKey(row.get(1)?),

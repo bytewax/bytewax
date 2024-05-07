@@ -768,6 +768,7 @@ where
                                     labels,
                                     state.on_batch(py, &key, values)?
                                 );
+
                                 // Update metrics
                                 item_out_count.add(output.len() as u64, &labels);
 
@@ -781,6 +782,7 @@ where
                                     state.remove(&key);
                                     sched_cache.remove(&key);
                                 }
+
                                 // Finally keep track of the fact that this key was awoken.
                                 awoken_keys_buffer.insert(key);
                             }
@@ -796,54 +798,52 @@ where
                         .map(|(key, sched)| (key.clone(), *sched))
                         .collect();
 
-                    if !notify_keys.is_empty() {
-                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                            for (key, _sched) in notify_keys {
-                                // We should always have a logic for anything in
-                                // `sched_cache`. If not, we forgot to remove it when we
-                                // cleared the logic. on_notify will fail in that case.
-                                let (output, is_complete) = with_timer!(
-                                    on_notify_histogram,
-                                    labels,
-                                    state.on_notify(py, &key)?
-                                );
-                                // Update metrics
-                                item_out_count.add(output.len() as u64, &labels);
+                    Python::with_gil(|py| {
+                        for (key, _sched) in notify_keys {
+                            // We should always have a logic for anything in
+                            // `sched_cache`. If not, we forgot to remove it when we
+                            // cleared the logic. on_notify will fail in that case.
+                            let (output, is_complete) = with_timer!(
+                                on_notify_histogram,
+                                labels,
+                                unwrap_any!(state.on_notify(py, &key))
+                            );
+                            // Update metrics
+                            item_out_count.add(output.len() as u64, &labels);
 
-                                // Send the output downstream.
-                                for value in output {
-                                    kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
-                                }
-
-                                // Clear the state if needed
-                                if let IsComplete::Discard = is_complete {
-                                    state.remove(&key);
-                                }
-
-                                // Even if we don't discard the logic, the previous
-                                // scheduled notification only should fire once. The
-                                // logic can re-schedule it by still returning it
-                                // in `notify_at`.
-                                sched_cache.remove(&key);
-                                awoken_keys_buffer.insert(key);
+                            // Send the output downstream.
+                            for value in output {
+                                kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                             }
 
-                            Ok(())
-                        }));
-                    }
+                            // Clear the state if needed
+                            if let IsComplete::Discard = is_complete {
+                                state.remove(&key);
+                            }
 
-                    // Then if EOF, call all logic that still
-                    // exists.
+                            // Even if we don't discard the logic, the previous scheduled
+                            // notification only should fire once. The logic can
+                            // re-schedule it by still returning it in `notify_at`.
+                            sched_cache.remove(&key);
+                            awoken_keys_buffer.insert(key);
+                        }
+                    });
+
+                    // Then if EOF, call all logic that still exists.
                     if input_frontiers.is_eof() {
                         let mut discarded_keys = Vec::new();
 
-                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                        Python::with_gil(|py| {
                             for key in state.keys() {
-                                let (output, is_complete) =
-                                    with_timer!(on_eof_histogram, labels, state.on_eof(py, &key)?);
+                                let (output, is_complete) = with_timer!(
+                                    on_eof_histogram,
+                                    labels,
+                                    unwrap_any!(state.on_eof(py, &key))
+                                );
 
                                 // Update metrics.
                                 item_out_count.add(output.len() as u64, &labels);
+
                                 // Send items downstream.
                                 for value in output {
                                     kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
@@ -857,9 +857,7 @@ where
 
                                 awoken_keys_buffer.insert(key.clone());
                             }
-
-                            Ok(())
-                        }));
+                        });
 
                         for key in discarded_keys {
                             state.remove(&key);
@@ -869,63 +867,62 @@ where
 
                     // Then go through all awoken keys and update the next scheduled
                     // notification times.
-                    if !awoken_keys_buffer.is_empty() {
-                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                            for key in awoken_keys_buffer.iter() {
-                                if let Some(sched) = with_timer!(
-                                    notify_at_histogram,
-                                    labels,
-                                    state.notify_at(py, key)?
-                                ) {
-                                    sched_cache.insert(key.clone(), sched);
-                                }
+                    Python::with_gil(|py| {
+                        for key in awoken_keys_buffer.iter() {
+                            if let Some(sched) = with_timer!(
+                                notify_at_histogram,
+                                labels,
+                                unwrap_any!(state.notify_at(py, key))
+                            ) {
+                                sched_cache.insert(key.clone(), sched);
                             }
-                            Ok(())
-                        }));
-                    }
+                        }
+                    });
 
                     // Snapshot and output state changes.
-                    // This is the `batch` approach, `immediate` approach right after this
-                    if input_frontiers.is_closed(&epoch) {
-                        if recovery_on {
-                            // Go through all keys awoken in this epoch.
-                            // This might involve keys from the previous activation.
-                            let mut snaps_session = snaps_handle.session(&state_update_cap);
-                            unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                // Drain `awoken_keys_buffer` since the epoch is over.
-                                let mut snaps = std::mem::take(&mut awoken_keys_buffer)
-                                    .iter()
-                                    .map(|key| state.snap(py, key, &epoch))
-                                    .collect::<PyResult<Vec<SerializedSnapshot>>>()?;
+                    if !awoken_keys_buffer.is_empty() {
+                        // This is the `batch` approach, where we take the snapshots
+                        // only at the end of each epoch.
+                        if !immediate_snapshot && input_frontiers.is_closed(&epoch) {
+                            if recovery_on {
+                                // Go through all keys awoken in this epoch.
+                                // This might involve keys from the previous activation.
+                                let mut snaps_session = snaps_handle.session(&state_update_cap);
+                                let mut snaps = unwrap_any!(Python::with_gil(|py| {
+                                    // Drain `awoken_keys_buffer` since the epoch is over.
+                                    std::mem::take(&mut awoken_keys_buffer)
+                                        .iter()
+                                        .map(|key| state.snap(py, key, &epoch))
+                                        .collect::<PyResult<Vec<SerializedSnapshot>>>()
+                                }));
                                 state.write_snapshots(snaps.clone());
                                 snaps_session.give_vec(&mut snaps);
-                                Ok(())
-                            }));
-                        } else {
-                            awoken_keys_buffer.clear();
+                            } else {
+                                awoken_keys_buffer.clear();
+                            }
                         }
-                    } else if immediate_snapshot {
-                        // Go through all keys awoken in this
-                        // epoch. This might involve keys from the
-                        // previous activation.
-                        let mut snaps_session = snaps_handle.session(&state_update_cap);
-                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                            // Drain `awoken_keys_buffer` since we won't need this info
-                            // at the end of the epoch given we are snapshotting
-                            // at each change.
-                            let mut snaps = std::mem::take(&mut awoken_keys_buffer)
-                                .iter()
-                                .map(|key| state.snap(py, key, &epoch))
-                                .collect::<PyResult<Vec<SerializedSnapshot>>>()?;
+                        // This is the `immediate` approach, were we eagerly take snapshots
+                        // each time an item is awoken.
+                        if immediate_snapshot {
+                            // Go through all keys awoken in this epoch. This might involve
+                            // keys from the previous activation.
+                            let mut snaps_session = snaps_handle.session(&state_update_cap);
+                            let mut snaps = unwrap_any!(Python::with_gil(|py| {
+                                // Drain `awoken_keys_buffer` since we won't need this info
+                                // at the end of the epoch given we are snapshotting
+                                // at each change.
+                                std::mem::take(&mut awoken_keys_buffer)
+                                    .iter()
+                                    .map(|key| state.snap(py, key, &epoch))
+                                    .collect::<PyResult<Vec<SerializedSnapshot>>>()
+                            }));
                             state.write_snapshots(snaps.clone());
                             snaps_session.give_vec(&mut snaps);
-                            Ok(())
-                        }));
+                        }
                     }
                 }
 
-                // Schedule operator activation at the soonest
-                // requested notify at for any key.
+                // Schedule operator activation at the soonest requested notify at for any key.
                 if let Some(next_notify_at) =
                     sched_cache.values().map(|notify_at| *notify_at - now).min()
                 {
