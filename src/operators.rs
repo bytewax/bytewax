@@ -446,7 +446,6 @@ where
         py: Python,
         step_id: StepId,
         builder: TdPyCallable,
-        resume_epoch: ResumeEpoch,
         state: StatefulBatchState,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)>;
 }
@@ -558,11 +557,11 @@ where
         _py: Python,
         step_id: StepId,
         builder: TdPyCallable,
-        resume_epoch: ResumeEpoch,
         mut state: StatefulBatchState,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)> {
         let recovery_on = state.recovery_on();
         let immediate_snapshot = state.immediate_snapshot();
+        let resume_epoch = state.start_at();
         let this_worker = self.scope().w_index();
 
         // We have a "partition" per worker. List all workers.

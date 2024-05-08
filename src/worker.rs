@@ -12,9 +12,13 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use timely::communication::Allocate;
+use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::Broadcast;
+use timely::dataflow::operators::Capability;
 use timely::dataflow::operators::Concatenate;
+use timely::dataflow::operators::Inspect;
 use timely::dataflow::operators::Probe;
+use timely::dataflow::operators::ToStream;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -32,6 +36,7 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+use crate::timely::FrontierEx;
 
 /// Bytewax worker.
 ///
@@ -131,10 +136,24 @@ where
         worker_count,
     )?));
 
-    // TODO: Only reading the latest epoch from the local db,
-    //       but we should also broadcast to all other workers
-    //       to get the cluster frontier.
-    let ResumeFrom(_ex, resume_epoch) = state.borrow().resume_from();
+    // Now broadcast the worker's resume epoch to all other workers,
+    // and get the max of them all to get the cluster's resume epoch.
+    let worker_resume_epoch = state.borrow().resume_from().1 .0;
+    let cluster_resume_epoch = Rc::new(RefCell::new(worker_resume_epoch));
+
+    let probe = build_resume_epoch_dataflow(
+        worker.worker,
+        worker_resume_epoch,
+        cluster_resume_epoch.clone(),
+    );
+
+    tracing::info_span!("resume_from exchange dataflow").in_scope(|| {
+        worker.run(probe);
+    });
+
+    state
+        .borrow_mut()
+        .set_resume_epoch(*cluster_resume_epoch.borrow());
 
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
@@ -142,7 +161,6 @@ where
             worker.worker,
             flow,
             epoch_interval,
-            resume_epoch,
             state,
             &worker.abort,
         )
@@ -218,13 +236,55 @@ where
     }
 }
 
+fn build_resume_epoch_dataflow<A>(
+    worker: &mut TimelyWorker<A>,
+    worker_resume_epoch: u64,
+    cluster_resume_epoch: Rc<RefCell<u64>>,
+) -> ProbeHandle<u64>
+where
+    A: Allocate,
+{
+    worker.dataflow(|scope| {
+        use timely::dataflow::operators::Operator;
+        let index = format!("{}", scope.index());
+
+        vec![worker_resume_epoch]
+            .to_stream(scope)
+            .broadcast()
+            // TODO: This doesn't really need an output, we could problably use a `sink`?
+            .unary_frontier(Pipeline, "get_max_epoch", |cap: Capability<u64>, _info| {
+                let mut maximum: u64 = 0;
+                let mut cap = Some(cap);
+
+                move |input, output| {
+                    input.for_each(|_cap, data| {
+                        if let Some(val) = data.iter().max() {
+                            if val > &maximum {
+                                maximum = *val;
+                            }
+                        }
+                    });
+
+                    if input.frontier().is_eof() {
+                        if let Some(cap) = cap.take() {
+                            let mut session = output.session(&cap);
+                            session.give(maximum);
+                            *cluster_resume_epoch.borrow_mut() = maximum;
+                        }
+                    }
+                }
+            })
+            .inspect(move |x| println!("Worker {index}: resuming from epoch {x}"))
+            .probe()
+    })
+}
+
 /// Turn a Bytewax dataflow into a Timely dataflow.
 fn build_production_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
     flow: Dataflow,
     epoch_interval: EpochInterval,
-    resume_epoch: ResumeEpoch,
     state_store: Rc<RefCell<StateStore>>,
     abort: &Arc<AtomicBool>,
 ) -> PyResult<ProbeHandle<u64>>
@@ -310,7 +370,6 @@ where
                                     epoch_interval,
                                     &probe,
                                     abort,
-                                    resume_epoch,
                                     state,
                                 )
                                 .reraise("error building FixedPartitionedSource")?;
@@ -330,7 +389,7 @@ where
                                     epoch_interval,
                                     &probe,
                                     abort,
-                                    resume_epoch,
+                                    state_store.borrow().resume_from().1,
                                 )
                                 .reraise("error building DynamicSource")?;
 
@@ -419,8 +478,7 @@ where
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `stateful_batch` missing port")?;
 
-                        let (down, snap) =
-                            up.stateful_batch(py, step_id, builder, resume_epoch, state)?;
+                        let (down, snap) = up.stateful_batch(py, step_id, builder, state)?;
 
                         snaps.push(snap);
 

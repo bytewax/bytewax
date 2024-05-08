@@ -297,9 +297,9 @@ def test_stateful_recovers_older_snapshots(recovery_config):
         ("a", "a1"),
         TestingSource.ABORT(),
         ("b", "b1"),
-        ("b", "DISCARD"),
         TestingSource.ABORT(),
         ("c", "c1"),
+        ("b", "DISCARD"),
         TestingSource.ABORT(),
         ("a", "a2"),
         ("b", "b2"),
@@ -321,6 +321,13 @@ def test_stateful_recovers_older_snapshots(recovery_config):
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("b", (None, "b1")),
+    ]
+
+    out.clear()
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [
+        ("b", ("b1", "b1")),
+        ("c", (None, "c1")),
         ("b", ("b1", "DISCARD")),
     ]
 
@@ -328,13 +335,6 @@ def test_stateful_recovers_older_snapshots(recovery_config):
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("b", (None, "DISCARD")),
-        ("c", (None, "c1")),
-    ]
-
-    out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
-    assert out == [
-        ("c", ("c1", "c1")),
         ("a", ("a1", "a2")),
         ("b", (None, "b2")),
         ("c", ("c1", "c2")),

@@ -211,7 +211,6 @@ impl FixedPartitionedSource {
         epoch_interval: EpochInterval,
         probe: &ProbeHandle<u64>,
         abort: &Arc<AtomicBool>,
-        start_at: ResumeEpoch,
         mut state: InputState,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)>
     where
@@ -219,6 +218,7 @@ impl FixedPartitionedSource {
     {
         let recovery_on = state.recovery_on();
         let immediate_snapshot = state.immediate_snapshot();
+        let start_at = state.start_at();
         let this_worker = scope.w_index();
 
         let local_parts = self.list_parts(py).reraise_with(|| {

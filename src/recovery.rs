@@ -35,7 +35,6 @@ use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
-use timely::Data;
 
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
@@ -506,6 +505,10 @@ impl StateStore {
         .reraise("Error initing transaction")?;
         txn.commit().reraise("Error committing cluster_frontier")
     }
+
+    pub fn set_resume_epoch(&mut self, epoch: u64) {
+        self.resume_from.1 .0 = epoch;
+    }
 }
 
 /// Trait to group common operations that are used in all stateful operators.
@@ -525,6 +528,9 @@ pub(crate) trait StateManager {
     }
     fn recovery_on(&self) -> bool {
         self.borrow_state().recovery_config.is_some()
+    }
+    fn start_at(&self) -> ResumeEpoch {
+        self.borrow_state().resume_from.1
     }
     fn immediate_snapshot(&self) -> bool {
         self.borrow_state()
