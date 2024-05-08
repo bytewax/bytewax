@@ -892,7 +892,7 @@ where
                                     // Drain `awoken_keys_buffer` since the epoch is over.
                                     std::mem::take(&mut awoken_keys_buffer)
                                         .iter()
-                                        .map(|key| state.snap(py, key, &epoch))
+                                        .map(|key| state.snap(py, key.clone(), epoch))
                                         .collect::<PyResult<Vec<SerializedSnapshot>>>()
                                 }));
                                 state.write_snapshots(snaps.clone());
@@ -913,7 +913,7 @@ where
                                 // at each change.
                                 std::mem::take(&mut awoken_keys_buffer)
                                     .iter()
-                                    .map(|key| state.snap(py, key, &epoch))
+                                    .map(|key| state.snap(py, key.clone(), epoch))
                                     .collect::<PyResult<Vec<SerializedSnapshot>>>()
                             }));
                             state.write_snapshots(snaps.clone());

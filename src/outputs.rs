@@ -339,7 +339,7 @@ where
                                                 snapshot_histogram,
                                                 labels,
                                                 state
-                                                    .snap(py, key, epoch)
+                                                    .snap(py, key.clone(), *epoch)
                                                     .reraise("error snapshotting StatefulSink")
                                             )
                                         )));
@@ -378,7 +378,7 @@ where
                                     snapshot_histogram,
                                     labels,
                                     state
-                                        .snap(py, key, epoch)
+                                        .snap(py, key.clone(), *epoch)
                                         .reraise("error snapshotting StatefulSink")
                                 ))));
                                 false

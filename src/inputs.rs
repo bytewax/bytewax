@@ -395,6 +395,11 @@ impl FixedPartitionedSource {
                             }));
                         }
 
+                        // Do immediate snapshot here if requested.
+                        if immediate_snapshot {
+                            snaps.push((part_key.clone(), part.snap_cap.clone(), epoch));
+                        }
+
                         // Increment the epoch for this partition when the interval
                         // elapses or the input is EOF. We increment and snapshot on EOF
                         // so that we capture the offsets for this partition to resume
@@ -402,10 +407,8 @@ impl FixedPartitionedSource {
                         // have lived to the next epoch interval. Only increment once
                         // we've caught up (in this if-block) otherwise you can get
                         // cascading advancement and never poll input.
-                        if immediate_snapshot {
-                            snaps.push((part_key.clone(), part.snap_cap.clone(), epoch));
-                        }
                         if now - part.epoch_started >= epoch_interval.0 || eof {
+                            // Do snapshots in batch at the end of the epoch otherwise
                             if !immediate_snapshot {
                                 snaps.push((part_key.clone(), part.snap_cap.clone(), epoch));
                             }
@@ -428,7 +431,7 @@ impl FixedPartitionedSource {
                                 snapshot_histogram,
                                 labels,
                                 state
-                                    .snap(py, &part_key, &epoch)
+                                    .snap(py, part_key, epoch)
                                     .reraise("Error snapshotting PartitionedInput")?
                             );
                             // TODO: Batch snapshots writes possibly
