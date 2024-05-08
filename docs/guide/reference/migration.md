@@ -405,7 +405,7 @@ this new naming scheme.
 
 In addition to the name changes, we have also added a `datetime` argument to
 `build{_part,}` with the current time to allow you to easily
-setup a next awake time. You can ignore this parameter if you are not scheduling
+set up a next awake time. You can ignore this parameter if you are not scheduling
 awake times.
 
 We have also added a `datetime` argument to `next_batch`, which contains the

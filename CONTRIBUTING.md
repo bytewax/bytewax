@@ -7,11 +7,11 @@ To get an overview of the project, read the
 [README](https://github.com/bytewax/bytewax/README.md)
 
 Read our [Code of
-Conduct](https://github.com/bytewax/bytewax/CODE_OF_CONDUCT.md) to
+Conduct](https://github.com/bytewax/bytewax/blob/main/CODE_OF_CONDUCT.md) to
 keep our community approachable and respectable.
 
 Read the [Developer Certificate of
-Origin](https://github.com/bytewax/bytewax/DEVELOPER_CERTIFICATE_OF_ORIGIN.md)
+Origin](https://github.com/bytewax/bytewax/blob/main/DEVELOPER_CERTIFICATE_OF_ORIGIN.md)
 to ensure you are in compliance.
 
 In this guide you will get an overview of the contribution workflow

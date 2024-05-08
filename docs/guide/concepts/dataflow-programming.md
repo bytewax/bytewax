@@ -241,7 +241,7 @@ behave properly in a cluster environment over restarts and rescaling.
 We'll go over the constraints here.
 
 - Global Python objects can be loaded from anywhere and closed over in
-  logic functions, but you _must not mutate it_.
+  logic functions, but you _must not mutate them_.
 
 - All state that is modified _must be managed by stateful operators_.
   We'll discuss those below.

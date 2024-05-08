@@ -155,7 +155,7 @@ $ python -m bytewax.run periodic_hacker_news.py -w 5
 _A quick aside on scaling. You can scale things across threads and
 processes with Bytewax. There are limitations to the thread approach
 due to the global interpreter lock (GIL) that Python uses. In most
-instances, processes is the more suitable method of parallelization.
+instances, processes is the more suitable method of parallelization._
 
 ## Conclusion
 
