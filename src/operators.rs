@@ -615,6 +615,10 @@ where
             .f64_histogram("stateful_batch_notify_at_duration_seconds")
             .with_description("`StatefulBatchLogic.notify_at` duration in seconds")
             .init();
+        let snapshot_histogram = meter
+            .f64_histogram("snapshot_duration_seconds")
+            .with_description("`snapshot` duration in seconds")
+            .init();
         let labels = vec![
             KeyValue::new("step_id", step_id.0.to_string()),
             KeyValue::new("worker_index", this_worker.0.to_string()),
@@ -651,17 +655,17 @@ where
             let mut awoken_keys_buffer: BTreeSet<StateKey> = BTreeSet::new();
 
             move |input_frontiers| {
-                // CODE_NOTE: The _span variable here will be dropped at the end of the function
-                // closing the tracing span. This way we avoid an indentation level compared
-                // to `.in_scope`.
-                let _span = tracing::debug_span!("operator", operator = op_name).entered();
+                // CODE_NOTE: The _span_guard variable here will be dropped at the end of the
+                // function closing the tracing span. This way we avoid an indentation level
+                // compared to `.in_scope`.
+                let _span_guard = tracing::debug_span!("operator", operator = op_name).entered();
 
-                // If the outputs are None, do nothing here.
+                // If the output capabilities have been dropped, do nothing here.
                 // CODE_NOTE: This is a bit of dance to do the early check, again to avoid
                 // an indentation level
                 if kv_downstream_cap.is_none() || snap_cap.is_none() {
-                    // Make sure that if the input frontiers are closed, we
-                    // still drop the capabilities.
+                    // Make sure that if the input frontiers are closed,
+                    // output capabilities are dropped too.
                     if input_frontiers.is_eof() {
                         kv_downstream_cap = None;
                         snap_cap = None;
@@ -885,18 +889,20 @@ where
                         // only at the end of each epoch.
                         if !immediate_snapshot && input_frontiers.is_closed(&epoch) {
                             if recovery_on {
-                                // Go through all keys awoken in this epoch.
-                                // This might involve keys from the previous activation.
-                                let mut snaps_session = snaps_handle.session(&state_update_cap);
-                                let mut snaps = unwrap_any!(Python::with_gil(|py| {
-                                    // Drain `awoken_keys_buffer` since the epoch is over.
-                                    std::mem::take(&mut awoken_keys_buffer)
-                                        .iter()
-                                        .map(|key| state.snap(py, key.clone(), epoch))
-                                        .collect::<PyResult<Vec<SerializedSnapshot>>>()
-                                }));
-                                state.write_snapshots(snaps.clone());
-                                snaps_session.give_vec(&mut snaps);
+                                with_timer!(snapshot_histogram, labels, {
+                                    // Go through all keys awoken in this epoch.
+                                    // This might involve keys from the previous activation.
+                                    let mut snaps_session = snaps_handle.session(&state_update_cap);
+                                    let mut snaps = unwrap_any!(Python::with_gil(|py| {
+                                        // Drain `awoken_keys_buffer` since the epoch is over.
+                                        std::mem::take(&mut awoken_keys_buffer)
+                                            .iter()
+                                            .map(|key| state.snap(py, key.clone(), epoch))
+                                            .collect::<PyResult<Vec<SerializedSnapshot>>>()
+                                    }));
+                                    state.write_snapshots(snaps.clone());
+                                    snaps_session.give_vec(&mut snaps);
+                                })
                             } else {
                                 awoken_keys_buffer.clear();
                             }
@@ -904,20 +910,22 @@ where
                         // This is the `immediate` approach, were we eagerly take snapshots
                         // each time an item is awoken.
                         if immediate_snapshot {
-                            // Go through all keys awoken in this epoch. This might involve
-                            // keys from the previous activation.
-                            let mut snaps_session = snaps_handle.session(&state_update_cap);
-                            let mut snaps = unwrap_any!(Python::with_gil(|py| {
-                                // Drain `awoken_keys_buffer` since we won't need this info
-                                // at the end of the epoch given we are snapshotting
-                                // at each change.
-                                std::mem::take(&mut awoken_keys_buffer)
-                                    .iter()
-                                    .map(|key| state.snap(py, key.clone(), epoch))
-                                    .collect::<PyResult<Vec<SerializedSnapshot>>>()
-                            }));
-                            state.write_snapshots(snaps.clone());
-                            snaps_session.give_vec(&mut snaps);
+                            with_timer!(snapshot_histogram, labels, {
+                                // Go through all keys awoken in this epoch. This might involve
+                                // keys from the previous activation.
+                                let mut snaps_session = snaps_handle.session(&state_update_cap);
+                                let mut snaps = unwrap_any!(Python::with_gil(|py| {
+                                    // Drain `awoken_keys_buffer` since we won't need this info
+                                    // at the end of the epoch given we are snapshotting
+                                    // at each change.
+                                    std::mem::take(&mut awoken_keys_buffer)
+                                        .iter()
+                                        .map(|key| state.snap(py, key.clone(), epoch))
+                                        .collect::<PyResult<Vec<SerializedSnapshot>>>()
+                                }));
+                                state.write_snapshots(snaps.clone());
+                                snaps_session.give_vec(&mut snaps);
+                            })
                         }
                     }
                 }
