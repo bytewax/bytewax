@@ -185,7 +185,7 @@ impl FixedPartitionedSource {
         step_id: &StepId,
         for_part: &StateKey,
         resume_state: Option<PyObject>,
-    ) -> PyResult<StatefulPartition> {
+    ) -> PyResult<StatefulSourcePartition> {
         self.0
             .call_method1(
                 py,
@@ -467,10 +467,10 @@ impl FixedPartitionedSource {
 }
 
 /// Represents a `bytewax.inputs.StatefulSourcePartition` in Python.
-pub(crate) struct StatefulPartition(Py<PyAny>);
+pub(crate) struct StatefulSourcePartition(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulPartition {
+impl<'py> FromPyObject<'py> for StatefulSourcePartition {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
@@ -492,7 +492,7 @@ pub(crate) enum BatchResult {
     Batch(Vec<PyObject>),
 }
 
-impl StatefulPartition {
+impl StatefulSourcePartition {
     pub(crate) fn next_batch(&self, py: Python) -> PyResult<BatchResult> {
         match self.0.bind(py).call_method0(intern!(py, "next_batch")) {
             Err(err) if err.is_instance_of::<PyStopIteration>(py) => Ok(BatchResult::Eof),
@@ -530,7 +530,7 @@ impl StatefulPartition {
     }
 }
 
-impl Drop for StatefulPartition {
+impl Drop for StatefulSourcePartition {
     fn drop(&mut self) {
         unwrap_any!(Python::with_gil(|py| self
             .close(py)

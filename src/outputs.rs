@@ -101,7 +101,7 @@ impl FixedPartitionedSink {
         step_id: &StepId,
         for_part: &StateKey,
         resume_state: Option<PyObject>,
-    ) -> PyResult<StatefulPartition> {
+    ) -> PyResult<StatefulSinkPartition> {
         self.0
             .call_method1(
                 py,
@@ -119,10 +119,10 @@ impl FixedPartitionedSink {
 }
 
 /// Represents a `bytewax.outputs.StatefulSinkPartition` in Python.
-pub(crate) struct StatefulPartition(Py<PyAny>);
+pub(crate) struct StatefulSinkPartition(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulPartition {
+impl<'py> FromPyObject<'py> for StatefulSinkPartition {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
@@ -138,7 +138,7 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
     }
 }
 
-impl StatefulPartition {
+impl StatefulSinkPartition {
     pub(crate) fn write_batch(&self, py: Python, values: Vec<PyObject>) -> PyResult<()> {
         let _ = self
             .0
@@ -156,7 +156,7 @@ impl StatefulPartition {
     }
 }
 
-impl Drop for StatefulPartition {
+impl Drop for StatefulSinkPartition {
     fn drop(&mut self) {
         unwrap_any!(
             Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")

@@ -25,7 +25,6 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
-use rusqlite::Transaction;
 use rusqlite_migration::Migrations;
 use rusqlite_migration::M;
 use serde::Deserialize;
@@ -40,8 +39,10 @@ use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs;
 use crate::inputs::BatchResult;
+use crate::inputs::StatefulSourcePartition;
 use crate::operators::StatefulBatchLogic;
 use crate::outputs;
+use crate::outputs::StatefulSinkPartition;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::timely::*;
@@ -70,14 +71,6 @@ impl IntoPy<Py<PyAny>> for Backup {
     }
 }
 
-impl Default for Backup {
-    fn default() -> Self {
-        unwrap_any!(Python::with_gil(|py| {
-            get_testing_backup(py).reraise("Error getting default Backup class")
-        }))
-    }
-}
-
 impl Backup {
     pub(crate) fn list_keys(&self, py: Python) -> PyResult<Vec<String>> {
         self.0
@@ -103,26 +96,10 @@ impl Backup {
     }
 }
 
-static TESTING_BACKUP: GILOnceCell<Backup> = GILOnceCell::new();
-
-fn get_testing_backup(py: Python) -> PyResult<Backup> {
-    Ok(TESTING_BACKUP
-        .get_or_try_init(py, || -> PyResult<Backup> {
-            py.import_bound("bytewax.backup")
-                .reraise("Can't find backup module")?
-                .getattr("TestingBackup")
-                .reraise("Can't find TestingBackup")?
-                .call0()
-                .reraise("Error initializing TestingBackup")?
-                .extract()
-        })?
-        .clone())
-}
-
 pub(crate) enum StatefulLogicKind {
     Stateful(StatefulBatchLogic),
-    Input(inputs::StatefulPartition),
-    Output(outputs::StatefulPartition),
+    Source(StatefulSourcePartition),
+    Sink(StatefulSinkPartition),
 }
 
 impl From<StatefulBatchLogic> for StatefulLogicKind {
@@ -131,15 +108,15 @@ impl From<StatefulBatchLogic> for StatefulLogicKind {
     }
 }
 
-impl From<inputs::StatefulPartition> for StatefulLogicKind {
-    fn from(val: inputs::StatefulPartition) -> Self {
-        StatefulLogicKind::Input(val)
+impl From<StatefulSourcePartition> for StatefulLogicKind {
+    fn from(val: StatefulSourcePartition) -> Self {
+        StatefulLogicKind::Source(val)
     }
 }
 
-impl From<outputs::StatefulPartition> for StatefulLogicKind {
-    fn from(val: outputs::StatefulPartition) -> Self {
-        StatefulLogicKind::Output(val)
+impl From<StatefulSinkPartition> for StatefulLogicKind {
+    fn from(val: StatefulSinkPartition) -> Self {
+        StatefulLogicKind::Sink(val)
     }
 }
 
@@ -147,29 +124,29 @@ impl StatefulLogicKind {
     pub(crate) fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
         match self {
             Self::Stateful(logic) => logic.snapshot(py),
-            Self::Input(logic) => logic.snapshot(py),
-            Self::Output(logic) => logic.snapshot(py),
+            Self::Source(logic) => logic.snapshot(py),
+            Self::Sink(logic) => logic.snapshot(py),
         }
     }
-    pub(crate) fn as_input(&self) -> &inputs::StatefulPartition {
+    pub(crate) fn as_source(&self) -> &StatefulSourcePartition {
         assert!(
-            matches!(self, Self::Input(_)),
+            matches!(self, Self::Source(_)),
             "Trying to treat input state as a state for a different operator. \
             This is a bug in Bytewax, aborting!"
         );
         match self {
-            Self::Input(logic) => logic,
+            Self::Source(logic) => logic,
             _ => unreachable!(),
         }
     }
-    pub(crate) fn as_output(&self) -> &outputs::StatefulPartition {
+    pub(crate) fn as_sink(&self) -> &StatefulSinkPartition {
         assert!(
-            matches!(self, Self::Output(_)),
+            matches!(self, Self::Sink(_)),
             "Trying to treat output state as a state for a different operator. \
             This is a bug in Bytewax, aborting!"
         );
         match self {
-            Self::Output(logic) => logic,
+            Self::Sink(logic) => logic,
             _ => unreachable!(),
         }
     }
@@ -256,6 +233,57 @@ impl StateStore {
         })
     }
 
+    pub fn backup(&self) -> Option<Backup> {
+        self.recovery_config.as_ref().map(|rc| rc.backup())
+    }
+
+    pub fn resume_from(&self) -> ResumeFrom {
+        self.resume_from
+    }
+
+    pub fn recovery_on(&self) -> bool {
+        self.recovery_config.is_some()
+    }
+
+    pub fn immediate_snapshot(&self) -> bool {
+        self.recovery_config
+            .as_ref()
+            .is_some_and(|rc| !rc.batch_backup)
+    }
+
+    pub fn update_resume_epoch(&mut self, epoch: u64) {
+        self.resume_from.1 .0 = epoch;
+    }
+
+    // Api for managing the store.
+
+    // Always assume that the step_id is present, as we expect it to be added
+    // when the operator is instanced. If that's not the case, it's a bug
+    // on our side and we should abort.
+    pub fn get(&self, step_id: &StepId, key: &StateKey) -> Option<&StatefulLogicKind> {
+        self.cache.get(step_id).unwrap().get(key)
+    }
+
+    pub fn get_logics(&self, step_id: &StepId) -> &BTreeMap<StateKey, StatefulLogicKind> {
+        self.cache.get(step_id).unwrap()
+    }
+
+    pub fn contains_key(&self, step_id: &StepId, key: &StateKey) -> bool {
+        self.cache.get(step_id).unwrap().contains_key(key)
+    }
+
+    pub fn insert(&mut self, step_id: &StepId, key: StateKey, logic: StatefulLogicKind) {
+        self.cache.get_mut(step_id).unwrap().insert(key, logic);
+    }
+
+    pub fn remove(&mut self, step_id: &StepId, key: &StateKey) -> Option<StatefulLogicKind> {
+        self.cache.get_mut(step_id).unwrap().remove(key)
+    }
+
+    /// Hydrate the local cache with all the snapshots for a step_id.
+    /// Pass a builder function that turns a `(state_key, state)` tuple
+    /// into a `StatefulLogicKind`, and it will be called with data coming
+    /// from each deserialized snapshot.
     pub fn hydrate(
         &mut self,
         step_id: &StepId,
@@ -323,48 +351,9 @@ impl StateStore {
         Ok(())
     }
 
-    pub fn backup(&self) -> Option<Backup> {
-        self.recovery_config.as_ref().map(|rc| rc.backup())
-    }
+    // Snapshots related api from here.
 
-    pub fn resume_from(&self) -> ResumeFrom {
-        self.resume_from
-    }
-
-    pub fn recovery_on(&self) -> bool {
-        self.recovery_config.is_some()
-    }
-
-    pub fn immediate_snapshot(&self) -> bool {
-        self.recovery_config
-            .as_ref()
-            .is_some_and(|rc| !rc.batch_backup)
-    }
-
-    // Api for managing the store from here on.
-    // Always assume that the step_id is present, as we expect it to be added
-    // when the operator is instanced. If that's not the case, it's a bug
-    // on our side and we should abort.
-    pub fn get(&self, step_id: &StepId, key: &StateKey) -> Option<&StatefulLogicKind> {
-        self.cache.get(step_id).unwrap().get(key)
-    }
-
-    pub fn get_logics(&self, step_id: &StepId) -> &BTreeMap<StateKey, StatefulLogicKind> {
-        self.cache.get(step_id).unwrap()
-    }
-
-    pub fn contains_key(&self, step_id: &StepId, key: &StateKey) -> bool {
-        self.cache.get(step_id).unwrap().contains_key(key)
-    }
-
-    pub fn insert(&mut self, step_id: &StepId, key: StateKey, logic: StatefulLogicKind) {
-        self.cache.get_mut(step_id).unwrap().insert(key, logic);
-    }
-
-    pub fn remove(&mut self, step_id: &StepId, key: &StateKey) -> Option<StatefulLogicKind> {
-        self.cache.get_mut(step_id).unwrap().remove(key)
-    }
-
+    /// Write a vec of snapshots to the local db.
     pub(crate) fn write_snapshots(&mut self, snaps: Vec<SerializedSnapshot>) {
         assert!(
             self.conn.is_some(),
@@ -387,7 +376,7 @@ impl StateStore {
         txn.commit().unwrap();
     }
 
-    /// Generates and returns a fully serialized snapshot
+    /// Generates and returns a fully serialized snapshot for a given key at the given epoch.
     pub fn snap(
         &self,
         py: Python,
@@ -395,20 +384,14 @@ impl StateStore {
         key: StateKey,
         epoch: u64,
     ) -> PyResult<SerializedSnapshot> {
-        let snap_change = if let Some(logic) = self.get(&step_id, &key) {
-            let state = logic
-                .snapshot(py)
-                .reraise_with(|| format!("error calling `snapshot` in {step_id} for key {key}"))?;
-            StateChange::Upsert(state)
-        } else {
+        let ser_change = self
+            .get(&step_id, &key)
             // It's ok if there's no logic, because it might have been discarded
             // due to one of the `on_*` methods returning `IsComplete::Discard`.
-            StateChange::Discard
-        };
-
-        let ser_change = match snap_change {
-            StateChange::Upsert(snap) => {
-                let snap = PyObject::from(snap);
+            .map(|logic| -> PyResult<Vec<u8>> {
+                let snap = PyObject::from(logic.snapshot(py).reraise_with(|| {
+                    format!("error calling `snapshot` in {step_id} for key {key}")
+                })?);
                 let pickle = py.import_bound(intern!(py, "pickle"))?;
                 let ser_snap = pickle
                     .call_method1(intern!(py, "dumps"), (snap.bind(py),))
@@ -417,10 +400,9 @@ impl StateStore {
                     .unwrap()
                     .as_bytes()
                     .to_vec();
-                Some(ser_snap)
-            }
-            StateChange::Discard => None,
-        };
+                Ok(ser_snap)
+            })
+            .transpose()?;
 
         Ok(SerializedSnapshot(
             step_id,
@@ -430,55 +412,34 @@ impl StateStore {
         ))
     }
 
-    pub fn open_segment(&mut self, epoch: u64) -> (Connection, PathBuf) {
-        let worker_index = self.worker_index;
-        let ex_num = self.resume_from.0;
+    /// Open a new db segment where to save partial data for an epoch.
+    /// The segment number resets each time the epoch changes.
+    pub(crate) fn open_segment(&mut self, epoch: u64) -> PyResult<Segment> {
+        assert!(
+            self.recovery_config.is_some(),
+            "Trying to save durable state, but recovery is not configured"
+        );
         if epoch != self.prev_epoch {
             self.seg_num = 1;
             self.prev_epoch = epoch;
         } else {
             self.seg_num += 1;
         }
-        let seg_num = self.seg_num;
 
-        let file_name =
-            format!("ex-{ex_num}:epoch-{epoch}:segment-{seg_num}:_:worker-{worker_index}.sqlite3");
+        let file_name = format!(
+            "ex-{}:epoch-{}:segment-{}:_:worker-{}.sqlite3",
+            self.resume_from.0, epoch, self.seg_num, self.worker_index
+        );
         let mut path = self.recovery_config.as_ref().unwrap().db_dir.clone();
         path.push(file_name);
-        let mut conn = Connection::open_with_flags(
-            path.clone(),
-            OpenFlags::SQLITE_OPEN_READ_WRITE
-                | OpenFlags::SQLITE_OPEN_CREATE
-                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .reraise("can't open recovery DB")
-        .unwrap();
-        rusqlite::vtab::series::load_module(&conn).unwrap();
-        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
-        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
-        conn.pragma_update(None, "busy_timeout", "5000").unwrap();
-        Python::with_gil(|py| {
-            get_migrations(py).to_latest(&mut conn).unwrap();
-        });
-        (conn, path)
-    }
 
-    pub fn frontier_query(&self, txn: &Transaction, epoch: u64) -> PyResult<()> {
-        txn.execute(
-            "INSERT INTO meta (flow_id, ex_num, worker_index, worker_count, cluster_frontier)
-            VALUES (?1, ?2, ?3, ?4, ?5)
-            ON CONFLICT (flow_id, ex_num, worker_index) DO UPDATE
-            SET cluster_frontier = EXCLUDED.cluster_frontier",
-            (
-                &self.flow_id,
-                self.resume_from.0 .0,
-                self.worker_index,
-                self.worker_count,
-                epoch,
-            ),
+        Segment::new(
+            path,
+            self.flow_id.clone(),
+            self.resume_from.1 .0,
+            self.worker_index,
+            self.worker_count,
         )
-        .reraise("Error initing transaction")
-        .map(|_| ())
     }
 
     pub fn write_frontier(&mut self, epoch: u64) -> PyResult<()> {
@@ -505,9 +466,98 @@ impl StateStore {
         .reraise("Error initing transaction")?;
         txn.commit().reraise("Error committing cluster_frontier")
     }
+}
 
-    pub fn set_resume_epoch(&mut self, epoch: u64) {
-        self.resume_from.1 .0 = epoch;
+fn setup_conn(path: PathBuf) -> PyResult<Connection> {
+    let mut conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .reraise("can't open recovery DB")?;
+    rusqlite::vtab::series::load_module(&conn).reraise("Error initializing db")?;
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .reraise("Error initializing db")?;
+    conn.pragma_update(None, "journal_mode", "WAL")
+        .reraise("Error initializing db")?;
+    conn.pragma_update(None, "busy_timeout", "5000")
+        .reraise("Error initializing db")?;
+    Python::with_gil(|py| {
+        get_migrations(py)
+            .to_latest(&mut conn)
+            .reraise("Error initializing db")
+    })?;
+    Ok(conn)
+}
+
+pub(crate) struct Segment {
+    conn: Connection,
+    path: PathBuf,
+    flow_id: String,
+    ex_num: u64,
+    worker_index: usize,
+    worker_count: usize,
+}
+
+impl Segment {
+    fn new(
+        path: PathBuf,
+        flow_id: String,
+        ex_num: u64,
+        worker_index: usize,
+        worker_count: usize,
+    ) -> PyResult<Self> {
+        let conn = setup_conn(path.clone())?;
+        Ok(Self {
+            conn,
+            path,
+            flow_id,
+            ex_num,
+            worker_index,
+            worker_count,
+        })
+    }
+
+    pub fn file_name(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    /// Write the frontier, and close this segment by consuming self.
+    pub fn write_frontier(mut self, epoch: u64) -> PyResult<PathBuf> {
+        let txn = self.conn.transaction().unwrap();
+        txn.execute(
+            "INSERT INTO meta (flow_id, ex_num, worker_index, worker_count, cluster_frontier)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT (flow_id, ex_num, worker_index) DO UPDATE
+            SET cluster_frontier = EXCLUDED.cluster_frontier",
+            (
+                &self.flow_id,
+                self.ex_num,
+                self.worker_index,
+                self.worker_count,
+                epoch,
+            ),
+        )
+        .reraise("Error initing transaction")?;
+        txn.commit().reraise("Error committing cluster_frontier")?;
+        Ok(self.path)
+    }
+
+    /// Write snapshots, and close this segment by consuming self.
+    pub fn write_snapshots(mut self, snaps: Vec<SerializedSnapshot>) {
+        let txn = self.conn.transaction().unwrap();
+        for SerializedSnapshot(step_id, state_key, snap_epoch, ser_change) in snaps {
+            txn.execute(
+                "INSERT INTO snaps (step_id, state_key, epoch, ser_change)
+                VALUES (?1, ?2, ?3, ?4)
+                ON CONFLICT (step_id, state_key, epoch) DO UPDATE
+                SET ser_change = EXCLUDED.ser_change",
+                (step_id.0, state_key.0, snap_epoch.0, ser_change),
+            )
+            .unwrap();
+        }
+        txn.commit().unwrap();
     }
 }
 
@@ -601,7 +651,7 @@ impl OutputState {
                 let part = sink
                     .build_part(py, &self.step_id, state_key, state)
                     .unwrap();
-                StatefulLogicKind::Output(part)
+                StatefulLogicKind::Sink(part)
             };
 
             self.state_store
@@ -622,7 +672,7 @@ impl OutputState {
             .borrow()
             .get(&self.step_id, key)
             .unwrap()
-            .as_output()
+            .as_sink()
             .write_batch(py, batch)
     }
 }
@@ -679,7 +729,7 @@ impl InputState {
                 let part = source
                     .build_part(py, &self.step_id, state_key, state)
                     .unwrap();
-                StatefulLogicKind::Input(part)
+                StatefulLogicKind::Source(part)
             };
 
             self.state_store
@@ -693,7 +743,7 @@ impl InputState {
             .borrow()
             .get(&self.step_id, key)
             .unwrap()
-            .as_input()
+            .as_source()
             .next_batch(py)
             .reraise_with(|| {
                 format!(
@@ -709,12 +759,11 @@ impl InputState {
             .borrow()
             .get(&self.step_id, key)
             .unwrap()
-            .as_input()
+            .as_source()
             .next_awake(py)
             .reraise_with(|| {
                 format!(
-                    "error calling \
-                    `StatefulSourcePartition.next_awake` in \
+                    "error calling `StatefulSourcePartition.next_awake` in \
                     step {} for partition {}",
                     self.step_id, key
                 )
@@ -974,31 +1023,6 @@ impl std::fmt::Display for StateKey {
     }
 }
 
-/// Each operator's state is modeled as as key-value store, with
-/// [`StateKey`] being the key, and this enum representing changes to
-/// the value.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum StateChange {
-    /// Value was updated.
-    Upsert(TdPyAny),
-    /// Key was deleted.
-    Discard,
-}
-
-/// The snapshot of state for a key in an operator.
-///
-/// This is the API that stateful operators must adhere to: emit these
-/// downstream at the end of every epoch, and load them on resume.
-///
-/// The epoch is stored by the recovery machinery and is not part of
-/// the operator's API.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct Snapshot(
-    pub(crate) StepId,
-    pub(crate) StateKey,
-    pub(crate) StateChange,
-);
-
 /// The epoch a snapshot was taken at the end of.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnapshotEpoch(u64);
@@ -1055,7 +1079,13 @@ impl RecoveryConfig {
             backup
         } else {
             Python::with_gil(|py| {
-                get_testing_backup(py).reraise("Error getting default Backup class")
+                py.import_bound("bytewax.backup")
+                    .reraise("Can't find backup module")?
+                    .getattr("NoopBackup")
+                    .reraise("Can't find NoopBackup")?
+                    .call0()
+                    .reraise("Error initializing NoopBackup")?
+                    .extract()
             })?
         };
 
@@ -1084,20 +1114,7 @@ impl RecoveryConfig {
         let mut path = self.db_dir.clone();
         path.push(file_name);
 
-        let mut conn = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE
-                | OpenFlags::SQLITE_OPEN_CREATE
-                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .reraise("can't open recovery DB")?;
-        rusqlite::vtab::series::load_module(&conn).unwrap();
-        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
-        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
-        conn.pragma_update(None, "busy_timeout", "5000").unwrap();
-        Python::with_gil(|py| get_migrations(py).to_latest(&mut conn))
-            .reraise("Error running migrations on the db")?;
-        Ok(conn)
+        setup_conn(path)
     }
 
     pub(crate) fn backup(&self) -> Backup {
@@ -1159,18 +1176,18 @@ fn migrations_valid() -> rusqlite_migration::Result<()> {
     Python::with_gil(|py| get_migrations(py).validate())
 }
 
-pub(crate) trait CompactFrontiersOp<S>
+pub(crate) trait WriteFrontiersOp<S>
 where
     S: Scope,
 {
-    fn compact_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> ClockStream<S>;
+    fn write_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> ClockStream<S>;
 }
 
-impl<S> CompactFrontiersOp<S> for ClockStream<S>
+impl<S> WriteFrontiersOp<S> for ClockStream<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn compact_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> ClockStream<S> {
+    fn write_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> ClockStream<S> {
         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
         let (mut output, clock) = op_builder.new_output();
@@ -1200,18 +1217,18 @@ where
     }
 }
 
-pub(crate) trait FrontierSegmentOp<S>
+pub(crate) trait CompactFrontiersOp<S>
 where
     S: Scope,
 {
-    fn frontier_segment(&self, state_store: Rc<RefCell<StateStore>>) -> Stream<S, PathBuf>;
+    fn compact_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> Stream<S, PathBuf>;
 }
 
-impl<S> FrontierSegmentOp<S> for ClockStream<S>
+impl<S> CompactFrontiersOp<S> for ClockStream<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn frontier_segment(&self, state_store: Rc<RefCell<StateStore>>) -> Stream<S, PathBuf> {
+    fn compact_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> Stream<S, PathBuf> {
         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
         let (mut segments_output, segments) = op_builder.new_output();
@@ -1235,11 +1252,10 @@ where
                         let epochs = inbuffer.epochs().collect::<Vec<_>>();
                         let mut state = state_store.borrow_mut();
                         for epoch in epochs {
-                            let (mut conn, file_name) = state.open_segment(epoch);
-                            let txn = conn.transaction().unwrap();
+                            let segment = unwrap_any!(state.open_segment(epoch));
+                            let file_name = segment.file_name();
                             inbuffer.remove(&epoch);
-                            state.frontier_query(&txn, epoch).unwrap();
-                            txn.commit().unwrap();
+                            segment.write_frontier(epoch).unwrap();
                             session.give(file_name);
                         }
                     },
@@ -1267,12 +1283,32 @@ where
         let (mut output, clock) = op_builder.new_output();
 
         op_builder.build(move |init_caps| {
-            // TODO: EagerNotificator is probably not the right tool here
+            // TODO: EagerNotificator is probably not the best tool here
             //       since the logic is the same, only the eager one is optional
             //       depending on a condition, so a slightly different notificator
             //       might avoid some code duplication and the Rc<RefCell<_>>
-            let inbuffer = Rc::new(RefCell::new(InBuffer::new()));
+            let inbuffer = Rc::new(RefCell::new(InBuffer::<u64, PathBuf>::new()));
             let mut ncater = EagerNotificator::new(init_caps, ());
+
+            // This logic is reused in both eager and closing logic, but only
+            // if immediate snapshot is True in the eager one.
+            // Takes the inbuffer, empties it and uploads all the paths in the stream.
+            let upload = move |inbuffer: Rc<RefCell<InBuffer<u64, PathBuf>>>| {
+                Python::with_gil(|py| {
+                    let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+                    for epoch in epochs {
+                        for path in inbuffer.borrow_mut().remove(&epoch).unwrap() {
+                            backup
+                                .upload(
+                                    py,
+                                    path.clone(),
+                                    path.file_name().unwrap().to_string_lossy().to_string(),
+                                )
+                                .unwrap();
+                        }
+                    }
+                });
+            };
 
             move |input_frontiers| {
                 input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
@@ -1281,33 +1317,14 @@ where
                     input_frontiers,
                     |_caps, ()| {
                         if immediate_backup {
-                            // Do the upload
-                            Python::with_gil(|py| {
-                                let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                                for epoch in epochs {
-                                    for path in inbuffer.borrow_mut().remove(&epoch).unwrap() {
-                                        backup
-                                            .upload(py, path.clone(), "test_key".to_string())
-                                            .unwrap();
-                                    }
-                                }
-                            });
+                            upload(inbuffer.clone());
                         }
                     },
                     |caps, ()| {
+                        // The inbuffer has been emptied already if immediate_snapshot
+                        // is set to True, so we can upload unconditionally here.
                         let cap = &caps[0];
-                        // Do the upload
-                        Python::with_gil(|py| {
-                            let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                            for epoch in epochs {
-                                for path in inbuffer.borrow_mut().remove(&epoch).unwrap() {
-                                    backup
-                                        .upload(py, path.clone(), "test_key".to_string())
-                                        .unwrap();
-                                }
-                            }
-                        });
-                        // And then
+                        upload(inbuffer.clone());
                         output.activate().session(cap).give(());
                     },
                 )
@@ -1339,7 +1356,7 @@ where
         let immediate_snapshot = state_store.borrow().immediate_snapshot();
 
         op_builder.build(move |init_caps| {
-            // TODO: EagerNotificator is probably not the right tool here
+            // TODO: EagerNotificator is probably not the best tool here
             //       since the logic is the same, only the eager one is optional
             //       depending on a condition, so a slightly different notificator
             //       might avoid some code duplication and the Rc<RefCell<_>>
@@ -1354,31 +1371,18 @@ where
                     |caps, ()| {
                         if immediate_snapshot {
                             let cap = &caps[0];
+
                             let mut handle = immediate_segments_output.activate();
                             let mut session = handle.session(cap);
 
                             let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+                            let mut state = state_store.borrow_mut();
+
                             for epoch in epochs {
-                                let (mut conn, file_name) =
-                                    state_store.borrow_mut().open_segment(epoch);
-                                let txn = conn.transaction().unwrap();
-                                for snap in inbuffer.borrow_mut().remove(&epoch).unwrap() {
-                                    let SerializedSnapshot(
-                                        step_id,
-                                        state_key,
-                                        snap_epoch,
-                                        ser_change,
-                                    ) = snap;
-                                    txn.execute(
-                                        "INSERT INTO snaps (step_id, state_key, epoch, ser_change)
-                                     VALUES (?1, ?2, ?3, ?4)
-                                     ON CONFLICT (step_id, state_key, epoch) DO UPDATE
-                                     SET ser_change = EXCLUDED.ser_change",
-                                        (step_id.0, state_key.0, snap_epoch.0, ser_change),
-                                    )
-                                    .unwrap();
-                                }
-                                txn.commit().unwrap();
+                                let segment = unwrap_any!(state.open_segment(epoch));
+                                let file_name = segment.file_name();
+                                let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
+                                segment.write_snapshots(snaps);
                                 session.give(file_name);
                             }
                         }
@@ -1390,23 +1394,13 @@ where
                         let mut session = handle.session(cap);
 
                         let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+                        let mut state = state_store.borrow_mut();
+
                         for epoch in epochs {
-                            let (mut conn, file_name) =
-                                state_store.borrow_mut().open_segment(epoch);
-                            let txn = conn.transaction().unwrap();
-                            for snap in inbuffer.borrow_mut().remove(&epoch).unwrap() {
-                                let SerializedSnapshot(step_id, state_key, snap_epoch, ser_change) =
-                                    snap;
-                                txn.execute(
-                                    "INSERT INTO snaps (step_id, state_key, epoch, ser_change)
-                                     VALUES (?1, ?2, ?3, ?4)
-                                     ON CONFLICT (step_id, state_key, epoch) DO UPDATE
-                                     SET ser_change = EXCLUDED.ser_change",
-                                    (step_id.0, state_key.0, snap_epoch.0, ser_change),
-                                )
-                                .unwrap();
-                            }
-                            txn.commit().unwrap();
+                            let segment = unwrap_any!(state.open_segment(epoch));
+                            let file_name = segment.file_name();
+                            let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
+                            segment.write_snapshots(snaps);
                             session.give(file_name);
                         }
                     },

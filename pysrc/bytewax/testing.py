@@ -1,10 +1,13 @@
 """Helper tools for testing dataflows."""
 
 import asyncio
+import glob
+import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
+from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
 from typing_extensions import override
@@ -14,7 +17,6 @@ from bytewax._bytewax import (
     run_main,
 )
 from bytewax.backup import Backup
-from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
     AbortExecution,
     FixedPartitionedSource,
@@ -25,8 +27,6 @@ from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from bytewax.run import (
     _create_arg_parser,
     _EnvDefault,
-    _locate_subclass,
-    _prepare_import,
 )
 
 __all__ = [
@@ -241,6 +241,43 @@ class TestingSink(DynamicSink[X]):
         self, step_id: str, worker_index: int, worker_count: int
     ) -> _ListSinkPartition[X]:
         return _ListSinkPartition(self._ls)
+
+
+class TestingBackup(Backup):
+    """Backup class that can be used for testing purposes.
+
+    It moves files to and from a local directory.
+    """
+
+    def __init__(self, path: Union[str, Path]):
+        """Init and check that the directory exists."""
+        self.path = Path(path)
+        assert self.path.exists(), f"Local backup directory {self.path} doesn't exists!"
+
+    @override
+    def list_keys(self) -> List[str]:
+        return glob.glob(self.path / "*.sqlite3")
+
+    @override
+    def upload(self, from_local: Union[str, Path], to_key: str):
+        if isinstance(from_local, str):
+            from_local = Path(from_local)
+        dest = self.path / to_key
+        shutil.move(from_local, dest)
+
+    @override
+    def download(self, from_key: str, to_local: Path):
+        source = self.path / from_key
+        shutil.move(source, to_local)
+
+    @override
+    def delete(self, key: str):
+        shutil.rmtree(self.path / key)
+
+
+def testing_backup(path="/tmp/bytewax/durable"):
+    """Return an instanced TestingBackup object."""
+    return TestingBackup(path)
 
 
 def poll_next_batch(part, timeout=timedelta(seconds=5)):

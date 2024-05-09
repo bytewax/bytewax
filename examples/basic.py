@@ -1,14 +1,7 @@
-from datetime import timedelta
-from typing import Tuple
-
 import bytewax.operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSource
-
-# from bytewax.tracing import setup_tracing
-
-# setup_tracing(log_level="TRACE")
 
 
 def double(x: int) -> int:
@@ -23,8 +16,8 @@ def minus_one(x: int) -> int:
     return x - 1
 
 
-def stringy(x: int) -> Tuple[str, str]:
-    return "all", f"<dance>{x}</dance>"
+def stringy(x: int) -> str:
+    return f"<dance>{x}</dance>"
 
 
 flow = Dataflow("basic")
@@ -36,5 +29,4 @@ odds = op.map("double", branch.falses, double)
 combo = op.merge("merge", evens, odds)
 combo = op.map("minus_one", combo, minus_one)
 string_output = op.map("stringy", combo, stringy)
-out = op.collect("collect", string_output, timedelta(seconds=10), 3)
-op.output("out", out, StdOutSink())
+op.output("out", string_output, StdOutSink())
