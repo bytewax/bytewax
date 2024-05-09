@@ -29,12 +29,6 @@ class RecoveryConfig:
 
     :type db_dir: pathlib.Path
 
-    :arg snapshot_serde: Format to use when encoding state snapshot
-        objects in the recovery partitions. Defaults to
-        {py:obj}`~bytewax.serde.JsonPickleSerde`.
-
-    :type snapshot_serde: typing.Optional[bytewax.serde.Serde]
-
     :arg backup: Class to use to save recovery files to a durable
         storage like amazon's S3.
 
@@ -49,7 +43,7 @@ class RecoveryConfig:
     """
     ...
 
-    def __init__(self, db_dir, snapshot_serde=None, backup=None, batch_backup=None):
+    def __init__(self, db_dir, backup=None, batch_backup=None):
         ...
 
     def __new__(cls, *args, **kwargs):
@@ -66,10 +60,6 @@ class RecoveryConfig:
 
     @property
     def db_dir(self):
-        ...
-
-    @property
-    def snapshot_serde(self):
         ...
 
 class TracingConfig:
@@ -100,18 +90,23 @@ def cluster_main(flow, addresses, proc_id, *, epoch_interval=None, recovery_conf
 
     Blocks until execution is complete.
 
-    ```python
-    >>> from bytewax.dataflow import Dataflow
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, cluster_main
-    >>> from bytewax.connectors.stdio import StdOutSink
-    >>> flow = Dataflow("my_df")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> op.output("out", s, StdOutSink())
-    >>> # In a real example, use "host:port" of all other workers.
-    >>> addresses = []
-    >>> proc_id = 0
-    >>> cluster_main(flow, addresses, proc_id)
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource, cluster_main
+    from bytewax.connectors.stdio import StdOutSink
+
+    flow = Dataflow("my_df")
+    s = op.input("inp", flow, TestingSource(range(3)))
+    op.output("out", s, StdOutSink())
+
+    # In a real example, use "host:port" of all other workers.
+    addresses = []
+    proc_id = 0
+    cluster_main(flow, addresses, proc_id)
+    ```
+
+    ```{testoutput}
     0
     1
     2
@@ -156,15 +151,19 @@ def run_main(flow, *, epoch_interval=None, recovery_config=None):
 
     This is only used for unit testing. See `bytewax.run`.
 
-    ```python
-    >>> from bytewax.dataflow import Dataflow
-    >>> import bytewax.operators as op
-    >>> from bytewax.testing import TestingSource, run_main
-    >>> from bytewax.connectors.stdio import StdOutSink
-    >>> flow = Dataflow("my_df")
-    >>> s = op.input("inp", flow, TestingSource(range(3)))
-    >>> op.output("out", s, StdOutSink())
-    >>> run_main(flow)
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource, run_main
+    from bytewax.connectors.stdio import StdOutSink
+    flow = Dataflow("my_df")
+    s = op.input("inp", flow, TestingSource(range(3)))
+    op.output("out", s, StdOutSink())
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
     0
     1
     2
@@ -197,7 +196,7 @@ def setup_tracing(tracing_config=None, log_level=None):
     Note: To make this work, you have to keep a reference of the
     returned object.
 
-    % skip: next
+    % Skip this doctest because it requires starting the webserver.
 
     ```python
     from bytewax.tracing import setup_tracing
@@ -213,16 +212,6 @@ def setup_tracing(tracing_config=None, log_level=None):
         `"ERROR"`.
 
     :type log_level: str
-
-    """
-    ...
-
-def test_cluster(flow, *, epoch_interval=None, recovery_config=None, processes=1, workers_per_process=1):
-    """Execute a Dataflow by spawning multiple Python processes.
-
-    Blocks until execution is complete.
-
-    This function should only be used for testing purposes.
 
     """
     ...
