@@ -65,6 +65,11 @@ notes on GitHub when we make a new release.__
 
 - Session windows now work correctly with out-of-order data and joins.
 
+- All windowing operators now process items in timestamp order. The
+  most visible change that this results in is that the
+  {py:obj}`~bytewax.operators.windowing.collect_window` operator now
+  emits collections with values in timestamp order.
+
 - Adds a {py:obj}`~bytewax.operators.filter_map_value` operator.
 
 - Adds a {py:obj}`~bytewax.operators.enrich_cached` operator for

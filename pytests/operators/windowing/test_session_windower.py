@@ -16,17 +16,12 @@ from bytewax.testing import TestingSink, TestingSource, run_main
 
 
 def test_initial_session():
-    watermark = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
 
-    windows_in, windows_late = logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
-    assert list(windows_in) == [0]
-    assert list(windows_late) == []
+    found = logic.open_for(datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc))
+    assert list(found) == [0]
 
     assert logic.metadata_for(0) == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -35,22 +30,14 @@ def test_initial_session():
 
 
 def test_extend_forward_within_gap():
-    watermark = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
 
-    logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
+    logic.open_for(datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc))
 
-    windows_in, windows_late = logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 5, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
-    assert list(windows_in) == [0]
-    assert list(windows_late) == []
+    found = logic.open_for(datetime(2024, 1, 1, 9, 0, 5, tzinfo=timezone.utc))
+    assert list(found) == [0]
 
     assert logic.metadata_for(0) == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -59,22 +46,14 @@ def test_extend_forward_within_gap():
 
 
 def test_extend_forward_exact_gap():
-    watermark = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
 
-    logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
+    logic.open_for(datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc))
 
-    windows_in, windows_late = logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
-    assert list(windows_in) == [0]
-    assert list(windows_late) == []
+    found = logic.open_for(datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc))
+    assert list(found) == [0]
 
     assert logic.metadata_for(0) == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -83,22 +62,14 @@ def test_extend_forward_exact_gap():
 
 
 def test_extend_backward_within_gap():
-    watermark = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
 
-    logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
+    logic.open_for(datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc))
 
-    windows_in, windows_late = logic.open_for(
-        timestamp=datetime(2024, 1, 1, 8, 59, 55, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
-    assert list(windows_in) == [0]
-    assert list(windows_late) == []
+    found = logic.open_for(datetime(2024, 1, 1, 8, 59, 55, tzinfo=timezone.utc))
+    assert list(found) == [0]
 
     assert logic.metadata_for(0) == WindowMetadata(
         open_time=datetime(2024, 1, 1, 8, 59, 55, tzinfo=timezone.utc),
@@ -107,22 +78,14 @@ def test_extend_backward_within_gap():
 
 
 def test_extend_backward_exact_gap():
-    watermark = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
 
-    logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
+    logic.open_for(datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc))
 
-    windows_in, windows_late = logic.open_for(
-        timestamp=datetime(2024, 1, 1, 8, 59, 50, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
-    assert list(windows_in) == [0]
-    assert list(windows_late) == []
+    found = logic.open_for(datetime(2024, 1, 1, 8, 59, 50, tzinfo=timezone.utc))
+    assert list(found) == [0]
 
     assert logic.metadata_for(0) == WindowMetadata(
         open_time=datetime(2024, 1, 1, 8, 59, 50, tzinfo=timezone.utc),
@@ -131,26 +94,17 @@ def test_extend_backward_exact_gap():
 
 
 def test_extend_merge():
-    watermark = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
 
-    logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
-    logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 20, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
+    logic.open_for(datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc))
+    logic.open_for(datetime(2024, 1, 1, 9, 0, 20, tzinfo=timezone.utc))
 
-    windows_in, windows_late = logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc),
-        watermark=watermark,
+    found = logic.open_for(
+        datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc),
     )
-    assert list(windows_in) == [0]
-    assert list(windows_late) == []
+    assert list(found) == [0]
     assert logic.merged() == [(1, 0)]
 
     assert logic.metadata_for(0) == WindowMetadata(
@@ -160,7 +114,6 @@ def test_extend_merge():
 
 
 def test_within_existing():
-    watermark = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10),
         state=_SessionWindowerState(
@@ -174,12 +127,8 @@ def test_within_existing():
         ),
     )
 
-    windows_in, windows_late = logic.open_for(
-        timestamp=datetime(2024, 1, 1, 9, 0, 5, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
-    assert list(windows_in) == [0]
-    assert list(windows_late) == []
+    found = logic.open_for(datetime(2024, 1, 1, 9, 0, 5, tzinfo=timezone.utc))
+    assert list(found) == [0]
 
     assert logic.metadata_for(0) == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -188,18 +137,13 @@ def test_within_existing():
 
 
 def test_late():
-    watermark = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10),
         state=_SessionWindowerState(),
     )
 
-    windows_in, windows_late = logic.open_for(
-        timestamp=datetime(2023, 12, 1, 9, 0, 0, tzinfo=timezone.utc),
-        watermark=watermark,
-    )
-    assert list(windows_in) == []
-    assert list(windows_late) == [LATE_SESSION_ID]
+    found = logic.late_for(datetime(2023, 12, 1, 9, 0, 0, tzinfo=timezone.utc))
+    assert list(found) == [LATE_SESSION_ID]
 
 
 def test_find_merges_none():
