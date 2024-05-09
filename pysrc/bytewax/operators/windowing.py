@@ -224,43 +224,55 @@ class _EventClockState:
 
 
 @dataclass
-class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
+class _EventClockLogic(ClockLogic[V, _EventClockState]):
     now_getter: Callable[[], datetime]
     timestamp_getter: Callable[[V], datetime]
     to_system: Callable[[datetime], Optional[datetime]]
     wait_for_system_duration: timedelta
-    state: Optional[_EventClockState]
+
+    state: _EventClockState = field(
+        default_factory=lambda: _EventClockState(
+            max_event_timestamp=UTC_MIN,
+            system_time_of_max_event=UTC_MIN,
+            watermark_base=UTC_MIN,
+        )
+    )
     _system_now: datetime = field(init=False)
 
     def __post_init__(self) -> None:
         self._system_now = self.now_getter()
+        if self.state.system_time_of_max_event <= UTC_MIN:
+            self.state.system_time_of_max_event = self._system_now
 
     @override
     def before_batch(self) -> None:
-        self._system_now = self.now_getter()
+        system_now = self.now_getter()
+        assert system_now >= self._system_now
+        self._system_now = system_now
 
     @override
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
         value_event_timestamp = self.timestamp_getter(value)
+        if value_event_timestamp > self.state.max_event_timestamp:
+            try:
+                self.state.watermark_base = (
+                    value_event_timestamp - self.wait_for_system_duration
+                )
+                self.state.max_event_timestamp = value_event_timestamp
+                assert self._system_now >= self.state.system_time_of_max_event
+                self.state.system_time_of_max_event = self._system_now
+                watermark = self.state.watermark_base
 
-        if self.state is None:
-            watermark = value_event_timestamp - self.wait_for_system_duration
-            self.state = _EventClockState(
-                max_event_timestamp=value_event_timestamp,
-                system_time_of_max_event=self._system_now,
-                watermark_base=watermark,
-            )
-        elif value_event_timestamp > self.state.max_event_timestamp:
-            self.state.max_event_timestamp = value_event_timestamp
-            self.state.system_time_of_max_event = self._system_now
-            self.state.watermark_base = (
-                value_event_timestamp - self.wait_for_system_duration
-            )
-            watermark = self.state.watermark_base
-        else:
-            watermark = self.state.watermark_base + (
-                self._system_now - self.state.system_time_of_max_event
-            )
+                return value_event_timestamp, watermark
+            except OverflowError:
+                # Since the new actual watermark is unrepresentable,
+                # we need to keep the watermark advancing at UTC_MIN +
+                # system time, so that the watermark does not regress.
+                pass
+
+        watermark = self.state.watermark_base + (
+            self._system_now - self.state.system_time_of_max_event
+        )
         return value_event_timestamp, watermark
 
     @override
@@ -268,7 +280,7 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
         if self.state is None:
             return UTC_MIN
         else:
-            self._system_now = self.now_getter()
+            self.before_batch()
             watermark = self.state.watermark_base + (
                 self._system_now - self.state.system_time_of_max_event
             )
@@ -283,7 +295,7 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
         return self.to_system(timestamp)
 
     @override
-    def snapshot(self) -> Optional[_EventClockState]:
+    def snapshot(self) -> _EventClockState:
         return copy.deepcopy(self.state)
 
 
@@ -334,7 +346,7 @@ class SystemClock(Clock[Any, None]):
 
 
 @dataclass
-class EventClock(Clock[V, Optional[_EventClockState]]):
+class EventClock(Clock[V, _EventClockState]):
     """Use a timestamp embedded within each item.
 
     The watermark is the largest timestamp seen thus far, minus the
@@ -385,13 +397,21 @@ class EventClock(Clock[V, Optional[_EventClockState]]):
 
     @override
     def build(self, resume_state: Optional[_EventClockState]) -> _EventClockLogic[V]:
-        return _EventClockLogic(
-            self.now_getter,
-            self.ts_getter,
-            self.to_system_utc,
-            self.wait_for_system_duration,
-            resume_state,
-        )
+        if resume_state is None:
+            return _EventClockLogic(
+                self.now_getter,
+                self.ts_getter,
+                self.to_system_utc,
+                self.wait_for_system_duration,
+            )
+        else:
+            return _EventClockLogic(
+                self.now_getter,
+                self.ts_getter,
+                self.to_system_utc,
+                self.wait_for_system_duration,
+                resume_state,
+            )
 
 
 @dataclass
@@ -1081,10 +1101,7 @@ class _WindowLogic(
 
         for value in values:
             value_timestamp, watermark = self.clock.on_item(value)
-            assert watermark >= self._last_watermark, (
-                f"New watermark {watermark} is not <= "
-                f"last watermark: {self._last_watermark}"
-            )
+            assert watermark >= self._last_watermark
             self._last_watermark = watermark
 
             # Attempt to insert into relevant windows.
