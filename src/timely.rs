@@ -528,47 +528,51 @@ where
             let mut ncater = EagerNotificator::new(init_caps, known);
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = name).in_scope(|| {
-                    items_input.buffer_notify(&mut items_inbuf, &mut ncater);
-                    known_input.buffer_notify(&mut known_inbuf, &mut ncater);
+                let _guard = tracing::debug_span!("operator", operator = name).entered();
+                items_input.buffer_notify(&mut items_inbuf, &mut ncater);
+                known_input.buffer_notify(&mut known_inbuf, &mut ncater);
 
-                    ncater.for_each(
-                        input_frontiers,
-                        |caps, known| {
-                            let cap = &caps[0];
-                            let epoch = cap.time();
+                ncater.for_each(
+                    input_frontiers,
+                    |caps, known| {
+                        let cap = &caps[0];
+                        let epoch = cap.time();
 
-                            if let Some(items) = items_inbuf.remove(epoch) {
-                                assert!(!known.is_empty(), "Known partitions in {name} is empty; \
-                                    did you forget to broadcast initial partitions in the 0th epoch?");
+                        if let Some(items) = items_inbuf.remove(epoch) {
+                            assert!(
+                                !known.is_empty(),
+                                "Known partitions in {name} is empty; \
+                                did you forget to broadcast initial partitions in the 0th epoch?"
+                            );
 
-                                let mut handle = partd_output.activate();
-                                let mut session = handle.session(cap);
-                                let len = known.len();
-                                for (key, value) in items {
-                                    let idx = pf.assign(&key);
-                                    let wrapped_idx = idx % len;
-                                    tracing::trace!("Assigner gave value {idx} % {len}; \
-                                        wrapped to {wrapped_idx}");
-                                    let part = known
-                                        .iter()
-                                        .nth(wrapped_idx)
-                                        .expect("hash idx was not in len of known parts")
-                                        .clone();
-                                    session.give((part, (key, value)));
-                                }
+                            let mut handle = partd_output.activate();
+                            let mut session = handle.session(cap);
+                            let len = known.len();
+                            for (key, value) in items {
+                                let idx = pf.assign(&key);
+                                let wrapped_idx = idx % len;
+                                tracing::trace!(
+                                    "Assigner gave value {idx} % {len}; \
+                                        wrapped to {wrapped_idx}"
+                                );
+                                let part = known
+                                    .iter()
+                                    .nth(wrapped_idx)
+                                    .expect("hash idx was not in len of known parts")
+                                    .clone();
+                                session.give((part, (key, value)));
                             }
-                        },
-                        |caps, known| {
-                            let cap = &caps[0];
-                            let epoch = cap.time();
+                        }
+                    },
+                    |caps, known| {
+                        let cap = &caps[0];
+                        let epoch = cap.time();
 
-                            if let Some(parts) = known_inbuf.remove(epoch) {
-                                known.extend(parts);
-                            }
-                        },
-                    );
-                });
+                        if let Some(parts) = known_inbuf.remove(epoch) {
+                            known.extend(parts);
+                        }
+                    },
+                );
             }
         });
 
@@ -1324,49 +1328,49 @@ where
             let mut ncater = EagerNotificator::new(init_caps, parts);
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
-                    clock_input.buffer_notify(&mut clock_inbuf, &mut ncater);
-                    primaries_input.buffer_notify(&mut primaries_inbuf, &mut ncater);
+                let _guard = tracing::debug_span!("operator", operator = op_name).entered();
+                clock_input.buffer_notify(&mut clock_inbuf, &mut ncater);
+                primaries_input.buffer_notify(&mut primaries_inbuf, &mut ncater);
 
-                    ncater.for_each(
-                        input_frontiers,
-                        |_caps, _parts| {},
-                        |caps, parts| {
-                            let cap = &caps[0];
-                            let epoch = cap.time();
+                ncater.for_each(
+                    input_frontiers,
+                    |_caps, _parts| {},
+                    |caps, parts| {
+                        let cap = &caps[0];
+                        let epoch = cap.time();
 
-                            // We don't use the incoming ticks.
-                            clock_inbuf.remove(epoch);
-                            // Call commit before updating the partitions
-                            // in order to mirror the semantics of the
-                            // write operator.
-                            if let Some(delayed) = epoch.checked_sub(&delay) {
-                                for (part_key, part) in parts.iter_mut() {
-                                    tracing::trace_span!("partition", part_key = ?part_key)
-                                        .in_scope(|| {
-                                            part.commit(&delayed);
-                                        });
+                        // We don't use the incoming ticks.
+                        clock_inbuf.remove(epoch);
+                        // Call commit before updating the partitions
+                        // in order to mirror the semantics of the
+                        // write operator.
+                        if let Some(delayed) = epoch.checked_sub(&delay) {
+                            for (part_key, part) in parts.iter_mut() {
+                                tracing::trace_span!("partition", part_key = ?part_key).in_scope(
+                                    || {
+                                        part.commit(&delayed);
+                                    },
+                                );
+                            }
+                        }
+
+                        if let Some(primaries) = primaries_inbuf.remove(epoch) {
+                            // If this worker was assigned to be
+                            // primary for a partition, build it.
+                            for (part_key, worker) in primaries {
+                                if worker == this_worker && !parts.contains_key(&part_key) {
+                                    let part = builder(&part_key);
+                                    parts.insert(part_key, part);
+                                } else {
+                                    parts.remove(&part_key);
                                 }
                             }
+                        }
 
-                            if let Some(primaries) = primaries_inbuf.remove(epoch) {
-                                // If this worker was assigned to be
-                                // primary for a partition, build it.
-                                for (part_key, worker) in primaries {
-                                    if worker == this_worker && !parts.contains_key(&part_key) {
-                                        let part = builder(&part_key);
-                                        parts.insert(part_key, part);
-                                    } else {
-                                        parts.remove(&part_key);
-                                    }
-                                }
-                            }
-
-                            // Emit our progress clock.
-                            clock_output.activate().session(&cap).give(());
-                        },
-                    );
-                });
+                        // Emit our progress clock.
+                        clock_output.activate().session(&cap).give(());
+                    },
+                );
             }
         });
 
