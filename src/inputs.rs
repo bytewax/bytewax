@@ -225,12 +225,12 @@ impl FixedPartitionedSource {
             format!("error calling `FixedPartitionSource.list_parts` in step {step_id}")
         })?;
         let all_parts = local_parts.into_broadcast(scope, S::Timestamp::minimum());
-        let updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
+        let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
 
         let op_name = format!("{step_id}.partitioned_input");
         let mut op_builder = OperatorBuilder::new(op_name.clone(), scope.clone());
 
-        let mut input = op_builder.new_input(&updates, Pipeline);
+        let mut primaries_input = op_builder.new_input(&primary_updates, Pipeline);
 
         let (mut downstream_output, downstream) = op_builder.new_output();
         let (mut snaps_output, snaps) = op_builder.new_output();
@@ -262,11 +262,11 @@ impl FixedPartitionedSource {
             KeyValue::new("worker_index", this_worker.0.to_string()),
         ];
 
-        op_builder.build(move |mut caps| {
-            caps.downgrade_all(&start_at.0);
-            let snap_cap = caps.pop().unwrap();
-            let downstream_cap = caps.pop().unwrap();
-            let mut caps = Some((downstream_cap, snap_cap));
+        op_builder.build(move |mut init_caps| {
+            init_caps.downgrade_all(&start_at.0);
+            let init_snap_cap = init_caps.pop().unwrap();
+            let init_downstream_cap = init_caps.pop().unwrap();
+            let mut init_caps = Some((init_downstream_cap, init_snap_cap));
 
             let mut inbuf = InBuffer::new();
             let mut parts: BTreeMap<StateKey, PartitionedPartState> = BTreeMap::new();
@@ -275,67 +275,68 @@ impl FixedPartitionedSource {
                 let _guard = tracing::debug_span!("operator", operator = op_name).entered();
                 let now = Utc::now();
 
-                input.for_each(|cap, incoming| {
+                primaries_input.for_each(|cap, incoming| {
                     let epoch = cap.time();
                     inbuf.extend(*epoch, incoming);
                 });
 
-                // Apply this worker's primary assignments in epoch order. We don't need a
-                // notificator here because we don't need any capability management.
-                let frontier = &input_frontiers[0];
-                let closed_epochs: Vec<_> =
-                    inbuf.epochs().filter(|e| frontier.is_closed(e)).collect();
-
                 // Wait for primaries to be assigned (our only input, so check if frontier is eof)
                 // Once that's done, populate local state as needed, and only then move forward
                 // with the dataflow.
-                if frontier.is_eof() {
-                    if let Some((downstream_cap, snap_cap)) = caps.take() {
-                        let epoch = downstream_cap.time();
-                        let mut primary_parts: BTreeSet<StateKey> =
-                            state.keys().drain(..).collect();
-
-                        for epoch in closed_epochs {
-                            if let Some(parts) = inbuf.remove(&epoch) {
-                                for (part_key, worker) in parts {
-                                    if worker == this_worker {
-                                        primary_parts.insert(part_key);
-                                    }
-                                }
-                            }
-                        }
-
-                        Python::with_gil(|py| {
-                            for part_key in primary_parts {
-                                if !state.contains_key(&part_key) {
-                                    tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
-                                    let part = self
-                                        .build_part(py, &step_id, &part_key, None)
-                                        .reraise_with(|| {
-                                            format!(
-                                                "error calling `FixedPartitionSource.build_part` \
-                                                in step {step_id} for partition {part_key}"
-                                            )
-                                        })
-                                        .unwrap();
-                                    state.insert(part_key.clone(), part);
-                                }
-                                let next_awake = state.next_awake(py, &part_key).unwrap();
-                                let part_state = PartitionedPartState {
-                                    downstream_cap: downstream_cap.clone(),
-                                    snap_cap: snap_cap.clone(),
-                                    epoch_started: now,
-                                    next_awake,
-                                };
-                                parts.insert(part_key.clone(), part_state);
-                            }
-                        });
-                    }
-                } else {
-                    // Wait for primaries to be assigned before moving forward.
+                let frontier = &input_frontiers[0];
+                if !frontier.is_eof() {
                     return;
                 }
 
+                if let Some((downstream_cap, snap_cap)) = init_caps.take() {
+                    let epoch = downstream_cap.time();
+                    let mut primary_parts: BTreeSet<StateKey> = state.keys().drain(..).collect();
+
+                    let closed_epochs = inbuf
+                        .epochs()
+                        .filter(|e| frontier.is_closed(e))
+                        .collect::<Vec<_>>();
+
+                    for epoch in closed_epochs {
+                        if let Some(parts) = inbuf.remove(&epoch) {
+                            for (part_key, worker) in parts {
+                                if worker == this_worker {
+                                    primary_parts.insert(part_key);
+                                }
+                            }
+                        }
+                    }
+
+                    // Apply this worker's primary assignments in epoch order. We don't need a
+                    // notificator here because we don't need any capability management.
+                    Python::with_gil(|py| {
+                        for part_key in primary_parts {
+                            if !state.contains_key(&part_key) {
+                                tracing::info!("Init-ing {part_key:?} at epoch {epoch:?}");
+                                let part = self
+                                    .build_part(py, &step_id, &part_key, None)
+                                    .reraise_with(|| {
+                                        format!(
+                                            "error calling `FixedPartitionSource.build_part` \
+                                                in step {step_id} for partition {part_key}"
+                                        )
+                                    })
+                                    .unwrap();
+                                state.insert(part_key.clone(), part);
+                            }
+                            let next_awake = state.next_awake(py, &part_key).unwrap();
+                            let part_state = PartitionedPartState {
+                                downstream_cap: downstream_cap.clone(),
+                                snap_cap: snap_cap.clone(),
+                                epoch_started: now,
+                                next_awake,
+                            };
+                            parts.insert(part_key.clone(), part_state);
+                        }
+                    });
+                }
+
+                // Now run the logic for all the keys in the state.
                 let mut eofd_parts_buffer = Vec::new();
                 let mut downstream_handle = downstream_output.activate();
                 let mut snaps_handle = snaps_output.activate();
@@ -346,16 +347,15 @@ impl FixedPartitionedSource {
                     let part = parts.get_mut(&part_key).unwrap();
                     assert!(*part.downstream_cap.time() == *part.snap_cap.time());
                     let epoch = *part.downstream_cap.time();
+
                     // When we increment the epoch for this partition, wait until all
                     // ouputs have finished the previous epoch before emitting more
                     // data to have backpressure.
                     if !probe.less_than(&epoch) {
                         let mut eof = false;
-                        // Separately check whether we should
-                        // call `next_batch` because we need
-                        // to keep advancing the epoch for
-                        // this input, even if it hasn't been
-                        // awoken to prevent dataflow stall.
+                        // Separately check whether we should call `next_batch` because
+                        // we need to keep advancing the epoch for this input, even if it
+                        // hasn't been awoken to prevent dataflow stall.
                         if part.awake_due(now) {
                             unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                 let batch_res = with_timer!(

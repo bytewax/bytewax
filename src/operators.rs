@@ -654,14 +654,9 @@ where
             let mut awoken_keys_buffer: BTreeSet<StateKey> = BTreeSet::new();
 
             move |input_frontiers| {
-                // CODE_NOTE: The _span_guard variable here will be dropped at the end of the
-                // function closing the tracing span. This way we avoid an indentation level
-                // compared to `.in_scope`.
-                let _span_guard = tracing::debug_span!("operator", operator = op_name).entered();
+                let _guard = tracing::debug_span!("operator", operator = op_name).entered();
 
                 // If the output capabilities have been dropped, do nothing here.
-                // CODE_NOTE: This is a bit of dance to do the early check, again to avoid
-                // an indentation level
                 if kv_downstream_cap.is_none() || snap_cap.is_none() {
                     // Make sure that if the input frontiers are closed,
                     // output capabilities are dropped too.

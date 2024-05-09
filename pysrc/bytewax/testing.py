@@ -251,12 +251,13 @@ class TestingBackup(Backup):
 
     def __init__(self, path: Union[str, Path]):
         """Init and check that the directory exists."""
-        self.path = Path(path)
+        if isinstance(path, str):
+            self.path = Path(path)
         assert self.path.exists(), f"Local backup directory {self.path} doesn't exists!"
 
     @override
     def list_keys(self) -> List[str]:
-        return glob.glob(self.path / "*.sqlite3")
+        return glob.glob(self.path / "*")
 
     @override
     def upload(self, from_local: Union[str, Path], to_key: str):
@@ -266,7 +267,7 @@ class TestingBackup(Backup):
         shutil.move(from_local, dest)
 
     @override
-    def download(self, from_key: str, to_local: Path):
+    def download(self, from_key: str, to_local: Union[str, Path]):
         source = self.path / from_key
         shutil.move(source, to_local)
 

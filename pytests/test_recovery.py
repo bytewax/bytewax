@@ -9,12 +9,6 @@ ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
 
 
-def test_input_recovery(tmp_path):
-    recovery_config = RecoveryConfig(str(tmp_path))
-    inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
-    out = []
-
-
 def test_abort_no_snapshots(tmp_path):
     inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
     out = []
@@ -43,7 +37,7 @@ def test_abort_with_snapshots(tmp_path):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
-    # Setting immediate mode snapshot means we will have a snapshot after each item.
+    # Setting batch_backup to False means we will have a snapshot after each item.
     recovery_config = RecoveryConfig(str(tmp_path), batch_backup=False)
     run_main(flow, recovery_config=recovery_config)
     assert out == [0, 1, 2]

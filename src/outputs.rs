@@ -271,12 +271,13 @@ where
             // Which partitions were written to in this epoch.
             // We only snapshot those.
             let awoken: BTreeSet<StateKey> = BTreeSet::new();
+            let snaps = Vec::new();
 
             let mut routed_tmp = Vec::new();
             // First `StateKey` is partition, second is data routing.
             type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
             let mut items_inbuf: BTreeMap<S::Timestamp, PartToInBufferMap> = BTreeMap::new();
-            let mut ncater = EagerNotificator::new(init_caps, (state, awoken));
+            let mut ncater = EagerNotificator::new(init_caps, (state, awoken, snaps));
 
             move |input_frontiers| {
                 let _guard = tracing::debug_span!("operator", operator = op_name).entered();
@@ -299,18 +300,18 @@ where
 
                 ncater.for_each(
                     input_frontiers,
-                    |caps, (state, awoken)| {
+                    |caps, (state, awoken, snaps)| {
                         let clock_cap = &caps[0];
                         let snaps_cap = &caps[1];
                         let epoch = clock_cap.time();
 
-                        // Writing happens eagerly in each epoch. We
-                        // still use a notificator at all because we
-                        // need to ensure that writes happen in epoch
-                        // order.
+                        // Writing happens eagerly in each epoch. We still use a
+                        // notificator at all because we need to ensure that writes happen
+                        // in epoch order.
                         if let Some(part_to_items) = items_inbuf.remove(epoch) {
                             Python::with_gil(|py| {
                                 for (part_key, items) in part_to_items {
+                                    // Build part if needed
                                     if !state.contains_key(&part_key) {
                                         state.insert(
                                             part_key.clone(),
@@ -320,77 +321,79 @@ where
                                         );
                                     }
 
+                                    // Remove the key from the items
                                     let batch: Vec<_> =
                                         items.into_iter().map(|(_k, v)| v.into()).collect();
+
+                                    // Update metrics
                                     item_inp_count.add(batch.len() as u64, &labels);
+
+                                    // And call write_batch
                                     with_timer!(
                                         write_batch_histogram,
                                         labels,
                                         unwrap_any!(state.write_batch(py, &part_key, batch))
                                     );
 
+                                    // Remember this key was awoken
                                     awoken.insert(part_key);
                                 }
+
                                 if recovery_on && immediate_snapshot {
-                                    let mut snaps = vec![];
-                                    awoken.retain(|key| {
-                                        snaps.push(unwrap_any!(Python::with_gil(
-                                            |py| with_timer!(
+                                    // Take a snapshot of all the awoken keys.
+                                    Python::with_gil(|py| {
+                                        awoken.retain(|key| {
+                                            snaps.push(with_timer!(
                                                 snapshot_histogram,
                                                 labels,
-                                                state
+                                                unwrap_any!(state
                                                     .snap(py, key.clone(), *epoch)
-                                                    .reraise("error snapshotting StatefulSink")
-                                            )
-                                        )));
-                                        false
+                                                    .reraise("error snapshotting StatefulSink"))
+                                            ));
+                                            false
+                                        });
                                     });
+
                                     state.write_snapshots(snaps.clone());
                                     immediate_snaps_output
                                         .activate()
                                         .session(snaps_cap)
-                                        .give_vec(&mut snaps);
+                                        .give_vec(snaps);
                                 }
                             });
                         };
                     },
-                    |caps, (state, awoken)| {
+                    |caps, (state, awoken, snaps)| {
                         let clock_cap = &caps[0];
                         let snaps_cap = &caps[2];
                         let epoch = clock_cap.time();
 
                         clock_output.activate().session(clock_cap).give(());
 
-                        // Always snapshot before building. If we have
-                        // an incoming load, it means we have recovery
-                        // state already at the end of the epoch, so
-                        // it would be wasted to snap it again. Also
-                        // this handles the "don't snapshot a
-                        // just-made-`None`-state partition" problem.
-
                         if recovery_on {
-                            // Make sure to only snapshot partitions
-                            // that had data, otherwise we'll snapshot
-                            // as loads are happening.
-                            let mut snaps = vec![];
-                            awoken.retain(|key| {
-                                snaps.push(unwrap_any!(Python::with_gil(|py| with_timer!(
-                                    snapshot_histogram,
-                                    labels,
-                                    state
-                                        .snap(py, key.clone(), *epoch)
-                                        .reraise("error snapshotting StatefulSink")
-                                ))));
-                                false
+                            // Take a snapshot of all the awoken keys.
+                            Python::with_gil(|py| {
+                                awoken.retain(|key| {
+                                    let snap = with_timer!(
+                                        snapshot_histogram,
+                                        labels,
+                                        unwrap_any!(state
+                                            .snap(py, key.clone(), *epoch)
+                                            .reraise("error snapshotting StatefulSink"))
+                                    );
+                                    snaps.push(snap);
+                                    false
+                                });
                             });
                             state.write_snapshots(snaps.clone());
                             batch_snaps_output
                                 .activate()
                                 .session(snaps_cap)
-                                .give_vec(&mut snaps);
+                                .give_vec(snaps);
                         } else {
                             awoken.clear();
                         }
+
                         // We must reset `awake` on each epoch.
                         assert!(awoken.is_empty());
                     },

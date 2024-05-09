@@ -96,6 +96,7 @@ impl Backup {
     }
 }
 
+/// Represents the possible types of state that the store can hold.
 pub(crate) enum StatefulLogicKind {
     Stateful(StatefulBatchLogic),
     Source(StatefulSourcePartition),
@@ -163,16 +164,55 @@ impl StatefulLogicKind {
     }
 }
 
+/// Module that holds all the queries used for recovery.
+mod queries {
+    /// Get the meta data from the most recent execution number
+    pub(crate) const GET_META: &str = "\
+        SELECT ex_num, cluster_frontier, worker_count, worker_index \
+        FROM meta \
+        WHERE (ex_num, flow_id) IN (SELECT MAX(ex_num), flow_id FROM meta)";
+
+    /// Get all the snapshots for the given step_id and state_key at the most recent epoch
+    /// that is <= than the provided epoch.
+    /// Pass the fields: `(epoch, step_id)`
+    pub(crate) const GET_SNAPSHOTS: &str = "\
+        SELECT step_id, state_key, MAX(epoch) as epoch, ser_change \
+        FROM snaps \
+        WHERE epoch <= ?1 AND step_id = ?2 \
+        GROUP BY step_id, state_key";
+
+    /// Write to the snapshots table.
+    /// Pass the fields: `(step_id, state_key, epoch, ser_change)`
+    pub(crate) const INSERT_SNAPSHOTS: &str = "\
+        INSERT INTO snaps (step_id, state_key, epoch, ser_change) \
+        VALUES (?1, ?2, ?3, ?4) \
+        ON CONFLICT (step_id, state_key, epoch) DO UPDATE \
+        SET ser_change = EXCLUDED.ser_change";
+
+    /// Write to the meta table.
+    /// Pass the fields: `(flow_id, ex_num, worker_index, worker_count, cluster_frontier)`
+    pub(crate) const INSERT_META: &str = "\
+        INSERT INTO meta (flow_id, ex_num, worker_index, worker_count, cluster_frontier) \
+        VALUES (?1, ?2, ?3, ?4, ?5) \
+        ON CONFLICT (flow_id, ex_num, worker_index) DO UPDATE \
+        SET cluster_frontier = EXCLUDED.cluster_frontier";
+}
+
+/// Stores that state for all the stateful operators.
+/// Offers an api to interact with the state of each step_id,
+/// and manages the connection to the local db where the state
+/// is saved through serialized snapshots.
 pub(crate) struct StateStore {
     flow_id: String,
     worker_index: usize,
     worker_count: usize,
     recovery_config: Option<RecoveryConfig>,
+    resume_from: ResumeFrom,
 
     cache: HashMap<StepId, BTreeMap<StateKey, StatefulLogicKind>>,
     conn: Option<Connection>,
 
-    resume_from: ResumeFrom,
+    // Used to keep track of segments in each epoch.
     seg_num: u64,
     prev_epoch: u64,
 }
@@ -196,20 +236,17 @@ impl StateStore {
         let resume_from = conn
             .as_mut()
             .map(|conn| {
-                let res = conn.transaction().unwrap().query_row(
-                    "SELECT ex_num, cluster_frontier, worker_count, worker_index
-                    FROM meta
-                    WHERE (ex_num, flow_id) IN (SELECT MAX(ex_num), flow_id FROM meta)",
-                    (),
-                    |row| {
+                let res = conn
+                    .transaction()
+                    .unwrap()
+                    .query_row(queries::GET_META, (), |row| {
                         let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
                         let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
                         Ok(ex_num
                             .zip(resume_epoch)
                             // Advance the execution number here.
                             .map(|(en, re)| ResumeFrom(en.next(), re)))
-                    },
-                );
+                    });
                 match res {
                     // If no rows in the db, it was empty, so use the default.
                     Err(rusqlite::Error::QueryReturnedNoRows) => ResumeFrom::default(),
@@ -256,10 +293,12 @@ impl StateStore {
     }
 
     // Api for managing the store.
-
-    // Always assume that the step_id is present, as we expect it to be added
+    // Always assume that the `step_id` is present, as we expect it to be added
     // when the operator is instanced. If that's not the case, it's a bug
     // on our side and we should abort.
+    // TODO: Here we can load/unload data between memory and the local state store
+    //       to allow handling larger than memory state.
+
     pub fn get(&self, step_id: &StepId, key: &StateKey) -> Option<&StatefulLogicKind> {
         self.cache.get(step_id).unwrap().get(key)
     }
@@ -313,12 +352,7 @@ impl StateStore {
                 .unwrap()
                 // Retrieve all the snapshots for the latest epoch saved
                 // in the recovery store that's <= than resume_from..
-                .prepare(
-                    "SELECT step_id, state_key, MAX(epoch) as epoch, ser_change
-                    FROM snaps
-                    WHERE epoch <= ?1 AND step_id = ?2
-                    GROUP BY step_id, state_key",
-                )
+                .prepare(queries::GET_SNAPSHOTS)
                 .reraise("Error preparing query for recovery db.")?
                 .query_map((&self.resume_from.1 .0, &step_id.0), |row| {
                     Ok(SerializedSnapshot(
@@ -365,10 +399,7 @@ impl StateStore {
             tracing::trace!("Writing {snap:?}");
             let SerializedSnapshot(step_id, state_key, snap_epoch, ser_change) = snap;
             txn.execute(
-                "INSERT INTO snaps (step_id, state_key, epoch, ser_change)
-                 VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT (step_id, state_key, epoch) DO UPDATE
-                 SET ser_change = EXCLUDED.ser_change",
+                queries::INSERT_SNAPSHOTS,
                 (step_id.0, state_key.0, snap_epoch.0, ser_change),
             )
             .unwrap();
@@ -451,10 +482,7 @@ impl StateStore {
         let txn = conn.transaction().unwrap();
         tracing::trace!("Writing epoch {epoch:?}");
         txn.execute(
-            "INSERT INTO meta (flow_id, ex_num, worker_index, worker_count, cluster_frontier)
-            VALUES (?1, ?2, ?3, ?4, ?5)
-            ON CONFLICT (flow_id, ex_num, worker_index) DO UPDATE
-            SET cluster_frontier = EXCLUDED.cluster_frontier",
+            queries::INSERT_META,
             (
                 &self.flow_id,
                 self.resume_from.0 .0,
@@ -491,6 +519,9 @@ fn setup_conn(path: PathBuf) -> PyResult<Connection> {
     Ok(conn)
 }
 
+/// Use this to manage a single recovery segment.
+/// This is intended to be used only once, so the struct consumes itself
+/// whenever you do the write to the db.
 pub(crate) struct Segment {
     conn: Connection,
     path: PathBuf,
@@ -523,14 +554,11 @@ impl Segment {
         self.path.clone()
     }
 
-    /// Write the frontier, and close this segment by consuming self.
+    /// Write the frontier, and close this segment.
     pub fn write_frontier(mut self, epoch: u64) -> PyResult<PathBuf> {
         let txn = self.conn.transaction().unwrap();
         txn.execute(
-            "INSERT INTO meta (flow_id, ex_num, worker_index, worker_count, cluster_frontier)
-            VALUES (?1, ?2, ?3, ?4, ?5)
-            ON CONFLICT (flow_id, ex_num, worker_index) DO UPDATE
-            SET cluster_frontier = EXCLUDED.cluster_frontier",
+            queries::INSERT_META,
             (
                 &self.flow_id,
                 self.ex_num,
@@ -544,15 +572,12 @@ impl Segment {
         Ok(self.path)
     }
 
-    /// Write snapshots, and close this segment by consuming self.
+    /// Write snapshots, and close this segment.
     pub fn write_snapshots(mut self, snaps: Vec<SerializedSnapshot>) {
         let txn = self.conn.transaction().unwrap();
         for SerializedSnapshot(step_id, state_key, snap_epoch, ser_change) in snaps {
             txn.execute(
-                "INSERT INTO snaps (step_id, state_key, epoch, ser_change)
-                VALUES (?1, ?2, ?3, ?4)
-                ON CONFLICT (step_id, state_key, epoch) DO UPDATE
-                SET ser_change = EXCLUDED.ser_change",
+                queries::INSERT_SNAPSHOTS,
                 (step_id.0, state_key.0, snap_epoch.0, ser_change),
             )
             .unwrap();
