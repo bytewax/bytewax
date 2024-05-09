@@ -3,8 +3,12 @@
 //! For a user-centric version of output, read the `bytewax.output`
 //! Python module docstring. Read that first.
 
+use std::cell::Ref;
+use std::cell::RefCell;
+use std::cell::RefMut;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::rc::Rc;
 
 use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
@@ -184,6 +188,76 @@ impl PartitionFn<StateKey> for PartitionAssigner {
         // operator in Python.
         unwrap_any!(Python::with_gil(|py| self.part_fn(py, key))
             .reraise("error assigning output partition"))
+    }
+}
+
+pub(crate) struct OutputState {
+    step_id: StepId,
+    state_store: Rc<RefCell<StateStore>>,
+}
+
+impl StateManager for OutputState {
+    fn borrow_state(&self) -> Ref<StateStore> {
+        self.state_store.borrow()
+    }
+
+    fn borrow_state_mut(&self) -> RefMut<StateStore> {
+        self.state_store.borrow_mut()
+    }
+
+    fn step_id(&self) -> &StepId {
+        &self.step_id
+    }
+}
+
+impl OutputState {
+    pub fn new(step_id: StepId, state_store: Rc<RefCell<StateStore>>) -> Self {
+        Self {
+            step_id,
+            state_store,
+        }
+    }
+
+    pub fn hydrate(&mut self, sink: &FixedPartitionedSink) -> PyResult<()> {
+        Python::with_gil(|py| {
+            // Get the parts list. If any state_key is not part of this list,
+            // it means the parts changed since last execution, and we can't
+            // handle that.
+            let parts_list = unwrap_any!(sink.list_parts(py));
+
+            let builder = |state_key: &_, state| {
+                assert!(
+                    parts_list.contains(state_key),
+                    "State found for unknown key {} in the recovery store for {}. \
+                    Known partitions: {}. \
+                    Fixed partitions cannot change between executions, aborting.",
+                    state_key,
+                    &self.step_id,
+                    parts_list
+                        .iter()
+                        .map(|sk| format!("\"{}\"", sk.0))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                let part = sink
+                    .build_part(py, &self.step_id, state_key, state)
+                    .unwrap();
+                StatefulLogicKind::Sink(part)
+            };
+
+            self.state_store
+                .borrow_mut()
+                .hydrate(&self.step_id, builder)
+        })
+    }
+
+    fn write_batch(&self, py: Python, key: &StateKey, batch: Vec<PyObject>) -> PyResult<()> {
+        self.state_store
+            .borrow()
+            .get(&self.step_id, key)
+            .unwrap()
+            .as_sink()
+            .write_batch(py, batch)
     }
 }
 

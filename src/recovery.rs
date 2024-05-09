@@ -14,8 +14,6 @@ use std::hash::Hash;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use chrono::DateTime;
-use chrono::Utc;
 use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
@@ -37,14 +35,10 @@ use timely::dataflow::Stream;
 
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
-use crate::inputs;
-use crate::inputs::BatchResult;
 use crate::inputs::StatefulSourcePartition;
 use crate::operators::StatefulBatchLogic;
-use crate::outputs;
 use crate::outputs::StatefulSinkPartition;
 use crate::pyo3_extensions::TdPyAny;
-use crate::pyo3_extensions::TdPyCallable;
 use crate::timely::*;
 use crate::unwrap_any;
 
@@ -96,7 +90,7 @@ impl Backup {
     }
 }
 
-/// Represents the possible types of state that the store can hold.
+/// Represents the possible types of state that the `StateStore` can hold.
 pub(crate) enum StatefulLogicKind {
     Stateful(StatefulBatchLogic),
     Source(StatefulSourcePartition),
@@ -200,8 +194,8 @@ mod queries {
 
 /// Stores that state for all the stateful operators.
 /// Offers an api to interact with the state of each step_id,
-/// and manages the connection to the local db where the state
-/// is saved through serialized snapshots.
+/// to generate snapshot of each state and
+/// to manage the connection to the local db where the snapshots are saved.
 pub(crate) struct StateStore {
     flow_id: String,
     worker_index: usize,
@@ -387,7 +381,7 @@ impl StateStore {
 
     // Snapshots related api from here.
 
-    /// Write a vec of snapshots to the local db.
+    /// Write a vec of serialized snapshots to the local db.
     pub(crate) fn write_snapshots(&mut self, snaps: Vec<SerializedSnapshot>) {
         assert!(
             self.conn.is_some(),
@@ -407,7 +401,7 @@ impl StateStore {
         txn.commit().unwrap();
     }
 
-    /// Generates and returns a fully serialized snapshot for a given key at the given epoch.
+    /// Generate a fully serialized snapshot for a given key at the given epoch.
     pub fn snap(
         &self,
         py: Python,
@@ -473,6 +467,7 @@ impl StateStore {
         )
     }
 
+    //// Write the given epoch as frontier in the local db.
     pub fn write_frontier(&mut self, epoch: u64) -> PyResult<()> {
         assert!(
             self.conn.is_some(),
@@ -629,280 +624,6 @@ pub(crate) trait StateManager {
             .keys()
             .cloned()
             .collect()
-    }
-}
-
-pub(crate) struct OutputState {
-    step_id: StepId,
-    state_store: Rc<RefCell<StateStore>>,
-}
-
-impl StateManager for OutputState {
-    fn borrow_state(&self) -> Ref<StateStore> {
-        self.state_store.borrow()
-    }
-
-    fn borrow_state_mut(&self) -> RefMut<StateStore> {
-        self.state_store.borrow_mut()
-    }
-
-    fn step_id(&self) -> &StepId {
-        &self.step_id
-    }
-}
-
-impl OutputState {
-    pub fn hydrate(&mut self, sink: &outputs::FixedPartitionedSink) -> PyResult<()> {
-        Python::with_gil(|py| {
-            // Get the parts list. If any state_key is not part of this list,
-            // it means the parts changed since last execution, and we can't
-            // handle that.
-            let parts_list = unwrap_any!(sink.list_parts(py));
-
-            let builder = |state_key: &_, state| {
-                assert!(
-                    parts_list.contains(state_key),
-                    "State found for unknown key {} in the recovery store for {}. \
-                    Known partitions: {}. \
-                    Fixed partitions cannot change between executions, aborting.",
-                    state_key,
-                    &self.step_id,
-                    parts_list
-                        .iter()
-                        .map(|sk| format!("\"{}\"", sk.0))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                let part = sink
-                    .build_part(py, &self.step_id, state_key, state)
-                    .unwrap();
-                StatefulLogicKind::Sink(part)
-            };
-
-            self.state_store
-                .borrow_mut()
-                .hydrate(&self.step_id, builder)
-        })
-    }
-
-    pub fn new(step_id: StepId, state_store: Rc<RefCell<StateStore>>) -> Self {
-        Self {
-            step_id,
-            state_store,
-        }
-    }
-
-    pub fn write_batch(&self, py: Python, key: &StateKey, batch: Vec<PyObject>) -> PyResult<()> {
-        self.state_store
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .as_sink()
-            .write_batch(py, batch)
-    }
-}
-
-pub(crate) struct InputState {
-    step_id: StepId,
-    state_store: Rc<RefCell<StateStore>>,
-}
-
-impl StateManager for InputState {
-    fn borrow_state(&self) -> Ref<StateStore> {
-        self.state_store.borrow()
-    }
-
-    fn borrow_state_mut(&self) -> RefMut<StateStore> {
-        self.state_store.borrow_mut()
-    }
-
-    fn step_id(&self) -> &StepId {
-        &self.step_id
-    }
-}
-
-impl InputState {
-    pub fn new(step_id: StepId, state_store: Rc<RefCell<StateStore>>) -> Self {
-        Self {
-            step_id,
-            state_store,
-        }
-    }
-
-    pub fn hydrate(&mut self, source: &inputs::FixedPartitionedSource) -> PyResult<()> {
-        Python::with_gil(|py| {
-            // Get the parts list. If any state_key is not part of this list,
-            // it means the parts changed since last execution, and we can't
-            // handle that.
-            let parts_list = unwrap_any!(source.list_parts(py));
-
-            let builder = |state_key: &_, state| {
-                assert!(
-                    parts_list.contains(state_key),
-                    "State found for unknown key {} in the recovery store for {}. \
-                    Known partitions: {}. \
-                    Fixed partitions cannot change between executions, aborting.",
-                    state_key,
-                    self.step_id,
-                    parts_list
-                        .iter()
-                        .map(|sk| format!("\"{}\"", sk.0))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-
-                let part = source
-                    .build_part(py, &self.step_id, state_key, state)
-                    .unwrap();
-                StatefulLogicKind::Source(part)
-            };
-
-            self.state_store
-                .borrow_mut()
-                .hydrate(&self.step_id, builder)
-        })
-    }
-
-    pub fn next_batch(&self, py: Python, key: &StateKey) -> PyResult<BatchResult> {
-        self.state_store
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .as_source()
-            .next_batch(py)
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulSourcePartition.next_batch` in \
-                    step {} for partition {}",
-                    self.step_id, key
-                )
-            })
-    }
-
-    pub fn next_awake(&self, py: Python, key: &StateKey) -> PyResult<Option<DateTime<Utc>>> {
-        self.state_store
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .as_source()
-            .next_awake(py)
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulSourcePartition.next_awake` in \
-                    step {} for partition {}",
-                    self.step_id, key
-                )
-            })
-    }
-}
-
-pub(crate) struct StatefulBatchState {
-    step_id: StepId,
-    state_store: Rc<RefCell<StateStore>>,
-}
-
-impl StateManager for StatefulBatchState {
-    fn borrow_state(&self) -> Ref<StateStore> {
-        self.state_store.borrow()
-    }
-
-    fn borrow_state_mut(&self) -> RefMut<StateStore> {
-        self.state_store.borrow_mut()
-    }
-
-    fn step_id(&self) -> &StepId {
-        &self.step_id
-    }
-}
-
-impl StatefulBatchState {
-    pub fn new(step_id: StepId, state_store: Rc<RefCell<StateStore>>) -> Self {
-        Self {
-            step_id,
-            state_store,
-        }
-    }
-    pub fn hydrate(&mut self, builder: &TdPyCallable) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let builder = builder.bind(py);
-            let state_builder = |_state_key: &_, state| {
-                let part = builder
-                    .call1((state,))
-                    .unwrap()
-                    .extract::<StatefulBatchLogic>()
-                    .unwrap();
-                StatefulLogicKind::Stateful(part)
-            };
-            self.state_store
-                .borrow_mut()
-                .hydrate(&self.step_id, state_builder)
-        })
-    }
-    pub fn on_batch(
-        &self,
-        py: Python,
-        key: &StateKey,
-        values: Vec<PyObject>,
-    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
-        self.borrow_state()
-            .get(&self.step_id, key)
-            .unwrap()
-            .as_stateful()
-            .on_batch(py, values)
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulBatch.on_batch` in step {} for key {}",
-                    self.step_id, &key
-                )
-            })
-    }
-    pub fn on_notify(
-        &self,
-        py: Python,
-        key: &StateKey,
-    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
-        self.state_store
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .as_stateful()
-            .on_notify(py)
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulBatchLogic.on_notify` in {} for key {}",
-                    self.step_id, key
-                )
-            })
-    }
-    pub fn notify_at(&self, py: Python, key: &StateKey) -> PyResult<Option<DateTime<Utc>>> {
-        if let Some(logic) = self.state_store.borrow().get(&self.step_id, key) {
-            logic.as_stateful().notify_at(py).reraise_with(|| {
-                format!(
-                    "error calling `StatefulBatchLogic.notify_at` in {} for key {}",
-                    self.step_id, key
-                )
-            })
-        } else {
-            Ok(None)
-        }
-    }
-    pub fn on_eof(
-        &self,
-        py: Python,
-        key: &StateKey,
-    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
-        self.state_store
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .as_stateful()
-            .on_eof(py)
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulBatchLogic.on_eof` in {} for key {}",
-                    self.step_id, key
-                )
-            })
     }
 }
 

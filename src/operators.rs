@@ -1,9 +1,13 @@
 //! Code implementing Bytewax's core operators.
 
+use std::cell::Ref;
+use std::cell::RefCell;
+use std::cell::RefMut;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::hash::BuildHasherDefault;
+use std::rc::Rc;
 
 use chrono::DateTime;
 use chrono::Utc;
@@ -508,7 +512,7 @@ impl StatefulBatchLogic {
         Ok((emit, is_complete))
     }
 
-    pub(crate) fn on_batch<'py>(
+    fn on_batch<'py>(
         &'py self,
         py: Python<'py>,
         items: Vec<PyObject>,
@@ -520,20 +524,17 @@ impl StatefulBatchLogic {
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    pub(crate) fn on_notify<'py>(
-        &'py self,
-        py: Python<'py>,
-    ) -> PyResult<(Vec<PyObject>, IsComplete)> {
+    fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self.0.bind(py).call_method0(intern!(py, "on_notify"))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    pub(crate) fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
+    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
         let res = self.0.bind(py).call_method0("on_eof")?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    pub(crate) fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
+    fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         let res = self.0.bind(py).call_method0(intern!(py, "notify_at"))?;
         res.extract().reraise_with(|| {
             format!(
@@ -545,6 +546,121 @@ impl StatefulBatchLogic {
 
     pub(crate) fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
         Ok(self.0.call_method0(py, intern!(py, "snapshot"))?.into())
+    }
+}
+
+pub(crate) struct StatefulBatchState {
+    step_id: StepId,
+    state_store: Rc<RefCell<StateStore>>,
+}
+
+impl StateManager for StatefulBatchState {
+    fn borrow_state(&self) -> Ref<StateStore> {
+        self.state_store.borrow()
+    }
+
+    fn borrow_state_mut(&self) -> RefMut<StateStore> {
+        self.state_store.borrow_mut()
+    }
+
+    fn step_id(&self) -> &StepId {
+        &self.step_id
+    }
+}
+
+impl StatefulBatchState {
+    pub(crate) fn new(step_id: StepId, state_store: Rc<RefCell<StateStore>>) -> Self {
+        Self {
+            step_id,
+            state_store,
+        }
+    }
+
+    pub(crate) fn hydrate(&mut self, builder: &TdPyCallable) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let builder = builder.bind(py);
+            let state_builder = |_state_key: &_, state| {
+                let part = builder
+                    .call1((state,))
+                    .unwrap()
+                    .extract::<StatefulBatchLogic>()
+                    .unwrap();
+                StatefulLogicKind::Stateful(part)
+            };
+            self.state_store
+                .borrow_mut()
+                .hydrate(&self.step_id, state_builder)
+        })
+    }
+
+    fn on_batch(
+        &self,
+        py: Python,
+        key: &StateKey,
+        values: Vec<PyObject>,
+    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
+        self.borrow_state()
+            .get(&self.step_id, key)
+            .unwrap()
+            .as_stateful()
+            .on_batch(py, values)
+            .reraise_with(|| {
+                format!(
+                    "error calling `StatefulBatch.on_batch` in step {} for key {}",
+                    self.step_id, &key
+                )
+            })
+    }
+
+    fn on_notify(
+        &self,
+        py: Python,
+        key: &StateKey,
+    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
+        self.state_store
+            .borrow()
+            .get(&self.step_id, key)
+            .unwrap()
+            .as_stateful()
+            .on_notify(py)
+            .reraise_with(|| {
+                format!(
+                    "error calling `StatefulBatchLogic.on_notify` in {} for key {}",
+                    self.step_id, key
+                )
+            })
+    }
+
+    fn notify_at(&self, py: Python, key: &StateKey) -> PyResult<Option<DateTime<Utc>>> {
+        if let Some(logic) = self.state_store.borrow().get(&self.step_id, key) {
+            logic.as_stateful().notify_at(py).reraise_with(|| {
+                format!(
+                    "error calling `StatefulBatchLogic.notify_at` in {} for key {}",
+                    self.step_id, key
+                )
+            })
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn on_eof(
+        &self,
+        py: Python,
+        key: &StateKey,
+    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
+        self.state_store
+            .borrow()
+            .get(&self.step_id, key)
+            .unwrap()
+            .as_stateful()
+            .on_eof(py)
+            .reraise_with(|| {
+                format!(
+                    "error calling `StatefulBatchLogic.on_eof` in {} for key {}",
+                    self.step_id, key
+                )
+            })
     }
 }
 

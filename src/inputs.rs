@@ -3,8 +3,12 @@
 //! For a user-centric version of input, read the `bytewax.inputs`
 //! Python module docstring. Read that first.
 
+use std::cell::Ref;
+use std::cell::RefCell;
+use std::cell::RefMut;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -171,6 +175,98 @@ impl PartitionedPartState {
             None => true,
             Some(next_awake) => now >= next_awake,
         }
+    }
+}
+
+pub(crate) struct InputState {
+    step_id: StepId,
+    state_store: Rc<RefCell<StateStore>>,
+}
+
+impl StateManager for InputState {
+    fn borrow_state(&self) -> Ref<StateStore> {
+        self.state_store.borrow()
+    }
+
+    fn borrow_state_mut(&self) -> RefMut<StateStore> {
+        self.state_store.borrow_mut()
+    }
+
+    fn step_id(&self) -> &StepId {
+        &self.step_id
+    }
+}
+
+impl InputState {
+    pub fn new(step_id: StepId, state_store: Rc<RefCell<StateStore>>) -> Self {
+        Self {
+            step_id,
+            state_store,
+        }
+    }
+
+    pub fn hydrate(&mut self, source: &FixedPartitionedSource) -> PyResult<()> {
+        Python::with_gil(|py| {
+            // Get the parts list. If any state_key is not part of this list,
+            // it means the parts changed since last execution, and we can't
+            // handle that.
+            let parts_list = unwrap_any!(source.list_parts(py));
+
+            let builder = |state_key: &_, state| {
+                assert!(
+                    parts_list.contains(state_key),
+                    "State found for unknown key {} in the recovery store for {}. \
+                    Known partitions: {}. \
+                    Fixed partitions cannot change between executions, aborting.",
+                    state_key,
+                    self.step_id,
+                    parts_list
+                        .iter()
+                        .map(|sk| format!("\"{}\"", sk.0))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+
+                let part = source
+                    .build_part(py, &self.step_id, state_key, state)
+                    .unwrap();
+                StatefulLogicKind::Source(part)
+            };
+
+            self.state_store
+                .borrow_mut()
+                .hydrate(&self.step_id, builder)
+        })
+    }
+
+    pub fn next_batch(&self, py: Python, key: &StateKey) -> PyResult<BatchResult> {
+        self.borrow_state()
+            .get(&self.step_id, key)
+            .unwrap()
+            .as_source()
+            .next_batch(py)
+            .reraise_with(|| {
+                format!(
+                    "error calling `StatefulSourcePartition.next_batch` in \
+                    step {} for partition {}",
+                    self.step_id, key
+                )
+            })
+    }
+
+    pub fn next_awake(&self, py: Python, key: &StateKey) -> PyResult<Option<DateTime<Utc>>> {
+        self.borrow_state()
+            .get(&self.step_id, key)
+            .unwrap()
+            .as_source()
+            .next_awake(py)
+            .reraise_with(|| {
+                format!(
+                    "error calling `StatefulSourcePartition.next_awake` in \
+                    step {} for partition {}",
+                    self.step_id, key
+                )
+            })
     }
 }
 
