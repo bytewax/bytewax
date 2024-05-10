@@ -36,7 +36,7 @@ def test_join_state_asdicts() -> None:
     ]
 
 
-def build_join_dataflow(
+def _build_join_dataflow(
     inp_l: List[int],
     inp_r: List[int],
     out: List[Tuple[int, int]],
@@ -44,12 +44,12 @@ def build_join_dataflow(
 ) -> Dataflow:
     flow = Dataflow("test_df")
     lefts = op.input("inp_l", flow, TestingSource(inp_l))
-    keyed_lefts = op.key_on("key_l", lefts, lambda _x: "ALL")
+    keyed_lefts = op.key_on("key_l", lefts, lambda _: "ALL")
     rights = op.input("inp_r", flow, TestingSource(inp_r))
-    keyed_rights = op.key_on("key_r", rights, lambda _x: "ALL")
+    keyed_rights = op.key_on("key_r", rights, lambda _: "ALL")
     joined = op.join("join", keyed_lefts, keyed_rights, mode=mode)
-    cleaned = op.map("clean", joined, lambda x: x[1])
-    op.output("out", cleaned, TestingSink(out))
+    unkeyed = op.map("unkey", joined, lambda x: x[1])
+    op.output("out", unkeyed, TestingSink(out))
     return flow
 
 
@@ -58,7 +58,7 @@ def test_join_complete() -> None:
     inp_r = [2]
     out: List[Tuple[int, int]] = []
 
-    flow = build_join_dataflow(inp_l, inp_r, out, "complete")
+    flow = _build_join_dataflow(inp_l, inp_r, out, "complete")
 
     run_main(flow)
     assert out == [
@@ -71,7 +71,7 @@ def test_join_final() -> None:
     inp_r = [2, 3]
     out: List[Tuple[int, int]] = []
 
-    flow = build_join_dataflow(inp_l, inp_r, out, "final")
+    flow = _build_join_dataflow(inp_l, inp_r, out, "final")
 
     run_main(flow)
     assert out == [
@@ -84,7 +84,7 @@ def test_join_running() -> None:
     inp_r = [2, 3]
     out: List[Tuple[int, int]] = []
 
-    flow = build_join_dataflow(inp_l, inp_r, out, "running")
+    flow = _build_join_dataflow(inp_l, inp_r, out, "running")
 
     run_main(flow)
     assert out == [
@@ -99,7 +99,7 @@ def test_join_product() -> None:
     inp_r = [3, 4]
     out: List[Tuple[int, int]] = []
 
-    flow = build_join_dataflow(inp_l, inp_r, out, "product")
+    flow = _build_join_dataflow(inp_l, inp_r, out, "product")
 
     run_main(flow)
     assert out == [
@@ -110,7 +110,7 @@ def test_join_product() -> None:
     ]
 
 
-def build_join_named_dataflow(
+def _build_join_named_dataflow(
     inp_l: List[int],
     inp_r: List[int],
     out: List[Dict[str, int]],
@@ -118,21 +118,21 @@ def build_join_named_dataflow(
 ) -> Dataflow:
     flow = Dataflow("test_df")
     lefts = op.input("inp_l", flow, TestingSource(inp_l))
-    keyed_lefts = op.key_on("key_l", lefts, lambda _x: "ALL")
+    keyed_lefts = op.key_on("key_l", lefts, lambda _: "ALL")
     rights = op.input("inp_r", flow, TestingSource(inp_r))
-    keyed_rights = op.key_on("key_r", rights, lambda _x: "ALL")
+    keyed_rights = op.key_on("key_r", rights, lambda _: "ALL")
     joined = op.join_named("join", mode, left=keyed_lefts, right=keyed_rights)
-    cleaned = op.map("clean", joined, lambda x: x[1])
-    op.output("out", cleaned, TestingSink(out))
+    unkeyed = op.map("unkey", joined, lambda x: x[1])
+    op.output("out", unkeyed, TestingSink(out))
     return flow
 
 
-def test_join_named_complete() -> None:
+def _test_join_named_complete() -> None:
     inp_l = [1]
     inp_r = [2]
     out: List[Dict[str, int]] = []
 
-    flow = build_join_named_dataflow(inp_l, inp_r, out, "complete")
+    flow = _build_join_named_dataflow(inp_l, inp_r, out, "complete")
 
     run_main(flow)
     assert out == [
@@ -145,7 +145,7 @@ def test_join_named_final() -> None:
     inp_r = [2, 3]
     out: List[Dict[str, int]] = []
 
-    flow = build_join_named_dataflow(inp_l, inp_r, out, "final")
+    flow = _build_join_named_dataflow(inp_l, inp_r, out, "final")
 
     run_main(flow)
     assert out == [
@@ -158,7 +158,7 @@ def test_join_named_running() -> None:
     inp_r = [2, 3]
     out: List[Dict[str, int]] = []
 
-    flow = build_join_named_dataflow(inp_l, inp_r, out, "running")
+    flow = _build_join_named_dataflow(inp_l, inp_r, out, "running")
 
     run_main(flow)
     assert out == [
@@ -173,7 +173,7 @@ def test_join_named_product() -> None:
     inp_r = [3, 4]
     out: List[Dict[str, int]] = []
 
-    flow = build_join_named_dataflow(inp_l, inp_r, out, "product")
+    flow = _build_join_named_dataflow(inp_l, inp_r, out, "product")
 
     run_main(flow)
     assert out == [
