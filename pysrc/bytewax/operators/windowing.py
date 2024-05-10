@@ -1096,6 +1096,7 @@ class _WindowLogic(
     clock: ClockLogic[V, SC]
     windower: WindowerLogic[SW]
     builder: Callable[[Optional[S]], WindowLogic[V, W, S]]
+    ordered: bool
 
     logics: Dict[int, WindowLogic[V, W, S]] = field(default_factory=dict)
     queue: List[_WindowQueueEntry[V]] = field(default_factory=list)
@@ -1140,13 +1141,17 @@ class _WindowLogic(
             yield from ((window_id, _Emit(w)) for w in logic.on_close())
 
     def _flush_queue(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
-        # Remove due entries from the queue.
-        due_entries = sorted(
-            (entry for entry in self.queue if entry.timestamp <= watermark),
-            key=lambda entry: entry.timestamp,
-        )
-        # Retain the rest of the queue.
-        self.queue = [entry for entry in self.queue if entry.timestamp > watermark]
+        if self.ordered:
+            # Remove due entries from the queue.
+            due_entries = sorted(
+                (entry for entry in self.queue if entry.timestamp <= watermark),
+                key=lambda entry: entry.timestamp,
+            )
+            # Retain the rest of the queue.
+            self.queue = [entry for entry in self.queue if entry.timestamp > watermark]
+        else:
+            due_entries = self.queue
+            self.queue = []
 
         yield from self._handle_inserts(due_entries, watermark)
         yield from self._handle_merged()
@@ -1271,6 +1276,7 @@ def window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     builder: Callable[[Optional[S]], WindowLogic[V, W, S]],
+    ordered: bool = True,
 ) -> WindowOut[V, W]:
     """Advanced generic windowing operator.
 
@@ -1294,6 +1300,11 @@ def window(
         configuration and combine it with the resume state to return a
         prepared {py:obj}`WindowLogic` for this window.
 
+    :arg ordered: Wheither to apply values to the logic in timestamp
+        order. If not, they'll be in upstream order. There is a
+        performance and latency penalty to ordering by timestamp.
+        Defaults to `True`.
+
     :returns: Window result streams.
 
     """
@@ -1312,6 +1323,7 @@ def window(
                 clock_logic,
                 windower_logic,
                 builder,
+                ordered,
                 logics,
                 resume_state.queue,
             )
@@ -1322,6 +1334,7 @@ def window(
                 clock_logic,
                 windower_logic,
                 builder,
+                ordered,
             )
 
     events = op.stateful_batch("stateful_batch", up, shim_builder)
@@ -1446,6 +1459,7 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into=list,
+    ordered: bool = True,
 ) -> WindowOut[V, Any]:
     """Collect items in a window into a container.
 
@@ -1462,6 +1476,11 @@ def collect_window(
 
     :arg into: Type to collect into. Defaults to {py:obj}`list`.
 
+    :arg ordered: Wheither values in the resulting containers are in
+        timestamp order. There is a performance and latency penalty to
+        ordering by timestamp. If not, they'll be in upstream order.
+        Defaults to `True`.
+
     :returns: Window result streams. Downstream contains the collected
         containers with values in timestamp order at the end of each
         window.
@@ -1470,7 +1489,14 @@ def collect_window(
     shim_builder, shim_folder, shim_merger = _collect_get_callbacks(step_id, into)
 
     return fold_window(
-        "fold_window", up, clock, windower, shim_builder, shim_folder, shim_merger
+        "fold_window",
+        up,
+        clock,
+        windower,
+        shim_builder,
+        shim_folder,
+        shim_merger,
+        ordered,
     )
 
 
@@ -1509,6 +1535,7 @@ def count_window(
         lambda: 0,
         lambda s, _: s + 1,
         lambda s, t: s + t,
+        ordered=False,
     )
 
 
@@ -1545,6 +1572,7 @@ def fold_window(
     builder: Callable[[], S],
     folder: Callable[[S, V], S],
     merger: Callable[[S, S], S],
+    ordered: bool = True,
 ) -> WindowOut[V, S]:
     """Build an empty accumulator, then combine values into it.
 
@@ -1570,6 +1598,10 @@ def fold_window(
     :arg merger: Combines two states whenever two windows merge. Not
         all window definitions result in merges.
 
+    :arg ordered: Wheither to fold values in timestamp order. If not,
+        they'll be in upstream order. There is a performance and
+        latency penalty to ordering by timestamp. Defaults to `True`.
+
     :returns: Window result streams. Downstream contains the
         accumulator for each window, once that window has closed.
 
@@ -1579,7 +1611,7 @@ def fold_window(
         state = resume_state if resume_state is not None else builder()
         return _FoldWindowLogic(folder, merger, state)
 
-    return window("generic_window", up, clock, windower, shim_builder)
+    return window("generic_window", up, clock, windower, shim_builder, ordered)
 
 
 def _join_window_folder(state: _JoinState, name_value: Tuple[str, Any]) -> _JoinState:
@@ -1985,5 +2017,12 @@ def reduce_window(
         return s
 
     return fold_window(
-        "fold_window", up, clock, windower, _untyped_none, shim_folder, reducer
+        "fold_window",
+        up,
+        clock,
+        windower,
+        _untyped_none,
+        shim_folder,
+        reducer,
+        ordered=False,
     )

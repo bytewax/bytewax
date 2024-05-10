@@ -189,6 +189,7 @@ def test_fold_window_benchmark(benchmark, entry_point):
         lambda: None,
         lambda s, _: s,
         lambda s, _: s,
+        ordered=False,
     )
 
     op.output("out", wo.down, TestingSink(out))
