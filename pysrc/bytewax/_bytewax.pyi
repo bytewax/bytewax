@@ -80,10 +80,26 @@ class TracingConfig:
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
-def cli_main(flow, *, workers_per_process=1, process_id=None, addresses=None, epoch_interval=None, recovery_config=None):
+def cli_main(
+    flow,
+    *,
+    workers_per_process=1,
+    process_id=None,
+    addresses=None,
+    epoch_interval=None,
+    recovery_config=None
+):
     ...
 
-def cluster_main(flow, addresses, proc_id, *, epoch_interval=None, recovery_config=None, worker_count_per_proc=1):
+def cluster_main(
+    flow,
+    addresses,
+    proc_id,
+    *,
+    epoch_interval=None,
+    recovery_config=None,
+    worker_count_per_proc=1
+):
     """Execute a dataflow in the current process as part of a cluster.
 
     This is only used for unit testing. See `bytewax.run`.

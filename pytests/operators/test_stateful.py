@@ -4,7 +4,6 @@ from typing import Any, List, Optional, Tuple
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.operators import StatefulLogic
-from bytewax.recovery import RecoveryConfig
 from bytewax.testing import TestingSink, TestingSource, run_main
 from typing_extensions import override
 
