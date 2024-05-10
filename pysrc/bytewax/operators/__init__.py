@@ -1675,21 +1675,11 @@ JoinMode: TypeAlias = Literal["complete", "final", "product", "running"]
 @overload
 def join(
     step_id: str,
-    side1: KeyedStream[V],
-    /,
-    *,
-    mode: JoinMode = ...,
-) -> KeyedStream[Tuple[V]]: ...
-
-
-@overload
-def join(
-    step_id: str,
     side1: KeyedStream[U],
     side2: KeyedStream[V],
     /,
     *,
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
 ) -> KeyedStream[Tuple[U, V]]: ...
 
 
@@ -1701,7 +1691,7 @@ def join(
     side3: KeyedStream[W],
     /,
     *,
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
 ) -> KeyedStream[Tuple[U, V, W]]: ...
 
 
@@ -1714,23 +1704,77 @@ def join(
     side4: KeyedStream[X],
     /,
     *,
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
 ) -> KeyedStream[Tuple[U, V, W, X]]: ...
 
 
 @overload
 def join(
     step_id: str,
+    side1: KeyedStream[V],
+    /,
+    *,
+    mode: JoinMode,
+) -> KeyedStream[Tuple[V]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    /,
+    *,
+    mode: JoinMode,
+) -> KeyedStream[Tuple[Optional[U], Optional[V]]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    /,
+    *,
+    mode: JoinMode,
+) -> KeyedStream[Tuple[Optional[U], Optional[V], Optional[W]]]: ...
+
+
+@overload
+def join(
+    step_id: str,
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    side4: KeyedStream[X],
+    /,
+    *,
+    mode: JoinMode,
+) -> KeyedStream[Tuple[Optional[U], Optional[V], Optional[W], Optional[X]]]: ...
+
+
+@overload
+def join(
+    step_id: str,
     *sides: KeyedStream[V],
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
 ) -> KeyedStream[Tuple[V, ...]]: ...
 
 
 @overload
 def join(
     step_id: str,
+    *sides: KeyedStream[V],
+    mode: JoinMode,
+) -> KeyedStream[Tuple[Optional[V], ...]]: ...
+
+
+@overload
+def join(
+    step_id: str,
     *sides: KeyedStream[Any],
-    mode: JoinMode = ...,
+    mode: JoinMode,
 ) -> KeyedStream[Tuple]: ...
 
 
@@ -1793,7 +1837,7 @@ def join(
 @overload
 def join_named(
     step_id: str,
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
     **sides: KeyedStream[V],
 ) -> KeyedStream[Dict[str, V]]: ...
 
@@ -1801,7 +1845,15 @@ def join_named(
 @overload
 def join_named(
     step_id: str,
-    mode: JoinMode = ...,
+    mode: JoinMode,
+    **sides: KeyedStream[V],
+) -> KeyedStream[Dict[str, Optional[V]]]: ...
+
+
+@overload
+def join_named(
+    step_id: str,
+    mode: JoinMode,
     **sides: KeyedStream[Any],
 ) -> KeyedStream[Dict[str, Any]]: ...
 

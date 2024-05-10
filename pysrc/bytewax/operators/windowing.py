@@ -1741,7 +1741,7 @@ def join_window(
     side1: KeyedStream[V],
     /,
     *,
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
 ) -> WindowOut[V, Tuple[V]]:
     ...
 
@@ -1755,7 +1755,7 @@ def join_window(
     side2: KeyedStream[V],
     /,
     *,
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
 ) -> WindowOut[Union[U, V], Tuple[U, V]]:
     ...
 
@@ -1770,7 +1770,7 @@ def join_window(
     side3: KeyedStream[W],
     /,
     *,
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
 ) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]:
     ...
 
@@ -1786,7 +1786,7 @@ def join_window(
     side4: KeyedStream[X],
     /,
     *,
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
 ) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]:
     ...
 
@@ -1796,9 +1796,69 @@ def join_window(
     step_id: str,
     clock: Clock[V, Any],
     windower: Windower[Any],
+    side1: KeyedStream[V],
+    /,
+    *,
+    mode: JoinMode,
+) -> WindowOut[V, Tuple[Optional[V]]]:
+    ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock[Union[U, V], SC],
+    windower: Windower[Any],
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    /,
+    *,
+    mode: JoinMode,
+) -> WindowOut[Union[U, V], Tuple[Optional[U], Optional[V]]]:
+    ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock[Union[U, V, W], SC],
+    windower: Windower[Any],
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    /,
+    *,
+    mode: JoinMode,
+) -> WindowOut[Union[U, V, W], Tuple[Optional[U], Optional[V], Optional[W]]]:
+    ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock[Union[U, V, W, X], SC],
+    windower: Windower[Any],
+    side1: KeyedStream[U],
+    side2: KeyedStream[V],
+    side3: KeyedStream[W],
+    side4: KeyedStream[X],
+    /,
+    *,
+    mode: JoinMode,
+) -> WindowOut[
+    Union[U, V, W, X], Tuple[Optional[U], Optional[V], Optional[W], Optional[X]]
+]:
+    ...
+
+
+@overload
+def join_window(
+    step_id: str,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
     *sides: KeyedStream[V],
-    mode: JoinMode = ...,
-) -> WindowOut[V, Tuple[V, ...]]:
+    mode: JoinMode,
+) -> WindowOut[V, Tuple[Optional[V], ...]]:
     ...
 
 
@@ -1808,7 +1868,7 @@ def join_window(
     clock: Clock[Any, SC],
     windower: Windower[Any],
     *sides: KeyedStream[Any],
-    mode: JoinMode = ...,
+    mode: JoinMode,
 ) -> WindowOut[Any, Tuple]:
     ...
 
@@ -1908,7 +1968,7 @@ def join_window_named(
     step_id: str,
     clock: Clock[V, Any],
     windower: Windower[Any],
-    mode: JoinMode = ...,
+    mode: Literal["complete"],
     **sides: KeyedStream[V],
 ) -> WindowOut[V, Dict[str, V]]:
     ...
@@ -1917,9 +1977,20 @@ def join_window_named(
 @overload
 def join_window_named(
     step_id: str,
+    clock: Clock[V, Any],
+    windower: Windower[Any],
+    mode: JoinMode,
+    **sides: KeyedStream[V],
+) -> WindowOut[V, Dict[str, Optional[V]]]:
+    ...
+
+
+@overload
+def join_window_named(
+    step_id: str,
     clock: Clock[Any, SC],
     windower: Windower[Any],
-    mode: JoinMode = ...,
+    mode: JoinMode,
     **sides: KeyedStream[Any],
 ) -> WindowOut[Any, Dict[str, Any]]:
     ...
