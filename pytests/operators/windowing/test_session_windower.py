@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import List, Tuple
 
 import bytewax.operators as op
 import bytewax.operators.windowing as win
@@ -15,7 +16,7 @@ from bytewax.operators.windowing import (
 from bytewax.testing import TestingSink, TestingSource, run_main
 
 
-def test_initial_session():
+def test_initial_session() -> None:
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
@@ -29,7 +30,7 @@ def test_initial_session():
     )
 
 
-def test_extend_forward_within_gap():
+def test_extend_forward_within_gap() -> None:
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
@@ -45,7 +46,7 @@ def test_extend_forward_within_gap():
     )
 
 
-def test_extend_forward_exact_gap():
+def test_extend_forward_exact_gap() -> None:
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
@@ -61,7 +62,7 @@ def test_extend_forward_exact_gap():
     )
 
 
-def test_extend_backward_within_gap():
+def test_extend_backward_within_gap() -> None:
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
@@ -77,7 +78,7 @@ def test_extend_backward_within_gap():
     )
 
 
-def test_extend_backward_exact_gap():
+def test_extend_backward_exact_gap() -> None:
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
@@ -93,7 +94,7 @@ def test_extend_backward_exact_gap():
     )
 
 
-def test_extend_merge():
+def test_extend_merge() -> None:
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10), state=_SessionWindowerState()
     )
@@ -113,7 +114,7 @@ def test_extend_merge():
     )
 
 
-def test_within_existing():
+def test_within_existing() -> None:
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10),
         state=_SessionWindowerState(
@@ -136,7 +137,7 @@ def test_within_existing():
     )
 
 
-def test_late():
+def test_late() -> None:
     logic = _SessionWindowerLogic(
         gap=timedelta(seconds=10),
         state=_SessionWindowerState(),
@@ -146,7 +147,7 @@ def test_late():
     assert list(found) == [LATE_SESSION_ID]
 
 
-def test_find_merges_none():
+def test_find_merges_none() -> None:
     sessions = {
         0: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -162,7 +163,7 @@ def test_find_merges_none():
     assert sessions == sessions
 
 
-def test_find_merges_within_gap():
+def test_find_merges_within_gap() -> None:
     sessions = {
         0: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -183,7 +184,7 @@ def test_find_merges_within_gap():
     }
 
 
-def test_find_merges_exact_gap():
+def test_find_merges_exact_gap() -> None:
     sessions = {
         0: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -204,7 +205,7 @@ def test_find_merges_exact_gap():
     }
 
 
-def test_find_merges_multi():
+def test_find_merges_multi() -> None:
     sessions = {
         0: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -229,7 +230,7 @@ def test_find_merges_multi():
     }
 
 
-def test_find_merges_no_yes_no():
+def test_find_merges_no_yes_no() -> None:
     sessions = {
         0: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
@@ -266,28 +267,29 @@ def test_find_merges_no_yes_no():
     }
 
 
-def test_session_with_system_clock():
+def test_session_with_system_clock() -> None:
     flow = Dataflow("test_df")
-    s = op.input("input", flow, TestingSource(range(10)))
-    s = op.key_on("key", s, lambda x: "ALL")
+    nums = op.input("input", flow, TestingSource(range(10)))
+    keyed_nums = op.key_on("key", nums, lambda _: "ALL")
 
     def folder(s, v):
         s.append(v)
         return s
 
-    wo = win.fold_window(
+    fold_out = win.fold_window(
         "collect_records",
-        s,
+        keyed_nums,
         SystemClock(),
         SessionWindower(gap=timedelta(seconds=10)),
         list,
         folder,
         list.__add__,
     )
+    unkeyed = op.key_rm("unkey", fold_out.down)
 
-    out = []
-    op.output("out", wo.down, TestingSink(out))
+    out: List[Tuple[int, List[int]]] = []
+    op.output("out", unkeyed, TestingSink(out))
 
     run_main(flow)
 
-    assert out == [("ALL", (0, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]))]
+    assert out == [(0, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])]
