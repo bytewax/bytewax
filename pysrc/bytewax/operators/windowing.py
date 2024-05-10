@@ -1067,10 +1067,10 @@ class _WindowSnapshot(Generic[V, SC, SW, S]):
     queue: List[_WindowQueueEntry[V]]
 
 
-_Emit: TypeAlias = Tuple[Literal["E"], V]
-_Late: TypeAlias = Tuple[Literal["L"], V]
-_Meta: TypeAlias = Tuple[Literal["M"], WindowMetadata]
-_WindowEvent: TypeAlias = Tuple[int, Union[_Late[V], _Emit[W], _Meta]]
+_Emit: TypeAlias = Tuple[int, Literal["E"], V]
+_Late: TypeAlias = Tuple[int, Literal["L"], V]
+_Meta: TypeAlias = Tuple[int, Literal["M"], WindowMetadata]
+_WindowEvent: TypeAlias = Union[_Late[V], _Emit[W], _Meta]
 
 
 @dataclass
@@ -1102,26 +1102,26 @@ class _WindowLogic(
                 else:
                     logic = self.builder(None)
                     self.logics[window_id] = logic
-                    yield (window_id, ("M", self.windower.metadata_for(window_id)))
+                    yield (window_id, "M", self.windower.metadata_for(window_id))
 
                 ws = logic.on_value(value)
-                yield from ((window_id, ("E", w)) for w in ws)
+                yield from ((window_id, "E", w) for w in ws)
 
     def _handle_merged(self) -> Iterable[_WindowEvent[V, W]]:
         for orig_window_id, targ_window_id in self.windower.merged():
             if targ_window_id != orig_window_id:
                 orig_logic = self.logics.pop(orig_window_id)
                 into_logic = self.logics[targ_window_id]
-                yield from (
-                    (targ_window_id, ("E", w)) for w in into_logic.on_merge(orig_logic)
-                )
+                ws = into_logic.on_merge(orig_logic)
+                yield from ((targ_window_id, "E", w) for w in ws)
 
-            yield (targ_window_id, ("M", self.windower.metadata_for(targ_window_id)))
+            yield (targ_window_id, "M", self.windower.metadata_for(targ_window_id))
 
     def _handle_closed(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
         for window_id in self.windower.close_for(watermark):
             logic = self.logics.pop(window_id)
-            yield from ((window_id, ("E", w)) for w in logic.on_close())
+            ws = logic.on_close()
+            yield from ((window_id, "E", w) for w in ws)
 
     def _flush_queue(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
         if self.ordered:
@@ -1155,9 +1155,7 @@ class _WindowLogic(
 
             if value_timestamp < watermark:
                 late_window_ids = self.windower.late_for(value_timestamp)
-                events.extend(
-                    (window_id, ("L", value)) for window_id in late_window_ids
-                )
+                events.extend((window_id, "L", value) for window_id in late_window_ids)
             else:
                 entry = (value, value_timestamp)
                 self.queue.append(entry)
@@ -1229,32 +1227,31 @@ class WindowOut(Generic[V, W_co]):
     """
 
 
-def _unwrap_emit(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, W]]:
-    window_id, event = id_event
-    typ, value = event
+def _unwrap_emit(id_typ_obj: _WindowEvent[V, W]) -> Optional[Tuple[int, W]]:
+    window_id, typ, obj = id_typ_obj
     if typ == "E":
-        value = cast(W, value)
+        value = cast(W, obj)
         return (window_id, value)
     else:
         return None
 
 
-def _unwrap_late(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, V]]:
-    window_id, event = id_event
-    typ, value = event
+def _unwrap_late(id_typ_obj: _WindowEvent[V, W]) -> Optional[Tuple[int, V]]:
+    window_id, typ, obj = id_typ_obj
     if typ == "L":
-        value = cast(V, value)
+        value = cast(V, obj)
         return (window_id, value)
     else:
         return None
 
 
-def _unwrap_meta(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, WindowMetadata]]:
-    window_id, event = id_event
-    typ, value = event
+def _unwrap_meta(
+    id_typ_obj: _WindowEvent[V, W],
+) -> Optional[Tuple[int, WindowMetadata]]:
+    window_id, typ, obj = id_typ_obj
     if typ == "M":
-        value = cast(WindowMetadata, value)
-        return (window_id, value)
+        meta = cast(WindowMetadata, obj)
+        return (window_id, meta)
     else:
         return None
 
