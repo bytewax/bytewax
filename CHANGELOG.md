@@ -75,6 +75,9 @@ notes on GitHub when we make a new release.__
 - Adds a {py:obj}`~bytewax.operators.enrich_cached` operator for
   easier joining with an external data source.
 
+- Adds a {py:obj}`~bytewax.operators.key_rm` convenience operator to
+  remove keys from a {py:obj}`~bytewax.operators.KeyedStream`.
+
 ## v0.19.1
 
 - Fixes a bug where using a system clock on certain architectures
