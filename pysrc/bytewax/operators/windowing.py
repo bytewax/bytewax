@@ -35,6 +35,7 @@ from bytewax.operators import (
     _EMPTY,
     DK,
     DV,
+    JoinMode,
     KeyedStream,
     S,
     StatefulBatchLogic,
@@ -1396,7 +1397,8 @@ def collect_window(
     up: KeyedStream[V],
     clock: Clock[V, Any],
     windower: Windower[Any],
-) -> WindowOut[V, List[V]]: ...
+) -> WindowOut[V, List[V]]:
+    ...
 
 
 @overload
@@ -1406,7 +1408,8 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into: Type[List],
-) -> WindowOut[V, List[V]]: ...
+) -> WindowOut[V, List[V]]:
+    ...
 
 
 @overload
@@ -1416,7 +1419,8 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into: Type[Set],
-) -> WindowOut[V, Set[V]]: ...
+) -> WindowOut[V, Set[V]]:
+    ...
 
 
 @overload
@@ -1426,7 +1430,8 @@ def collect_window(
     clock: Clock[Tuple[DK, DV], SC],
     windower: Windower[Any],
     into: Type[Dict],
-) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]: ...
+) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]:
+    ...
 
 
 @overload
@@ -1436,7 +1441,8 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into=list,
-) -> WindowOut[V, Any]: ...
+) -> WindowOut[V, Any]:
+    ...
 
 
 @operator
@@ -1601,18 +1607,114 @@ def fold_window(
     return window("generic_window", up, clock, windower, shim_builder, ordered)
 
 
-def _join_window_folder(state: _JoinState, name_value: Tuple[str, Any]) -> _JoinState:
-    name, value = name_value
-    state.set_val(name, value)
-    return state
+@dataclass
+class _JoinWindowCompleteLogic(WindowLogic[Tuple[str, V], _JoinState, _JoinState]):
+    state: _JoinState
+
+    @override
+    def on_value(self, value: Tuple[str, V]) -> Iterable[_JoinState]:
+        join_side, join_value = value
+        self.state.set_val(join_side, join_value)
+
+        if self.state.all_set():
+            state = copy.deepcopy(self.state)
+            self.state.clear()
+            return (state,)
+        else:
+            return _EMPTY
+
+    @override
+    def on_merge(self, original: Self) -> Iterable[_JoinState]:
+        self.state |= original.state
+
+        if self.state.all_set():
+            state = copy.deepcopy(self.state)
+            self.state.clear()
+            return (state,)
+        else:
+            return _EMPTY
+
+    @override
+    def on_close(self) -> Iterable[_JoinState]:
+        return _EMPTY
+
+    @override
+    def snapshot(self) -> _JoinState:
+        return copy.deepcopy(self.state)
 
 
-def _join_window_product_folder(
-    state: _JoinState, name_value: Tuple[str, Any]
-) -> _JoinState:
-    name, value = name_value
-    state.add_val(name, value)
-    return state
+@dataclass
+class _JoinWindowFinalLogic(WindowLogic[Tuple[str, V], _JoinState, _JoinState]):
+    state: _JoinState
+
+    @override
+    def on_value(self, value: Tuple[str, V]) -> Iterable[_JoinState]:
+        join_side, join_value = value
+        self.state.set_val(join_side, join_value)
+        return _EMPTY
+
+    @override
+    def on_merge(self, original: Self) -> Iterable[_JoinState]:
+        self.state |= original.state
+        return _EMPTY
+
+    @override
+    def on_close(self) -> Iterable[_JoinState]:
+        # No need to deepcopy because we are discarding the state.
+        return (self.state,)
+
+    @override
+    def snapshot(self) -> _JoinState:
+        return copy.deepcopy(self.state)
+
+
+@dataclass
+class _JoinWindowRunningLogic(WindowLogic[Tuple[str, V], _JoinState, _JoinState]):
+    state: _JoinState
+
+    @override
+    def on_value(self, value: Tuple[str, V]) -> Iterable[_JoinState]:
+        join_side, join_value = value
+        self.state.set_val(join_side, join_value)
+        return (copy.deepcopy(self.state),)
+
+    @override
+    def on_merge(self, original: Self) -> Iterable[_JoinState]:
+        self.state |= original.state
+        return (copy.deepcopy(self.state),)
+
+    @override
+    def on_close(self) -> Iterable[_JoinState]:
+        return _EMPTY
+
+    @override
+    def snapshot(self) -> _JoinState:
+        return copy.deepcopy(self.state)
+
+
+@dataclass
+class _JoinWindowProductLogic(WindowLogic[Tuple[str, V], _JoinState, _JoinState]):
+    state: _JoinState
+
+    @override
+    def on_value(self, value: Tuple[str, V]) -> Iterable[_JoinState]:
+        join_side, join_value = value
+        self.state.add_val(join_side, join_value)
+        return _EMPTY
+
+    @override
+    def on_merge(self, original: Self) -> Iterable[_JoinState]:
+        self.state += original.state
+        return _EMPTY
+
+    @override
+    def on_close(self) -> Iterable[_JoinState]:
+        # No need to deepcopy because we are discarding the state.
+        return (self.state,)
+
+    @override
+    def snapshot(self) -> _JoinState:
+        return copy.deepcopy(self.state)
 
 
 def _join_astuples_flat_mapper(
@@ -1631,11 +1733,6 @@ def _join_asdicts_flat_mapper(
         yield (window_id, d)
 
 
-def _join_merger(s: _JoinState, t: _JoinState) -> _JoinState:
-    s += t
-    return s
-
-
 @overload
 def join_window(
     step_id: str,
@@ -1644,8 +1741,9 @@ def join_window(
     side1: KeyedStream[V],
     /,
     *,
-    product: bool = ...,
-) -> WindowOut[V, Tuple[V]]: ...
+    mode: JoinMode = ...,
+) -> WindowOut[V, Tuple[V]]:
+    ...
 
 
 @overload
@@ -1657,8 +1755,9 @@ def join_window(
     side2: KeyedStream[V],
     /,
     *,
-    product: bool = ...,
-) -> WindowOut[Union[U, V], Tuple[U, V]]: ...
+    mode: JoinMode = ...,
+) -> WindowOut[Union[U, V], Tuple[U, V]]:
+    ...
 
 
 @overload
@@ -1671,8 +1770,9 @@ def join_window(
     side3: KeyedStream[W],
     /,
     *,
-    product: bool = ...,
-) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]: ...
+    mode: JoinMode = ...,
+) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]:
+    ...
 
 
 @overload
@@ -1686,8 +1786,9 @@ def join_window(
     side4: KeyedStream[X],
     /,
     *,
-    product: bool = ...,
-) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]: ...
+    mode: JoinMode = ...,
+) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]:
+    ...
 
 
 @overload
@@ -1696,8 +1797,9 @@ def join_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     *sides: KeyedStream[V],
-    product: bool = ...,
-) -> WindowOut[V, Tuple[V, ...]]: ...
+    mode: JoinMode = ...,
+) -> WindowOut[V, Tuple[V, ...]]:
+    ...
 
 
 @overload
@@ -1706,8 +1808,9 @@ def join_window(
     clock: Clock[Any, SC],
     windower: Windower[Any],
     *sides: KeyedStream[Any],
-    product: bool = ...,
-) -> WindowOut[Any, Tuple]: ...
+    mode: JoinMode = ...,
+) -> WindowOut[Any, Tuple]:
+    ...
 
 
 @operator
@@ -1716,9 +1819,11 @@ def join_window(
     clock: Clock[Any, Any],
     windower: Windower[Any],
     *sides: KeyedStream[Any],
-    product: bool = False,
+    mode: JoinMode = "final",
 ) -> WindowOut[Any, Tuple]:
     """Gather together the value for a key on multiple streams.
+
+    See <project:#xref-joins> for more information.
 
     :arg step_id: Unique ID.
 
@@ -1728,14 +1833,14 @@ def join_window(
 
     :arg *sides: Keyed streams.
 
-    :arg product: When `True`, emit all combinations of all values
-        seen on all sides. E.g. if side 1 saw `"A"` and `"B"`, and
-        side 2 saw `"C"`: emit `("A", "C")`, `("B", "C")` downstream.
-        Defaults to `False`.
+    :arg mode: Mode of this join. See
+        {py:obj}`~bytewax.operators.JoinMode` for more info. Defaults
+        to `"final"`.
 
     :returns: Window result streams. Downstream contains tuples with
-        the value from each stream in the order of the argument list
-        once each window has closed.
+        the value from each stream in the order of the argument list.
+        See {py:obj}`~bytewax.operators.JoinMode` for when tuples are
+        emitted.
 
     """
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
@@ -1760,24 +1865,41 @@ def join_window(
             wait_for_system_duration=clock.wait_for_system_duration,
         )
 
-    if not product:
-        folder = _join_window_folder
+    logic_class: Callable[
+        [_JoinState], WindowLogic[Tuple[str, V], _JoinState, _JoinState]
+    ]
+    if mode == "complete":
+        logic_class = _JoinWindowCompleteLogic
+    elif mode == "final":
+        logic_class = _JoinWindowFinalLogic
+    elif mode == "running":
+        logic_class = _JoinWindowRunningLogic
+    elif mode == "product":
+        logic_class = _JoinWindowProductLogic
     else:
-        folder = _join_window_product_folder
+        msg = f"unknown `join_interval` mode: {mode!r}"
+        raise ValueError(msg)
 
-    joined_out = fold_window(
-        "fold_window",
+    def shim_builder(
+        resume_state: Optional[_JoinState],
+    ) -> WindowLogic[Tuple[str, V], _JoinState, _JoinState]:
+        if resume_state is None:
+            state = _JoinState.for_names(names)
+            return logic_class(state)
+        else:
+            return logic_class(resume_state)
+
+    window_out = window(
+        "window",
         merged,
         clock,
         windower,
-        builder,
-        folder,
-        _join_merger,
+        shim_builder,
     )
     return WindowOut(
-        op.flat_map_value("astuple", joined_out.down, _join_astuples_flat_mapper),
-        joined_out.late,
-        joined_out.meta,
+        op.flat_map_value("astuple", window_out.down, _join_astuples_flat_mapper),
+        window_out.late,
+        window_out.meta,
     )
 
 
@@ -1786,9 +1908,10 @@ def join_window_named(
     step_id: str,
     clock: Clock[V, Any],
     windower: Windower[Any],
-    product: bool = ...,
+    mode: JoinMode = ...,
     **sides: KeyedStream[V],
-) -> WindowOut[V, Dict[str, V]]: ...
+) -> WindowOut[V, Dict[str, V]]:
+    ...
 
 
 @overload
@@ -1796,9 +1919,10 @@ def join_window_named(
     step_id: str,
     clock: Clock[Any, SC],
     windower: Windower[Any],
-    product: bool = ...,
+    mode: JoinMode = ...,
     **sides: KeyedStream[Any],
-) -> WindowOut[Any, Dict[str, Any]]: ...
+) -> WindowOut[Any, Dict[str, Any]]:
+    ...
 
 
 @operator
@@ -1806,10 +1930,12 @@ def join_window_named(
     step_id: str,
     clock: Clock[Any, Any],
     windower: Windower[Any],
-    product: bool = False,
+    mode: JoinMode = "final",
     **sides: KeyedStream[Any],
 ) -> WindowOut[Any, Dict[str, Any]]:
     """Gather together the value for a key on multiple named streams.
+
+    See <project:#xref-joins> for more information.
 
     :arg step_id: Unique ID.
 
@@ -1817,17 +1943,17 @@ def join_window_named(
 
     :arg windower: Window definition.
 
-    :arg product: When `True`, emit all combinations of all values
-        seen on all sides. E.g. if side `right` saw `"A"` and `"B"`,
-        and side `left` saw `"C"`: emit `{"right": "A", "left": "C"}`,
-        `{"right": "B", "left": "C"}` downstream. Defaults to `False`.
+    :arg mode: Mode of this join. See
+        {py:obj}`~bytewax.operators.JoinMode` for more info. Defaults
+        to `"final"`.
 
     :arg **sides: Named keyed streams. The name of each stream will be
         used in the emitted {py:obj}`dict`s.
 
     :returns: Window result streams. Downstream contains a
-        {py:obj}`dict` mapping the name to the value from each stream
-        once each window has closed.
+        {py:obj}`dict` mapping the name to the value from each stream.
+        See {py:obj}`~bytewax.operators.JoinMode` for when mappings
+        are emitted.
 
     """
     names = list(sides.keys())
@@ -1851,24 +1977,38 @@ def join_window_named(
             wait_for_system_duration=clock.wait_for_system_duration,
         )
 
-    if not product:
-        folder = _join_window_folder
+    logic_class: Callable[
+        [_JoinState], WindowLogic[Tuple[str, V], _JoinState, _JoinState]
+    ]
+    if mode == "complete":
+        logic_class = _JoinWindowCompleteLogic
+    elif mode == "final":
+        logic_class = _JoinWindowFinalLogic
+    elif mode == "running":
+        logic_class = _JoinWindowRunningLogic
+    elif mode == "product":
+        logic_class = _JoinWindowProductLogic
     else:
-        folder = _join_window_product_folder
+        msg = f"unknown `join_interval` mode: {mode!r}"
+        raise ValueError(msg)
 
-    joined_out = fold_window(
-        "fold_window",
+    def shim_builder(
+        resume_state: Optional[_JoinState],
+    ) -> WindowLogic[Tuple[str, V], _JoinState, _JoinState]:
+        state = _JoinState.for_names(names)
+        return logic_class(state)
+
+    window_out = window(
+        "window",
         merged,
         clock,
         windower,
-        builder,
-        folder,
-        _join_merger,
+        shim_builder,
     )
     return WindowOut(
-        op.flat_map_value("asdict", joined_out.down, _join_asdicts_flat_mapper),
-        joined_out.late,
-        joined_out.meta,
+        op.flat_map_value("astuple", window_out.down, _join_asdicts_flat_mapper),
+        window_out.late,
+        window_out.meta,
     )
 
 
@@ -1878,7 +2018,8 @@ def max_window(
     up: KeyedStream[V],
     clock: Clock[V, Any],
     windower: Windower[Any],
-) -> WindowOut[V, V]: ...
+) -> WindowOut[V, V]:
+    ...
 
 
 @overload
@@ -1888,7 +2029,8 @@ def max_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     by: Callable[[V], Any],
-) -> WindowOut[V, V]: ...
+) -> WindowOut[V, V]:
+    ...
 
 
 @operator
@@ -1925,7 +2067,8 @@ def min_window(
     up: KeyedStream[V],
     clock: Clock[V, Any],
     windower: Windower[Any],
-) -> WindowOut[V, V]: ...
+) -> WindowOut[V, V]:
+    ...
 
 
 @overload
@@ -1935,7 +2078,8 @@ def min_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     by: Callable[[V], Any],
-) -> WindowOut[V, V]: ...
+) -> WindowOut[V, V]:
+    ...
 
 
 @operator

@@ -19,6 +19,7 @@ from typing import (
     Generic,
     Iterable,
     List,
+    Literal,
     Optional,
     Tuple,
     TypeVar,
@@ -1514,6 +1515,10 @@ class _JoinState:
             for t in self.astuples(empty)
         ]
 
+    def clear(self) -> None:
+        for values in self.seen.values():
+            values.clear()
+
     def __add__(self, other: Self) -> "_JoinState":
         seen = {name: list(values) for name, values in self.seen.items()}
         for name, values in other.seen.items():
@@ -1533,27 +1538,91 @@ class _JoinState:
 
         return self
 
+    def __or__(self, other: Self) -> "_JoinState":
+        seen = {name: list(values) for name, values in self.seen.items()}
+        for name, values in other.seen.items():
+            if name not in seen:
+                seen[name] = list(values)
+
+        return _JoinState(seen)
+
+    def __ior__(self, other: Self) -> Self:
+        for name, values in other.seen.items():
+            if name not in self.seen:
+                self.seen[name] = values
+
+        return self
+
 
 @dataclass
-class _JoinLogic(StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]):
-    step_id: str
-    running: bool
+class _JoinCompleteLogic(StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]):
     state: _JoinState
 
     @override
     def on_item(self, value: Tuple[str, Any]) -> Tuple[Iterable[_JoinState], bool]:
-        name, value = value
+        join_name, join_value = value
+        self.state.set_val(join_name, join_value)
 
-        self.state.set_val(name, value)
-
-        if self.running:
-            return ((copy.deepcopy(self.state),), StatefulLogic.RETAIN)
+        if self.state.all_set():
+            # No need to deepcopy because we are discarding the state.
+            return ((self.state,), StatefulLogic.DISCARD)
         else:
-            if self.state.all_set():
-                # No need to deepcopy because we are discarding the state.
-                return ((self.state,), StatefulLogic.DISCARD)
-            else:
-                return (_EMPTY, StatefulLogic.RETAIN)
+            return (_EMPTY, StatefulLogic.RETAIN)
+
+    @override
+    def snapshot(self) -> _JoinState:
+        return copy.deepcopy(self.state)
+
+
+@dataclass
+class _JoinFinalLogic(StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]):
+    state: _JoinState
+
+    @override
+    def on_item(self, value: Tuple[str, Any]) -> Tuple[Iterable[_JoinState], bool]:
+        join_name, join_value = value
+        self.state.set_val(join_name, join_value)
+        return (_EMPTY, StatefulLogic.RETAIN)
+
+    @override
+    def on_eof(self) -> Tuple[Iterable[_JoinState], bool]:
+        # No need to deepcopy because we are discarding the state.
+        return ((self.state,), StatefulLogic.DISCARD)
+
+    @override
+    def snapshot(self) -> _JoinState:
+        return copy.deepcopy(self.state)
+
+
+@dataclass
+class _JoinProductLogic(StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]):
+    state: _JoinState
+
+    @override
+    def on_item(self, value: Tuple[str, Any]) -> Tuple[Iterable[_JoinState], bool]:
+        join_name, join_value = value
+        self.state.add_val(join_name, join_value)
+        return (_EMPTY, StatefulLogic.RETAIN)
+
+    @override
+    def on_eof(self) -> Tuple[Iterable[_JoinState], bool]:
+        # No need to deepcopy because we are discarding the state.
+        return ((self.state,), StatefulLogic.DISCARD)
+
+    @override
+    def snapshot(self) -> _JoinState:
+        return copy.deepcopy(self.state)
+
+
+@dataclass
+class _JoinRunningLogic(StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]):
+    state: _JoinState
+
+    @override
+    def on_item(self, value: Tuple[str, Any]) -> Tuple[Iterable[_JoinState], bool]:
+        join_name, join_value = value
+        self.state.set_val(join_name, join_value)
+        return ((copy.deepcopy(self.state),), StatefulLogic.RETAIN)
 
     @override
     def snapshot(self) -> _JoinState:
@@ -1574,6 +1643,34 @@ def _join_name_merge(
     return merge("merge", *with_names)
 
 
+JoinMode: TypeAlias = Literal["complete", "final", "product", "running"]
+"""Under what conditions to emit joined data downstream.
+
+- **Complete** Join: Save only the most recent value from each side.
+    Only emit once all sides have a value. Discard the join state once
+    emitted or if the window has closed (for windowed joins). if new
+    values arrive, start from empty.
+
+- **Final** Join: Save only the most recent value from each side. Emit
+    that single set of values only once upstream is EOF (for
+    non-window joins) or the window has closed (for windowed joins).
+    If a side did not encounter a value, fill `None` for it. Only
+    discard the join state after emitting.
+
+- **Product** Join: Save all values encountered on each side. Emit
+    multiple sets of values, one for each combination of values on a
+    side, only once upstream is EOF (for non-window joins) or the
+    window has closed (for windowed joins). If a side did not
+    encounter a value, fill `None` for it. Only discard the join state
+    after emitting.
+
+- **Running** Join: Save only the most recent value from each side.
+    Emit on any new incoming value. If a side has not encountered a
+    value yet, fill `None` for it. Never discard the state.
+
+"""
+
+
 # https://stackoverflow.com/questions/73200382/using-typevartuple-with-inner-typevar
 @overload
 def join(
@@ -1581,7 +1678,7 @@ def join(
     side1: KeyedStream[V],
     /,
     *,
-    running: bool = ...,
+    mode: JoinMode = ...,
 ) -> KeyedStream[Tuple[V]]: ...
 
 
@@ -1592,7 +1689,7 @@ def join(
     side2: KeyedStream[V],
     /,
     *,
-    running: bool = ...,
+    mode: JoinMode = ...,
 ) -> KeyedStream[Tuple[U, V]]: ...
 
 
@@ -1604,7 +1701,7 @@ def join(
     side3: KeyedStream[W],
     /,
     *,
-    running: bool = ...,
+    mode: JoinMode = ...,
 ) -> KeyedStream[Tuple[U, V, W]]: ...
 
 
@@ -1617,7 +1714,7 @@ def join(
     side4: KeyedStream[X],
     /,
     *,
-    running: bool = ...,
+    mode: JoinMode = ...,
 ) -> KeyedStream[Tuple[U, V, W, X]]: ...
 
 
@@ -1625,7 +1722,7 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[V],
-    running: bool = ...,
+    mode: JoinMode = ...,
 ) -> KeyedStream[Tuple[V, ...]]: ...
 
 
@@ -1633,7 +1730,7 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[Any],
-    running: bool = ...,
+    mode: JoinMode = ...,
 ) -> KeyedStream[Tuple]: ...
 
 
@@ -1641,34 +1738,52 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[Any],
-    running: bool = False,
+    mode: JoinMode = "complete",
 ) -> KeyedStream[Tuple]:
     """Gather together the value for a key on multiple streams.
+
+    See <project:#xref-joins> for more information.
 
     :arg step_id: Unique ID.
 
     :arg *sides: Keyed streams.
 
-    :arg running: If `True`, perform a "running join" and, emit the
-        current set of values (if any) each time a new value arrives.
-        The set of values will _never be discarded_ so might result in
-        unbounded memory use. If `False`, perform a "complete join"
-        and, only emit once there is a value on each stream, then
-        discard the set. Defaults to `False`.
+    :arg mode: Mode of this join. See
+        {py:obj}`~bytewax.operators.JoinMode` for more info. Defaults
+        to `"complete"`.
 
     :returns: Emits a tuple with the value from each stream in the
-        order of the argument list. If `running` is `True`, some
-        values might be `None`.
+        order of the argument list. See
+        {py:obj}`~bytewax.operators.JoinMode` for when tuples are
+        emitted.
 
     """
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
     names = list(named_sides.keys())
 
-    def shim_builder(resume_state: Optional[_JoinState]) -> _JoinLogic:
-        state = (
-            resume_state if resume_state is not None else _JoinState.for_names(names)
-        )
-        return _JoinLogic(step_id, running, state)
+    logic_class: Callable[
+        [_JoinState], StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]
+    ]
+    if mode == "complete":
+        logic_class = _JoinCompleteLogic
+    elif mode == "final":
+        logic_class = _JoinFinalLogic
+    elif mode == "product":
+        logic_class = _JoinProductLogic
+    elif mode == "running":
+        logic_class = _JoinRunningLogic
+    else:
+        msg = f"unknown `join` mode: {mode!r}"
+        raise ValueError(msg)
+
+    def shim_builder(
+        resume_state: Optional[_JoinState],
+    ) -> StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]:
+        if resume_state is None:
+            state = _JoinState.for_names(names)
+            return logic_class(state)
+        else:
+            return logic_class(resume_state)
 
     merged = _join_name_merge("add_names", **named_sides)
     joined = stateful("join", merged, shim_builder)
@@ -1678,7 +1793,7 @@ def join(
 @overload
 def join_named(
     step_id: str,
-    running: bool = ...,
+    mode: JoinMode = ...,
     **sides: KeyedStream[V],
 ) -> KeyedStream[Dict[str, V]]: ...
 
@@ -1686,7 +1801,7 @@ def join_named(
 @overload
 def join_named(
     step_id: str,
-    running: bool = ...,
+    mode: JoinMode = ...,
     **sides: KeyedStream[Any],
 ) -> KeyedStream[Dict[str, Any]]: ...
 
@@ -1694,35 +1809,52 @@ def join_named(
 @operator
 def join_named(
     step_id: str,
-    running: bool = False,
+    mode: JoinMode = "complete",
     **sides: KeyedStream[Any],
 ) -> KeyedStream[Dict[str, Any]]:
     """Gather together the value for a key on multiple named streams.
+
+    See <project:#xref-joins> for more information.
 
     :arg step_id: Unique ID.
 
     :arg **sides: Named keyed streams. The name of each stream will be
         keys in the emitted {py:obj}`dict`.
 
-    :arg running: If `True`, perform a "running join" and, emit the
-        current set of values (if any) each time a new value arrives.
-        The set of values will _never be discarded_ so might result in
-        unbounded memory use. If `False`, perform a "complete join"
-        and, only emit once there is a value on each stream, then
-        discard the set. Defaults to `False`.
+    :arg mode: Mode of this join. See
+        {py:obj}`~bytewax.operators.JoinMode` for more info. Defaults
+        to `"complete"`.
 
-    :returns: Emits a mapping the name to the value from each stream.
-        If `running` is `True`, some names might be missing from the
-        mapping.
+    :returns: Emits a mapping from the name to the value from each
+        stream. See {py:obj}`~bytewax.operators.JoinMode` for when
+        mappings are emitted.
 
     """
     names = list(sides.keys())
 
-    def shim_builder(resume_state: Optional[_JoinState]) -> _JoinLogic:
-        state = (
-            resume_state if resume_state is not None else _JoinState.for_names(names)
-        )
-        return _JoinLogic(step_id, running, state)
+    logic_class: Callable[
+        [_JoinState], StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]
+    ]
+    if mode == "complete":
+        logic_class = _JoinCompleteLogic
+    elif mode == "final":
+        logic_class = _JoinFinalLogic
+    elif mode == "product":
+        logic_class = _JoinProductLogic
+    elif mode == "running":
+        logic_class = _JoinRunningLogic
+    else:
+        msg = f"unknown `join` mode: {mode!r}"
+        raise ValueError(msg)
+
+    def shim_builder(
+        resume_state: Optional[_JoinState],
+    ) -> StatefulLogic[Tuple[str, Any], _JoinState, _JoinState]:
+        if resume_state is None:
+            state = _JoinState.for_names(names)
+            return logic_class(state)
+        else:
+            return logic_class(resume_state)
 
     merged = _join_name_merge("add_names", **sides)
     joined = stateful("join", merged, shim_builder)

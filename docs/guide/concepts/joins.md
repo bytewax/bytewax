@@ -317,7 +317,7 @@ Complete join semantics are useful in some cases, but on infinite data
 you could imagine other join semantics. What Bytewax calls a **running
 join** emits downstream the values for all sides of the join whenever
 any value comes in, _and keeps the state around_. This is similar to a
-_full outer join_ in SQL. Pass `running=True` to
+_full outer join_ in SQL. Pass `mode="running"` to
 {py:obj}`~bytewax.operators.join` to enable a running join. By default
 joins are complete, as described in the previous section, and not
 running.
@@ -347,7 +347,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["ema
 Now instead of the above join, let's use the running join:
 
 ```{testcode}
-joined = op.join("join", keyed_names, keyed_emails, running=True)
+joined = op.join("join", keyed_names, keyed_emails, mode="running")
 ```
 
 Now let's run the dataflow again an inspect the output.
@@ -640,13 +640,10 @@ You will have to decide in a downstream step how to handle these
 `None` values so you can focus only on the running list of complete
 updates, or fill in default values, etc.
 
-Bytewax currently only supports complete windowed joins and does not
-support running windowed joins.
-
 ## Product Joins
 
 Window operators, because they have a defined close time, also support
-another join type. The **product join** emits all of the combinations
+another join mode. The **product join** emits all of the combinations
 of _all_ of the input values seen on a side.
 
 For example, if we don't change the join parameters, but update the
@@ -694,7 +691,7 @@ Notice how now we only have the latest email for the bee:
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
 ```
 
-Now if we re-define the dataflow and use `product=True`, we can see
+Now if we re-define the dataflow and use `mode="product"`, we can see
 all of the values for the Bee's email in that window.
 
 ```{testcode}

@@ -53,6 +53,13 @@ notes on GitHub when we make a new release.__
   windower determines that two windows must be merged because a new
   item bridged a gap.
 
+- *Breaking change* {py:obj}`~bytewax.operators.join`,
+  {py:obj}`~bytewax.operators.join_named`,
+  {py:obj}`~bytewax.operators.windowing.join_window`, and
+  {py:obj}`~bytewax.operators.windowing.join_window_named` have had
+  their `product` argument replaced with `mode`. You now can specify
+  more nuanced kinds of join modes.
+
 - Python interfaces are now provided for custom clocks and windowers.
   Subclass {py:obj}`~bytewax.operators.windowing.Clock` (and a
   corresponding {py:obj}`~bytewax.operators.windowing.ClockLogic`) or
