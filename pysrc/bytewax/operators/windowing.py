@@ -12,18 +12,21 @@ from typing import (
     Generic,
     Iterable,
     List,
+    Literal,
     Optional,
     Set,
     Tuple,
     Type,
     TypeVar,
     Union,
+    cast,
     overload,
 )
 
 from typing_extensions import Self, TypeAlias, override
 
 import bytewax.operators as op
+from bytewax._utils import partition
 from bytewax.dataflow import (
     Stream,
     operator,
@@ -1053,10 +1056,7 @@ class WindowLogic(ABC, Generic[V, W, S]):
         ...
 
 
-@dataclass(frozen=True)
-class _WindowQueueEntry(Generic[V]):
-    value: V
-    timestamp: datetime
+_WindowQueueEntry: TypeAlias = Tuple[V, datetime]
 
 
 @dataclass(frozen=True)
@@ -1067,21 +1067,9 @@ class _WindowSnapshot(Generic[V, SC, SW, S]):
     queue: List[_WindowQueueEntry[V]]
 
 
-@dataclass(frozen=True)
-class _Emit(Generic[V]):
-    value: V
-
-
-@dataclass(frozen=True)
-class _Late(Generic[V]):
-    value: V
-
-
-@dataclass(frozen=True)
-class _Meta:
-    meta: WindowMetadata
-
-
+_Emit: TypeAlias = Tuple[Literal["E"], V]
+_Late: TypeAlias = Tuple[Literal["L"], V]
+_Meta: TypeAlias = Tuple[Literal["M"], WindowMetadata]
 _WindowEvent: TypeAlias = Tuple[int, Union[_Late[V], _Emit[W], _Meta]]
 
 
@@ -1104,25 +1092,20 @@ class _WindowLogic(
     _last_watermark: datetime = UTC_MIN
 
     def _handle_inserts(
-        self,
-        due_entries: List[_WindowQueueEntry[V]],
-        watermark: datetime,
+        self, due_entries: List[_WindowQueueEntry[V]]
     ) -> Iterable[_WindowEvent[V, W]]:
-        last_timestamp = UTC_MIN
         for entry in due_entries:
-            assert last_timestamp <= entry.timestamp, "queue is not in timestamp order"
-            last_timestamp = entry.timestamp
-
-            for window_id in self.windower.open_for(entry.timestamp):
+            value, timestamp = entry
+            for window_id in self.windower.open_for(timestamp):
                 if window_id in self.logics:
                     logic = self.logics[window_id]
                 else:
                     logic = self.builder(None)
                     self.logics[window_id] = logic
-                    yield (window_id, _Meta(self.windower.metadata_for(window_id)))
+                    yield (window_id, ("M", self.windower.metadata_for(window_id)))
 
-                ws = logic.on_value(entry.value)
-                yield from ((window_id, _Emit(w)) for w in ws)
+                ws = logic.on_value(value)
+                yield from ((window_id, ("E", w)) for w in ws)
 
     def _handle_merged(self) -> Iterable[_WindowEvent[V, W]]:
         for orig_window_id, targ_window_id in self.windower.merged():
@@ -1130,30 +1113,28 @@ class _WindowLogic(
                 orig_logic = self.logics.pop(orig_window_id)
                 into_logic = self.logics[targ_window_id]
                 yield from (
-                    (targ_window_id, _Emit(w)) for w in into_logic.on_merge(orig_logic)
+                    (targ_window_id, ("E", w)) for w in into_logic.on_merge(orig_logic)
                 )
 
-            yield (targ_window_id, _Meta(self.windower.metadata_for(targ_window_id)))
+            yield (targ_window_id, ("M", self.windower.metadata_for(targ_window_id)))
 
     def _handle_closed(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
         for window_id in self.windower.close_for(watermark):
             logic = self.logics.pop(window_id)
-            yield from ((window_id, _Emit(w)) for w in logic.on_close())
+            yield from ((window_id, ("E", w)) for w in logic.on_close())
 
     def _flush_queue(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
         if self.ordered:
             # Remove due entries from the queue.
-            due_entries = sorted(
-                (entry for entry in self.queue if entry.timestamp <= watermark),
-                key=lambda entry: entry.timestamp,
+            due_entries, self.queue = partition(
+                self.queue, lambda entry: entry[1] <= watermark
             )
-            # Retain the rest of the queue.
-            self.queue = [entry for entry in self.queue if entry.timestamp > watermark]
+            due_entries.sort(key=lambda entry: entry[1])
         else:
             due_entries = self.queue
             self.queue = []
 
-        yield from self._handle_inserts(due_entries, watermark)
+        yield from self._handle_inserts(due_entries)
         yield from self._handle_merged()
         yield from self._handle_closed(watermark)
 
@@ -1175,10 +1156,10 @@ class _WindowLogic(
             if value_timestamp < watermark:
                 late_window_ids = self.windower.late_for(value_timestamp)
                 events.extend(
-                    (window_id, _Late(value)) for window_id in late_window_ids
+                    (window_id, ("L", value)) for window_id in late_window_ids
                 )
             else:
-                entry = _WindowQueueEntry(value, value_timestamp)
+                entry = (value, value_timestamp)
                 self.queue.append(entry)
 
         events.extend(self._flush_queue(watermark))
@@ -1250,23 +1231,32 @@ class WindowOut(Generic[V, W_co]):
 
 def _unwrap_emit(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, W]]:
     window_id, event = id_event
-    if isinstance(event, _Emit):
-        return (window_id, event.value)
-    return None
+    typ, value = event
+    if typ == "E":
+        value = cast(W, value)
+        return (window_id, value)
+    else:
+        return None
 
 
 def _unwrap_late(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, V]]:
     window_id, event = id_event
-    if isinstance(event, _Late):
-        return (window_id, event.value)
-    return None
+    typ, value = event
+    if typ == "L":
+        value = cast(V, value)
+        return (window_id, value)
+    else:
+        return None
 
 
 def _unwrap_meta(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, WindowMetadata]]:
     window_id, event = id_event
-    if isinstance(event, _Meta):
-        return (window_id, event.meta)
-    return None
+    typ, value = event
+    if typ == "M":
+        value = cast(WindowMetadata, value)
+        return (window_id, value)
+    else:
+        return None
 
 
 @operator
