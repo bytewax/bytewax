@@ -808,7 +808,10 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
 
     @override
     def close_for(self, watermark: datetime) -> Iterable[int]:
-        close_after = watermark - self.gap
+        try:
+            close_after = watermark - self.gap
+        except OverflowError:
+            close_after = UTC_MIN
         closed = [
             window_id
             for window_id, meta in self.state.sessions.items()
