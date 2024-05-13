@@ -57,9 +57,7 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 ```
 
 Bytewax provides the {py:obj}`~bytewax.operators.join`,
-{py:obj}`~bytewax.operators.join_named`,
-{py:obj}`~bytewax.operators.windowing.join_window`,
-{py:obj}`~bytewax.operators.windowing.join_window_named` operators to
+{py:obj}`~bytewax.operators.windowing.join_window`, operators to
 provide this functionality.
 
 ## Join Keys
@@ -459,8 +457,7 @@ need to know the join values over an infinite stream when you aren't
 sure that you'll see values on all sides of the join.
 
 Bytewax provides the operators
-{py:obj}`~bytewax.operators.windowing.join_window` and
-{py:obj}`~bytewax.operators.windowing.join_window_named` to implement
+{py:obj}`~bytewax.operators.windowing.join_window` and to implement
 this.
 
 For the details of all the types of windows you can define and
@@ -727,100 +724,4 @@ Notice there are now two output values for that key.
 ```{testoutput}
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
-```
-
-## Named Joins
-
-The two previously described join operators have **named** versions.
-{py:obj}`~bytewax.operators.join`, has
-{py:obj}`~bytewax.operators.join_named` and
-{py:obj}`~bytewax.operators.windowing.join_window` has
-{py:obj}`~bytewax.operators.windowing.join_window_named`.
-
-The named versions have identical parameters and join semantics, but
-in stead of emitting {py:obj}`tuple`s downstream, they emit
-{py:obj}`dict`s in which the keys are the names of the keyword
-arguments you use to specify the upstream sides. This can help you
-keep track of the values of the joined data more easily in your code.
-Depending on the kinds of transformations you are doing downstream, it
-might make more sense to use named joins so that it makes it easiest
-to write that downstream code.
-
-For example, given our original streaming join. If you remember the
-output was 2-tuples because there were two sides to the join.
-
-```{testcode}
-flow = Dataflow("join_eg")
-
-names_l = [
-    {"user_id": 123, "name": "Bee"},
-    {"user_id": 456, "name": "Hive"},
-]
-names = op.input("names", flow, TestingSource(names_l))
-
-emails_l = [
-    {"user_id": 123, "email": "bee@bytewax.io"},
-    {"user_id": 456, "email": "hive@bytewax.io"},
-    {"user_id": 123, "email": "queen@bytewax.io"},
-]
-emails = op.input("emails", flow, TestingSource(emails_l))
-
-keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
-keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
-
-joined = op.join("join", keyed_names, keyed_emails)
-
-op.inspect("check_join", joined)
-```
-
-```{testcode}
-:hide:
-
-run_main(flow)
-```
-
-```{testoutput}
-join_eg.check_join: ('123', ('Bee', 'bee@bytewax.io'))
-join_eg.check_join: ('456', ('Hive', 'hive@bytewax.io'))
-```
-
-If we change this to use an equivalent
-{py:obj}`~bytewax.operators.join_named` instead:
-
-```{testcode}
-flow = Dataflow("join_eg")
-
-names_l = [
-    {"user_id": 123, "name": "Bee"},
-    {"user_id": 456, "name": "Hive"},
-]
-names = op.input("names", flow, TestingSource(names_l))
-
-emails_l = [
-    {"user_id": 123, "email": "bee@bytewax.io"},
-    {"user_id": 456, "email": "hive@bytewax.io"},
-    {"user_id": 123, "email": "queen@bytewax.io"},
-]
-emails = op.input("emails", flow, TestingSource(emails_l))
-
-keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
-keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
-
-joined = op.join_named("join", name=keyed_names, email=keyed_emails)
-
-op.inspect("check_join", joined)
-```
-
-```{testcode}
-:hide:
-
-run_main(flow)
-```
-
-Notice how the output is now `dict`s and how the kwargs `name` and
-`email` are represented as keys in the output dictionary.
-
-```{testoutput}
-join_eg.check_join: ('123', {'name': 'Bee', 'email': 'bee@bytewax.io'})
-join_eg.check_join: ('456', {'name': 'Hive', 'email': 'hive@bytewax.io'})
 ```

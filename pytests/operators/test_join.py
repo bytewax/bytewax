@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import List, Optional, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -7,11 +7,11 @@ from bytewax.testing import TestingSink, TestingSource, run_main
 
 
 def test_join_state_astuples() -> None:
-    state = _JoinState.for_names(["a", "b", "c"])
-    state.add_val("a", 1)
-    state.add_val("a", 2)
-    state.add_val("c", 3)
-    state.add_val("c", 4)
+    state = _JoinState.for_side_count(3)
+    state.add_val(0, 1)
+    state.add_val(0, 2)
+    state.add_val(2, 3)
+    state.add_val(2, 4)
 
     assert list(state.astuples()) == [
         (1, None, 3),
@@ -21,25 +21,10 @@ def test_join_state_astuples() -> None:
     ]
 
 
-def test_join_state_asdicts() -> None:
-    state = _JoinState.for_names(["a", "b", "c"])
-    state.add_val("a", 1)
-    state.add_val("a", 2)
-    state.add_val("c", 3)
-    state.add_val("c", 4)
-
-    assert list(state.asdicts()) == [
-        {"a": 1, "c": 3},
-        {"a": 1, "c": 4},
-        {"a": 2, "c": 3},
-        {"a": 2, "c": 4},
-    ]
-
-
 def _build_join_dataflow(
     inp_l: List[int],
     inp_r: List[int],
-    out: List[Tuple[int, int]],
+    out: List[Tuple[Optional[int], Optional[int]]],
     mode: JoinMode,
 ) -> Dataflow:
     flow = Dataflow("test_df")
@@ -48,7 +33,7 @@ def _build_join_dataflow(
     rights = op.input("inp_r", flow, TestingSource(inp_r))
     keyed_rights = op.key_on("key_r", rights, lambda _: "ALL")
     joined = op.join("join", keyed_lefts, keyed_rights, mode=mode)
-    unkeyed = op.map("unkey", joined, lambda x: x[1])
+    unkeyed = op.key_rm("unkey", joined)
     op.output("out", unkeyed, TestingSink(out))
     return flow
 
@@ -56,7 +41,7 @@ def _build_join_dataflow(
 def test_join_complete() -> None:
     inp_l = [1]
     inp_r = [2]
-    out: List[Tuple[int, int]] = []
+    out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_dataflow(inp_l, inp_r, out, "complete")
 
@@ -69,7 +54,7 @@ def test_join_complete() -> None:
 def test_join_final() -> None:
     inp_l = [1]
     inp_r = [2, 3]
-    out: List[Tuple[int, int]] = []
+    out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_dataflow(inp_l, inp_r, out, "final")
 
@@ -82,7 +67,7 @@ def test_join_final() -> None:
 def test_join_running() -> None:
     inp_l = [1]
     inp_r = [2, 3]
-    out: List[Tuple[int, int]] = []
+    out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_dataflow(inp_l, inp_r, out, "running")
 
@@ -97,7 +82,7 @@ def test_join_running() -> None:
 def test_join_product() -> None:
     inp_l = [1, 2]
     inp_r = [3, 4]
-    out: List[Tuple[int, int]] = []
+    out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_dataflow(inp_l, inp_r, out, "product")
 
@@ -107,78 +92,4 @@ def test_join_product() -> None:
         (1, 4),
         (2, 3),
         (2, 4),
-    ]
-
-
-def _build_join_named_dataflow(
-    inp_l: List[int],
-    inp_r: List[int],
-    out: List[Dict[str, int]],
-    mode: JoinMode,
-) -> Dataflow:
-    flow = Dataflow("test_df")
-    lefts = op.input("inp_l", flow, TestingSource(inp_l))
-    keyed_lefts = op.key_on("key_l", lefts, lambda _: "ALL")
-    rights = op.input("inp_r", flow, TestingSource(inp_r))
-    keyed_rights = op.key_on("key_r", rights, lambda _: "ALL")
-    joined = op.join_named("join", mode, left=keyed_lefts, right=keyed_rights)
-    unkeyed = op.map("unkey", joined, lambda x: x[1])
-    op.output("out", unkeyed, TestingSink(out))
-    return flow
-
-
-def _test_join_named_complete() -> None:
-    inp_l = [1]
-    inp_r = [2]
-    out: List[Dict[str, int]] = []
-
-    flow = _build_join_named_dataflow(inp_l, inp_r, out, "complete")
-
-    run_main(flow)
-    assert out == [
-        {"left": 1, "right": 2},
-    ]
-
-
-def test_join_named_final() -> None:
-    inp_l = [1]
-    inp_r = [2, 3]
-    out: List[Dict[str, int]] = []
-
-    flow = _build_join_named_dataflow(inp_l, inp_r, out, "final")
-
-    run_main(flow)
-    assert out == [
-        {"left": 1, "right": 3},
-    ]
-
-
-def test_join_named_running() -> None:
-    inp_l = [1]
-    inp_r = [2, 3]
-    out: List[Dict[str, int]] = []
-
-    flow = _build_join_named_dataflow(inp_l, inp_r, out, "running")
-
-    run_main(flow)
-    assert out == [
-        {"left": 1},
-        {"left": 1, "right": 2},
-        {"left": 1, "right": 3},
-    ]
-
-
-def test_join_named_product() -> None:
-    inp_l = [1, 2]
-    inp_r = [3, 4]
-    out: List[Dict[str, int]] = []
-
-    flow = _build_join_named_dataflow(inp_l, inp_r, out, "product")
-
-    run_main(flow)
-    assert out == [
-        {"left": 1, "right": 3},
-        {"left": 1, "right": 4},
-        {"left": 2, "right": 3},
-        {"left": 2, "right": 4},
     ]

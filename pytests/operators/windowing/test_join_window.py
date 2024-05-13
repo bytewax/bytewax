@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import bytewax.operators as op
 import bytewax.operators.windowing as win
@@ -8,7 +8,6 @@ from bytewax.dataflow import Dataflow
 from bytewax.operators import JoinMode
 from bytewax.operators.windowing import EventClock, SessionWindower
 from bytewax.testing import TestingSink, TestingSource, run_main
-from typing_extensions import reveal_type
 
 
 @dataclass(frozen=True)
@@ -32,7 +31,7 @@ def _build_join_window_dataflow(
     rights = op.input("inp_r", flow, TestingSource(inp_r))
     keyed_rights = op.key_on("key_r", rights, lambda _: "ALL")
 
-    clock = EventClock(_Event.ts_getter, wait_for_system_duration=timedelta(seconds=10))
+    clock = EventClock(_Event.ts_getter, wait_for_system_duration=timedelta.max)
     windower = SessionWindower(timedelta(seconds=10))
 
     joined = win.join_window(
@@ -43,13 +42,15 @@ def _build_join_window_dataflow(
         keyed_rights,
         mode=mode,
     )
-    unkeyed = op.map("unkey", joined.down, lambda x: x[1])
+    unkeyed = op.key_rm("unkey", joined.down)
 
     def clean(
-        id_row: Tuple[int, Tuple[Optional[_Event], ...]],
-    ) -> Tuple[Optional[int], ...]:
+        id_row: Tuple[int, Tuple[Optional[_Event], Optional[_Event]]],
+    ) -> Tuple[Optional[int], Optional[int]]:
         _win_id, row = id_row
-        return tuple(e.value if e is not None else None for e in row)
+        v0 = row[0].value if row[0] is not None else None
+        v1 = row[1].value if row[1] is not None else None
+        return (v0, v1)
 
     cleaned = op.map("clean", unkeyed, clean)
     op.output("out", cleaned, TestingSink(out))
@@ -64,7 +65,7 @@ def test_join_window_complete() -> None:
     inp_r = [
         _Event(align_to + timedelta(seconds=1), 2),
     ]
-    out: List[Tuple[int, int]] = []
+    out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_window_dataflow(inp_l, inp_r, out, "complete")
 
@@ -83,7 +84,7 @@ def test_join_window_final() -> None:
         _Event(align_to + timedelta(seconds=1), 2),
         _Event(align_to + timedelta(seconds=2), 3),
     ]
-    out: List[Tuple[int, int]] = []
+    out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_window_dataflow(inp_l, inp_r, out, "final")
 
@@ -102,7 +103,7 @@ def test_join_window_running() -> None:
         _Event(align_to + timedelta(seconds=1), 2),
         _Event(align_to + timedelta(seconds=2), 3),
     ]
-    out: List[Tuple[int, int]] = []
+    out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_window_dataflow(inp_l, inp_r, out, "running")
 
@@ -124,7 +125,7 @@ def test_join_window_product() -> None:
         _Event(align_to + timedelta(seconds=1), 3),
         _Event(align_to + timedelta(seconds=2), 4),
     ]
-    out: List[Tuple[int, int]] = []
+    out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_window_dataflow(inp_l, inp_r, out, "product")
 
@@ -134,118 +135,4 @@ def test_join_window_product() -> None:
         (1, 4),
         (2, 3),
         (2, 4),
-    ]
-
-
-def _build_join_window_named_dataflow(
-    inp_l: List[_Event],
-    inp_r: List[_Event],
-    out: List[Dict[str, int]],
-    mode: JoinMode,
-) -> Dataflow:
-    flow = Dataflow("test_df")
-    lefts = op.input("inp_l", flow, TestingSource(inp_l))
-    keyed_lefts = op.key_on("key_l", lefts, lambda _: "ALL")
-    rights = op.input("inp_r", flow, TestingSource(inp_r))
-    keyed_rights = op.key_on("key_r", rights, lambda _: "ALL")
-
-    clock = EventClock(_Event.ts_getter, wait_for_system_duration=timedelta(seconds=10))
-    windower = SessionWindower(timedelta(seconds=1))
-
-    joined = win.join_window_named(
-        "join",
-        clock,
-        windower,
-        mode,
-        left=keyed_lefts,
-        right=keyed_rights,
-    )
-    unkeyed = op.map("unkey", joined.down, lambda x: x[1])
-    cleaned = op.map(
-        "clean",
-        unkeyed,
-        lambda x: {side: e.value for side, e in x[1].items()},
-    )
-    op.output("out", cleaned, TestingSink(out))
-    return flow
-
-
-def test_join_window_named_complete() -> None:
-    align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    inp_l = [
-        _Event(align_to, 1),
-    ]
-    inp_r = [
-        _Event(align_to + timedelta(seconds=1), 2),
-    ]
-    out: List[Dict[str, int]] = []
-
-    flow = _build_join_window_named_dataflow(inp_l, inp_r, out, "complete")
-
-    run_main(flow)
-    assert out == [
-        {"left": 1, "right": 2},
-    ]
-
-
-def test_join_window_named_final() -> None:
-    align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    inp_l = [
-        _Event(align_to, 1),
-    ]
-    inp_r = [
-        _Event(align_to + timedelta(seconds=1), 2),
-        _Event(align_to + timedelta(seconds=2), 3),
-    ]
-    out: List[Dict[str, int]] = []
-
-    flow = _build_join_window_named_dataflow(inp_l, inp_r, out, "final")
-
-    run_main(flow)
-    assert out == [
-        {"left": 1, "right": 3},
-    ]
-
-
-def test_join_window_named_running() -> None:
-    align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    inp_l = [
-        _Event(align_to, 1),
-    ]
-    inp_r = [
-        _Event(align_to + timedelta(seconds=1), 2),
-        _Event(align_to + timedelta(seconds=2), 3),
-    ]
-    out: List[Dict[str, int]] = []
-
-    flow = _build_join_window_named_dataflow(inp_l, inp_r, out, "running")
-
-    run_main(flow)
-    assert out == [
-        {"left": 1},
-        {"left": 1, "right": 2},
-        {"left": 1, "right": 3},
-    ]
-
-
-def test_join_window_named_product() -> None:
-    align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    inp_l = [
-        _Event(align_to, 1),
-        _Event(align_to + timedelta(seconds=1), 2),
-    ]
-    inp_r = [
-        _Event(align_to + timedelta(seconds=1), 3),
-        _Event(align_to + timedelta(seconds=2), 4),
-    ]
-    out: List[Dict[str, int]] = []
-
-    flow = _build_join_window_named_dataflow(inp_l, inp_r, out, "product")
-
-    run_main(flow)
-    assert out == [
-        {"left": 1, "right": 3},
-        {"left": 1, "right": 4},
-        {"left": 2, "right": 3},
-        {"left": 2, "right": 4},
     ]

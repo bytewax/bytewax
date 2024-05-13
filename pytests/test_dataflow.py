@@ -129,9 +129,3 @@ def test_check_non_stream_vararg():
     expect = "must be a `Stream`"
     with raises(TypeError, match=re.escape(expect)):
         op.merge("map", 1, 2, 3)  # type: ignore
-
-
-def test_check_non_stream_varkwarg():
-    expect = "must be a `Stream`"
-    with raises(TypeError, match=re.escape(expect)):
-        op.join_named("map", side_a=1, side_b=2)  # type: ignore
