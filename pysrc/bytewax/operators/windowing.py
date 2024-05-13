@@ -13,6 +13,7 @@ from typing import (
     Iterable,
     List,
     Literal,
+    Mapping,
     Optional,
     Set,
     Tuple,
@@ -1397,8 +1398,7 @@ def collect_window(
     up: KeyedStream[V],
     clock: Clock[V, Any],
     windower: Windower[Any],
-) -> WindowOut[V, List[V]]:
-    ...
+) -> WindowOut[V, List[V]]: ...
 
 
 @overload
@@ -1408,8 +1408,7 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into: Type[List],
-) -> WindowOut[V, List[V]]:
-    ...
+) -> WindowOut[V, List[V]]: ...
 
 
 @overload
@@ -1419,8 +1418,7 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into: Type[Set],
-) -> WindowOut[V, Set[V]]:
-    ...
+) -> WindowOut[V, Set[V]]: ...
 
 
 @overload
@@ -1430,8 +1428,7 @@ def collect_window(
     clock: Clock[Tuple[DK, DV], SC],
     windower: Windower[Any],
     into: Type[Dict],
-) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]:
-    ...
+) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]: ...
 
 
 @overload
@@ -1441,8 +1438,7 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into=list,
-) -> WindowOut[V, Any]:
-    ...
+) -> WindowOut[V, Any]: ...
 
 
 @operator
@@ -1742,8 +1738,7 @@ def join_window(
     /,
     *,
     mode: Literal["complete"],
-) -> WindowOut[V, Tuple[V]]:
-    ...
+) -> WindowOut[V, Tuple[V]]: ...
 
 
 @overload
@@ -1756,8 +1751,7 @@ def join_window(
     /,
     *,
     mode: Literal["complete"],
-) -> WindowOut[Union[U, V], Tuple[U, V]]:
-    ...
+) -> WindowOut[Union[U, V], Tuple[U, V]]: ...
 
 
 @overload
@@ -1771,8 +1765,7 @@ def join_window(
     /,
     *,
     mode: Literal["complete"],
-) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]:
-    ...
+) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]: ...
 
 
 @overload
@@ -1787,8 +1780,7 @@ def join_window(
     /,
     *,
     mode: Literal["complete"],
-) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]:
-    ...
+) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]: ...
 
 
 @overload
@@ -1800,8 +1792,7 @@ def join_window(
     /,
     *,
     mode: JoinMode,
-) -> WindowOut[V, Tuple[Optional[V]]]:
-    ...
+) -> WindowOut[V, Tuple[Optional[V]]]: ...
 
 
 @overload
@@ -1814,8 +1805,7 @@ def join_window(
     /,
     *,
     mode: JoinMode,
-) -> WindowOut[Union[U, V], Tuple[Optional[U], Optional[V]]]:
-    ...
+) -> WindowOut[Union[U, V], Tuple[Optional[U], Optional[V]]]: ...
 
 
 @overload
@@ -1829,8 +1819,7 @@ def join_window(
     /,
     *,
     mode: JoinMode,
-) -> WindowOut[Union[U, V, W], Tuple[Optional[U], Optional[V], Optional[W]]]:
-    ...
+) -> WindowOut[Union[U, V, W], Tuple[Optional[U], Optional[V], Optional[W]]]: ...
 
 
 @overload
@@ -1847,8 +1836,7 @@ def join_window(
     mode: JoinMode,
 ) -> WindowOut[
     Union[U, V, W, X], Tuple[Optional[U], Optional[V], Optional[W], Optional[X]]
-]:
-    ...
+]: ...
 
 
 @overload
@@ -1858,8 +1846,7 @@ def join_window(
     windower: Windower[Any],
     *sides: KeyedStream[V],
     mode: JoinMode,
-) -> WindowOut[V, Tuple[Optional[V], ...]]:
-    ...
+) -> WindowOut[V, Tuple[Optional[V], ...]]: ...
 
 
 @overload
@@ -1869,8 +1856,7 @@ def join_window(
     windower: Windower[Any],
     *sides: KeyedStream[Any],
     mode: JoinMode,
-) -> WindowOut[Any, Tuple]:
-    ...
+) -> WindowOut[Any, Tuple]: ...
 
 
 @operator
@@ -1970,8 +1956,7 @@ def join_window_named(
     windower: Windower[Any],
     mode: Literal["complete"],
     **sides: KeyedStream[V],
-) -> WindowOut[V, Dict[str, V]]:
-    ...
+) -> WindowOut[V, Mapping[str, V]]: ...
 
 
 @overload
@@ -1981,8 +1966,7 @@ def join_window_named(
     windower: Windower[Any],
     mode: JoinMode,
     **sides: KeyedStream[V],
-) -> WindowOut[V, Dict[str, Optional[V]]]:
-    ...
+) -> WindowOut[V, Mapping[str, Optional[V]]]: ...
 
 
 @overload
@@ -1992,8 +1976,7 @@ def join_window_named(
     windower: Windower[Any],
     mode: JoinMode,
     **sides: KeyedStream[Any],
-) -> WindowOut[Any, Dict[str, Any]]:
-    ...
+) -> WindowOut[Any, Mapping[str, Any]]: ...
 
 
 @operator
@@ -2003,7 +1986,7 @@ def join_window_named(
     windower: Windower[Any],
     mode: JoinMode = "final",
     **sides: KeyedStream[Any],
-) -> WindowOut[Any, Dict[str, Any]]:
+) -> WindowOut[Any, Mapping[str, Any]]:
     """Gather together the value for a key on multiple named streams.
 
     See <project:#xref-joins> for more information.
@@ -2089,8 +2072,7 @@ def max_window(
     up: KeyedStream[V],
     clock: Clock[V, Any],
     windower: Windower[Any],
-) -> WindowOut[V, V]:
-    ...
+) -> WindowOut[V, V]: ...
 
 
 @overload
@@ -2100,8 +2082,7 @@ def max_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     by: Callable[[V], Any],
-) -> WindowOut[V, V]:
-    ...
+) -> WindowOut[V, V]: ...
 
 
 @operator
@@ -2138,8 +2119,7 @@ def min_window(
     up: KeyedStream[V],
     clock: Clock[V, Any],
     windower: Windower[Any],
-) -> WindowOut[V, V]:
-    ...
+) -> WindowOut[V, V]: ...
 
 
 @overload
@@ -2149,8 +2129,7 @@ def min_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     by: Callable[[V], Any],
-) -> WindowOut[V, V]:
-    ...
+) -> WindowOut[V, V]: ...
 
 
 @operator

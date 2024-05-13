@@ -20,6 +20,7 @@ from typing import (
     Iterable,
     List,
     Literal,
+    Mapping,
     Optional,
     Tuple,
     TypeVar,
@@ -1839,7 +1840,7 @@ def join_named(
     step_id: str,
     mode: Literal["complete"],
     **sides: KeyedStream[V],
-) -> KeyedStream[Dict[str, V]]: ...
+) -> KeyedStream[Mapping[str, V]]: ...
 
 
 @overload
@@ -1847,7 +1848,7 @@ def join_named(
     step_id: str,
     mode: JoinMode,
     **sides: KeyedStream[V],
-) -> KeyedStream[Dict[str, Optional[V]]]: ...
+) -> KeyedStream[Mapping[str, Optional[V]]]: ...
 
 
 @overload
@@ -1855,7 +1856,7 @@ def join_named(
     step_id: str,
     mode: JoinMode,
     **sides: KeyedStream[Any],
-) -> KeyedStream[Dict[str, Any]]: ...
+) -> KeyedStream[Mapping[str, Any]]: ...
 
 
 @operator
@@ -1863,7 +1864,7 @@ def join_named(
     step_id: str,
     mode: JoinMode = "complete",
     **sides: KeyedStream[Any],
-) -> KeyedStream[Dict[str, Any]]:
+) -> KeyedStream[Mapping[str, Any]]:
     """Gather together the value for a key on multiple named streams.
 
     See <project:#xref-joins> for more information.
