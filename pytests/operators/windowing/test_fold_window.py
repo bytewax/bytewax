@@ -1,6 +1,7 @@
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Dict
+from typing import Dict, List, Tuple
 
 import bytewax.operators as op
 import bytewax.operators.windowing as win
@@ -19,6 +20,12 @@ from pytest import mark
 # would work.
 
 
+@dataclass(frozen=True)
+class _UserEvent:
+    timestamp: datetime
+    typ: str
+
+
 def _merge_defaultdict(
     a: Dict[str, int],
     b: Dict[str, int],
@@ -27,97 +34,113 @@ def _merge_defaultdict(
     return a
 
 
-def test_fold_window_tumbling():
+def test_fold_window_tumbling() -> None:
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     inp = [
-        {"time": align_to, "user": "a", "type": "login"},
-        {"time": align_to + timedelta(seconds=4), "user": "a", "type": "post"},
-        {"time": align_to + timedelta(seconds=8), "user": "a", "type": "post"},
+        _UserEvent(align_to, "login"),
+        _UserEvent(align_to + timedelta(seconds=4), "post"),
+        _UserEvent(align_to + timedelta(seconds=8), "post"),
         # First 10 sec window closes during processing this input.
-        {"time": align_to + timedelta(seconds=12), "user": "b", "type": "login"},
-        {"time": align_to + timedelta(seconds=16), "user": "a", "type": "post"},
-        # Second 10 sec window closes during processing this input.
-        {"time": align_to + timedelta(seconds=20), "user": "b", "type": "post"},
-        {"time": align_to + timedelta(seconds=24), "user": "b", "type": "post"},
+        _UserEvent(align_to + timedelta(seconds=16), "post"),
     ]
-    out = []
+    out: List[Tuple[int, Dict[str, int]]] = []
 
-    clock = EventClock(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
+    flow = Dataflow("test_df")
+    events = op.input("inp", flow, TestingSource(inp))
+    keyed_events = op.key_on("key", events, lambda _: "ALL")
+
+    def ts_getter(event: _UserEvent) -> datetime:
+        return event.timestamp
+
+    clock = EventClock(ts_getter, wait_for_system_duration=ZERO_TD)
     windower = TumblingWindower(length=timedelta(seconds=10), align_to=align_to)
 
-    def count(counts, event):
-        typ = event["type"]
+    def builder() -> Dict[str, int]:
+        return defaultdict(int)
+
+    def count(counts: Dict[str, int], event: _UserEvent) -> Dict[str, int]:
+        typ = event.typ
         counts[typ] += 1
         return counts
 
-    def map_dict(metadata_value):
-        metadata, value = metadata_value
-        return (metadata, dict(value))
-
-    flow = Dataflow("test_df")
-    s = op.input("inp", flow, TestingSource(inp))
-    s = op.key_on("key_on_user", s, lambda e: e["user"])
-    wo = win.fold_window(
+    fold_out = win.fold_window(
         "count",
-        s,
+        keyed_events,
         clock,
         windower,
-        lambda: defaultdict(int),
+        builder,
         count,
         _merge_defaultdict,
     )
-    s = op.map_value("normal_dict", wo.down, map_dict)
-    op.output("out", s, TestingSink(out))
+    unkeyed = op.key_rm("key_rm", fold_out.down)
+
+    def map_dict(id_value: Tuple[int, Dict[str, int]]) -> Tuple[int, Dict[str, int]]:
+        win_id, value = id_value
+        return (win_id, dict(value))
+
+    cleaned = op.map("normal_dict", unkeyed, map_dict)
+    op.output("out", cleaned, TestingSink(out))
 
     run_main(flow)
     assert out == [
-        ("a", (0, {"login": 1, "post": 2})),
-        ("b", (1, {"login": 1})),
-        ("a", (1, {"post": 1})),
-        ("b", (2, {"post": 2})),
+        (0, {"login": 1, "post": 2}),
+        (1, {"post": 1}),
     ]
 
 
-def test_fold_window_session():
+@dataclass(frozen=True)
+class _Event:
+    timestamp: datetime
+    value: str
+
+
+def test_fold_window_session() -> None:
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     inp = [
         # Session 1
-        {"time": align_to + timedelta(seconds=1), "user": "a", "val": "a"},
-        {"time": align_to + timedelta(seconds=5), "user": "a", "val": "b"},
+        _Event(align_to + timedelta(seconds=1), "a"),
+        _Event(align_to + timedelta(seconds=5), "b"),
         # Session 2
-        {"time": align_to + timedelta(seconds=11), "user": "a", "val": "c"},
-        {"time": align_to + timedelta(seconds=12), "user": "a", "val": "d"},
-        {"time": align_to + timedelta(seconds=13), "user": "a", "val": "e"},
-        {"time": align_to + timedelta(seconds=14), "user": "a", "val": "f"},
+        _Event(align_to + timedelta(seconds=11), "c"),
+        _Event(align_to + timedelta(seconds=12), "d"),
+        _Event(align_to + timedelta(seconds=13), "e"),
+        _Event(align_to + timedelta(seconds=14), "f"),
         # Session 3
-        {"time": align_to + timedelta(seconds=20), "user": "a", "val": "g"},
+        _Event(align_to + timedelta(seconds=20), "g"),
         # This is late, and should be ignored
-        {"time": align_to + timedelta(seconds=1), "user": "a", "val": "h"},
+        _Event(align_to + timedelta(seconds=1), "h"),
     ]
-    out = []
-
-    clock = EventClock(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
-    windower = SessionWindower(gap=timedelta(seconds=5))
-
-    def add(acc, x):
-        acc.append(x["val"])
-        return acc
+    out: List[Tuple[int, List[str]]] = []
 
     flow = Dataflow("test_df")
-    s = op.input("inp", flow, TestingSource(inp))
-    s = op.key_on("key_on_user", s, lambda e: e["user"])
-    wo = win.fold_window("sum", s, clock, windower, list, add, list.__add__)
-    op.output("out", wo.down, TestingSink(out))
+    events = op.input("inp", flow, TestingSource(inp))
+    keyed_events = op.key_on("key", events, lambda _: "ALL")
+
+    def ts_getter(event: _Event) -> datetime:
+        return event.timestamp
+
+    clock = EventClock(ts_getter, wait_for_system_duration=ZERO_TD)
+    windower = SessionWindower(gap=timedelta(seconds=5))
+
+    def add(acc: List[str], event: _Event) -> List[str]:
+        acc.append(event.value)
+        return acc
+
+    fold_out = win.fold_window(
+        "sum", keyed_events, clock, windower, list, add, list.__add__
+    )
+    unkeyed = op.key_rm("unkey", fold_out.down)
+    op.output("out", unkeyed, TestingSink(out))
 
     run_main(flow)
     assert out == [
-        ("a", (0, ["a", "b"])),
-        ("a", (1, ["c", "d", "e", "f"])),
-        ("a", (2, ["g"])),
+        (0, ["a", "b"]),
+        (1, ["c", "d", "e", "f"]),
+        (2, ["g"]),
     ]
 
 
-def test_fold_window_sliding():
+def test_fold_window_sliding() -> None:
     align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
     # Valign_to
     #  a  b   c   def g
@@ -128,60 +151,67 @@ def test_fold_window_sliding():
     #           [---------)
     #                [---------)
     inp = [
-        {"time": align_to + timedelta(seconds=1), "user": "a", "val": "a"},
-        {"time": align_to + timedelta(seconds=4), "user": "a", "val": "b"},
-        {"time": align_to + timedelta(seconds=8), "user": "a", "val": "c"},
-        {"time": align_to + timedelta(seconds=12), "user": "a", "val": "d"},
-        {"time": align_to + timedelta(seconds=13), "user": "a", "val": "e"},
-        {"time": align_to + timedelta(seconds=14), "user": "a", "val": "f"},
-        {"time": align_to + timedelta(seconds=16), "user": "a", "val": "g"},
+        _Event(align_to + timedelta(seconds=1), "a"),
+        _Event(align_to + timedelta(seconds=4), "b"),
+        _Event(align_to + timedelta(seconds=8), "c"),
+        _Event(align_to + timedelta(seconds=12), "d"),
+        _Event(align_to + timedelta(seconds=13), "e"),
+        _Event(align_to + timedelta(seconds=14), "f"),
+        _Event(align_to + timedelta(seconds=16), "g"),
         # This is late, and should be ignored.
-        {"time": align_to + timedelta(seconds=1), "user": "a", "val": "h"},
+        _Event(align_to + timedelta(seconds=1), "h"),
     ]
-    out = []
+    out: List[Tuple[int, List[str]]] = []
 
-    clock = EventClock(lambda e: e["time"], wait_for_system_duration=ZERO_TD)
+    flow = Dataflow("test_df")
+    events = op.input("inp", flow, TestingSource(inp))
+    keyed_events = op.key_on("key", events, lambda _: "ALL")
+
+    def ts_getter(event: _Event) -> datetime:
+        return event.timestamp
+
+    clock = EventClock(ts_getter, wait_for_system_duration=ZERO_TD)
     windower = SlidingWindower(
         length=timedelta(seconds=10),
         offset=timedelta(seconds=5),
         align_to=align_to,
     )
 
-    def add(acc, x):
-        acc.append(x["val"])
+    def add(acc: List[str], event: _Event) -> List[str]:
+        acc.append(event.value)
         return acc
 
-    flow = Dataflow("test_df")
-    s = op.input("inp", flow, TestingSource(inp))
-    s = op.key_on("key_on_user", s, lambda e: e["user"])
-    wo = win.fold_window("sum", s, clock, windower, list, add, list.__add__)
-    op.output("out", wo.down, TestingSink(out))
+    fold_out = win.fold_window(
+        "sum", keyed_events, clock, windower, list, add, list.__add__
+    )
+    unkeyed = op.key_rm("unkey", fold_out.down)
+    op.output("out", unkeyed, TestingSink(out))
 
     run_main(flow)
     assert out == [
-        ("a", (-1, ["a", "b"])),
-        ("a", (0, ["a", "b", "c"])),
-        ("a", (1, ["c", "d", "e", "f"])),
-        ("a", (2, ["d", "e", "f", "g"])),
-        ("a", (3, ["g"])),
+        (-1, ["a", "b"]),
+        (0, ["a", "b", "c"]),
+        (1, ["c", "d", "e", "f"]),
+        (2, ["d", "e", "f", "g"]),
+        (3, ["g"]),
     ]
 
 
 @mark.parametrize("entry_point_name", ["run_main", "cluster_main-1thread"])
-def test_fold_window_benchmark(benchmark, entry_point):
+def test_fold_window_benchmark(benchmark, entry_point) -> None:
     align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
     inp = [align_to + timedelta(seconds=i) for i in range(100_000)]
-    out = []
+    out: List[Tuple[int, None]] = []
 
     flow = Dataflow("bench")
     times = op.input("in", flow, TestingSource(inp, 10))
-    keyed_times = op.key_on("keyed", times, lambda _: "ALL")
+    keyed_times = op.key_on("key", times, lambda _: "ALL")
 
     clock = EventClock(lambda x: x, wait_for_system_duration=ZERO_TD)
     windower = TumblingWindower(timedelta(minutes=1), align_to)
 
-    wo = win.fold_window(
+    fold_out = win.fold_window(
         "fold_window",
         keyed_times,
         clock,
@@ -189,11 +219,13 @@ def test_fold_window_benchmark(benchmark, entry_point):
         lambda: None,
         lambda s, _: s,
         lambda s, _: s,
+        ordered=False,
     )
 
-    op.output("out", wo.down, TestingSink(out))
+    unkeyed = op.key_rm("unkey", fold_out.down)
+    op.output("out", unkeyed, TestingSink(out))
 
-    expected = [("ALL", (i, None)) for i in range(1667)]
+    expected = [(i, None) for i in range(1667)]
 
     def run():
         entry_point(flow)

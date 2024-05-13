@@ -12,18 +12,21 @@ from typing import (
     Generic,
     Iterable,
     List,
+    Literal,
     Optional,
     Set,
     Tuple,
     Type,
     TypeVar,
     Union,
+    cast,
     overload,
 )
 
 from typing_extensions import Self, TypeAlias, override
 
 import bytewax.operators as op
+from bytewax._utils import partition
 from bytewax.dataflow import (
     Stream,
     operator,
@@ -224,43 +227,55 @@ class _EventClockState:
 
 
 @dataclass
-class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
+class _EventClockLogic(ClockLogic[V, _EventClockState]):
     now_getter: Callable[[], datetime]
     timestamp_getter: Callable[[V], datetime]
     to_system: Callable[[datetime], Optional[datetime]]
     wait_for_system_duration: timedelta
-    state: Optional[_EventClockState]
+
+    state: _EventClockState = field(
+        default_factory=lambda: _EventClockState(
+            max_event_timestamp=UTC_MIN,
+            system_time_of_max_event=UTC_MIN,
+            watermark_base=UTC_MIN,
+        )
+    )
     _system_now: datetime = field(init=False)
 
     def __post_init__(self) -> None:
         self._system_now = self.now_getter()
+        if self.state.system_time_of_max_event <= UTC_MIN:
+            self.state.system_time_of_max_event = self._system_now
 
     @override
     def before_batch(self) -> None:
-        self._system_now = self.now_getter()
+        system_now = self.now_getter()
+        assert system_now >= self._system_now
+        self._system_now = system_now
 
     @override
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
         value_event_timestamp = self.timestamp_getter(value)
+        if value_event_timestamp > self.state.max_event_timestamp:
+            try:
+                self.state.watermark_base = (
+                    value_event_timestamp - self.wait_for_system_duration
+                )
+                self.state.max_event_timestamp = value_event_timestamp
+                assert self._system_now >= self.state.system_time_of_max_event
+                self.state.system_time_of_max_event = self._system_now
+                watermark = self.state.watermark_base
 
-        if self.state is None:
-            watermark = value_event_timestamp - self.wait_for_system_duration
-            self.state = _EventClockState(
-                max_event_timestamp=value_event_timestamp,
-                system_time_of_max_event=self._system_now,
-                watermark_base=watermark,
-            )
-        elif value_event_timestamp > self.state.max_event_timestamp:
-            self.state.max_event_timestamp = value_event_timestamp
-            self.state.system_time_of_max_event = self._system_now
-            self.state.watermark_base = (
-                value_event_timestamp - self.wait_for_system_duration
-            )
-            watermark = self.state.watermark_base
-        else:
-            watermark = self.state.watermark_base + (
-                self._system_now - self.state.system_time_of_max_event
-            )
+                return value_event_timestamp, watermark
+            except OverflowError:
+                # Since the new actual watermark is unrepresentable,
+                # we need to keep the watermark advancing at UTC_MIN +
+                # system time, so that the watermark does not regress.
+                pass
+
+        watermark = self.state.watermark_base + (
+            self._system_now - self.state.system_time_of_max_event
+        )
         return value_event_timestamp, watermark
 
     @override
@@ -268,7 +283,7 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
         if self.state is None:
             return UTC_MIN
         else:
-            self._system_now = self.now_getter()
+            self.before_batch()
             watermark = self.state.watermark_base + (
                 self._system_now - self.state.system_time_of_max_event
             )
@@ -283,7 +298,7 @@ class _EventClockLogic(ClockLogic[V, Optional[_EventClockState]]):
         return self.to_system(timestamp)
 
     @override
-    def snapshot(self) -> Optional[_EventClockState]:
+    def snapshot(self) -> _EventClockState:
         return copy.deepcopy(self.state)
 
 
@@ -334,7 +349,7 @@ class SystemClock(Clock[Any, None]):
 
 
 @dataclass
-class EventClock(Clock[V, Optional[_EventClockState]]):
+class EventClock(Clock[V, _EventClockState]):
     """Use a timestamp embedded within each item.
 
     The watermark is the largest timestamp seen thus far, minus the
@@ -385,13 +400,21 @@ class EventClock(Clock[V, Optional[_EventClockState]]):
 
     @override
     def build(self, resume_state: Optional[_EventClockState]) -> _EventClockLogic[V]:
-        return _EventClockLogic(
-            self.now_getter,
-            self.ts_getter,
-            self.to_system_utc,
-            self.wait_for_system_duration,
-            resume_state,
-        )
+        if resume_state is None:
+            return _EventClockLogic(
+                self.now_getter,
+                self.ts_getter,
+                self.to_system_utc,
+                self.wait_for_system_duration,
+            )
+        else:
+            return _EventClockLogic(
+                self.now_getter,
+                self.ts_getter,
+                self.to_system_utc,
+                self.wait_for_system_duration,
+                resume_state,
+            )
 
 
 @dataclass
@@ -429,11 +452,10 @@ class WindowerLogic(ABC, Generic[S]):
     def open_for(
         self,
         timestamp: datetime,
-        watermark: datetime,
-    ) -> Tuple[Iterable[int], Iterable[int]]:
+    ) -> Iterable[int]:
         """Find which windows an item is in and mark them as open.
 
-        Called when a new item arrives.
+        Called when a new, non-late item arrives.
 
         You'll need to do whatever bookkeeping is necessary internally
         to be able to satisfy the other abstract methods, like being
@@ -441,11 +463,27 @@ class WindowerLogic(ABC, Generic[S]):
 
         :arg timestamp: Of the incoming item.
 
-        :arg watermark: Current watermark. Guaranteed to never
-            regress across calls.
+        :returns: A list of window IDs that this item is in.
 
-        :returns: A 2-tuple of a list of window IDs that this item is
-            in, and a list of window IDs this item is late for.
+        """
+        ...
+
+    @abstractmethod
+    def late_for(self, timestamp: datetime) -> Iterable[int]:
+        """Find which windows an item would have been in, if on-time.
+
+        Called when a late item arrives.
+
+        If there isn't a way to know for sure which specific windows
+        this item would have been in, you can return a sentinel value.
+
+        This should not persist any state internally for the returned
+        window IDs; the watermark has already passed these windows and
+        so they will not be processed by {py:obj}`close_for`.
+
+        :arg timestamp: Of the incoming item.
+
+        :returns: A list of window IDs that this item is late for.
 
         """
         ...
@@ -612,22 +650,18 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
         return WindowMetadata(open_time, close_time)
 
     @override
-    def open_for(
-        self,
-        timestamp: datetime,
-        watermark: datetime,
-    ) -> Tuple[List[int], List[int]]:
+    def open_for(self, timestamp: datetime) -> List[int]:
         in_windows = []
-        late_windows = []
         for window_id in self.intersects(timestamp):
             meta = self.state.opened.get(window_id) or self._metadata_for(window_id)
-            if meta.close_time <= watermark:
-                late_windows.append(window_id)
-            else:
-                self.state.opened.setdefault(window_id, meta)
-                in_windows.append(window_id)
+            self.state.opened.setdefault(window_id, meta)
+            in_windows.append(window_id)
 
-        return (in_windows, late_windows)
+        return in_windows
+
+    @override
+    def late_for(self, timestamp: datetime) -> List[int]:
+        return [window_id for window_id in self.intersects(timestamp)]
 
     @override
     def merged(self) -> Iterable[Tuple[int, int]]:
@@ -724,14 +758,7 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
             self.state.merge_queue.extend(new_merges)
 
     @override
-    def open_for(
-        self,
-        timestamp: datetime,
-        watermark: datetime,
-    ) -> Tuple[Iterable[int], Iterable[int]]:
-        if timestamp < watermark:
-            return (_EMPTY, (LATE_SESSION_ID,))
-
+    def open_for(self, timestamp: datetime) -> Iterable[int]:
         for window_id, meta in self.state.sessions.items():
             assert meta.open_time <= meta.close_time
             until_open = meta.open_time - timestamp
@@ -740,19 +767,19 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
                 # If we're perfectly within an existing session,
                 # re-use that session. No merges possible because no
                 # session boundaries changed.
-                return ((window_id,), _EMPTY)
+                return (window_id,)
             elif until_open > ZERO_TD and until_open <= self.gap:
                 # If we're within the gap before an existing session,
                 # re-use the session ID, but also see if any merges
                 # occured.
                 meta.open_time = timestamp
                 self._find_merges()
-                return ((window_id,), _EMPTY)
+                return (window_id,)
             elif since_close > ZERO_TD and since_close <= self.gap:
                 # Same if after an existing session.
                 meta.close_time = timestamp
                 self._find_merges()
-                return ((window_id,), _EMPTY)
+                return (window_id,)
 
         # If we're outside all existing sessions, make anew. No need
         # to merge because we aren't within the gap of any existing
@@ -761,7 +788,11 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
         window_id = self.state.max_key
         self.state.sessions[window_id] = WindowMetadata(timestamp, timestamp)
         # Items are never late for a session window.
-        return ((window_id,), _EMPTY)
+        return (window_id,)
+
+    @override
+    def late_for(self, timestamp: datetime) -> Iterable[int]:
+        return (LATE_SESSION_ID,)
 
     @override
     def merged(self) -> Iterable[Tuple[int, int]]:
@@ -964,6 +995,8 @@ class WindowLogic(ABC, Generic[V, W, S]):
     def on_value(self, value: V) -> Iterable[W]:
         """Called on each new upstream item within this window.
 
+        This will be called with values in timestamp order.
+
         :arg value: The value of the upstream `(key, value)`.
 
         :returns: Any values to emit downstream. Values will
@@ -1023,97 +1056,112 @@ class WindowLogic(ABC, Generic[V, W, S]):
         ...
 
 
+_WindowQueueEntry: TypeAlias = Tuple[V, datetime]
+
+
 @dataclass(frozen=True)
-class _WindowSnapshot(Generic[SC, SW, S]):
+class _WindowSnapshot(Generic[V, SC, SW, S]):
     clock_state: SC
     windower_state: SW
     logic_states: Dict[int, S]
+    queue: List[_WindowQueueEntry[V]]
 
 
-@dataclass(frozen=True)
-class _Emit(Generic[V]):
-    value: V
-
-
-@dataclass(frozen=True)
-class _Late(Generic[V]):
-    value: V
-
-
-@dataclass(frozen=True)
-class _Meta:
-    meta: WindowMetadata
-
-
-_WindowEvent: TypeAlias = Tuple[int, Union[_Late[V], _Emit[W], _Meta]]
+_Emit: TypeAlias = Tuple[int, Literal["E"], V]
+_Late: TypeAlias = Tuple[int, Literal["L"], V]
+_Meta: TypeAlias = Tuple[int, Literal["M"], WindowMetadata]
+_WindowEvent: TypeAlias = Union[_Late[V], _Emit[W], _Meta]
 
 
 @dataclass
 class _WindowLogic(
-    StatefulBatchLogic[V, _WindowEvent[V, W], _WindowSnapshot[SC, SW, S]],
+    StatefulBatchLogic[
+        V,
+        _WindowEvent[V, W],
+        _WindowSnapshot[V, SC, SW, S],
+    ],
 ):
     clock: ClockLogic[V, SC]
     windower: WindowerLogic[SW]
     builder: Callable[[Optional[S]], WindowLogic[V, W, S]]
-    logics: Dict[int, WindowLogic[V, W, S]]
+    ordered: bool
+
+    logics: Dict[int, WindowLogic[V, W, S]] = field(default_factory=dict)
+    queue: List[_WindowQueueEntry[V]] = field(default_factory=list)
+
     _last_watermark: datetime = UTC_MIN
+
+    def _handle_inserts(
+        self, due_entries: List[_WindowQueueEntry[V]]
+    ) -> Iterable[_WindowEvent[V, W]]:
+        for entry in due_entries:
+            value, timestamp = entry
+            for window_id in self.windower.open_for(timestamp):
+                if window_id in self.logics:
+                    logic = self.logics[window_id]
+                else:
+                    logic = self.builder(None)
+                    self.logics[window_id] = logic
+                    yield (window_id, "M", self.windower.metadata_for(window_id))
+
+                ws = logic.on_value(value)
+                yield from ((window_id, "E", w) for w in ws)
 
     def _handle_merged(self) -> Iterable[_WindowEvent[V, W]]:
         for orig_window_id, targ_window_id in self.windower.merged():
             if targ_window_id != orig_window_id:
                 orig_logic = self.logics.pop(orig_window_id)
                 into_logic = self.logics[targ_window_id]
-                yield from (
-                    (targ_window_id, _Emit(w)) for w in into_logic.on_merge(orig_logic)
-                )
+                ws = into_logic.on_merge(orig_logic)
+                yield from ((targ_window_id, "E", w) for w in ws)
 
-            yield (targ_window_id, _Meta(self.windower.metadata_for(targ_window_id)))
+            yield (targ_window_id, "M", self.windower.metadata_for(targ_window_id))
 
     def _handle_closed(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
         for window_id in self.windower.close_for(watermark):
             logic = self.logics.pop(window_id)
-            yield from ((window_id, _Emit(w)) for w in logic.on_close())
+            ws = logic.on_close()
+            yield from ((window_id, "E", w) for w in ws)
+
+    def _flush_queue(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
+        if self.ordered:
+            # Remove due entries from the queue.
+            due_entries, self.queue = partition(
+                self.queue, lambda entry: entry[1] <= watermark
+            )
+            due_entries.sort(key=lambda entry: entry[1])
+        else:
+            due_entries = self.queue
+            self.queue = []
+
+        yield from self._handle_inserts(due_entries)
+        yield from self._handle_merged()
+        yield from self._handle_closed(watermark)
+
+    def _is_empty(self) -> bool:
+        return (
+            len(self.logics) <= 0 and len(self.queue) <= 0 and self.windower.is_empty()
+        )
 
     @override
     def on_batch(self, values: List[V]) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
         self.clock.before_batch()
-        events: List[_WindowEvent[V, W]] = []
 
+        events: List[_WindowEvent[V, W]] = []
         for value in values:
             value_timestamp, watermark = self.clock.on_item(value)
-            assert watermark >= self._last_watermark, (
-                f"New watermark {watermark} is not <= "
-                f"last watermark: {self._last_watermark}"
-            )
+            assert watermark >= self._last_watermark
             self._last_watermark = watermark
 
-            # Attempt to insert into relevant windows.
-            in_windows, late_windows = self.windower.open_for(
-                value_timestamp, watermark
-            )
+            if value_timestamp < watermark:
+                late_window_ids = self.windower.late_for(value_timestamp)
+                events.extend((window_id, "L", value) for window_id in late_window_ids)
+            else:
+                entry = (value, value_timestamp)
+                self.queue.append(entry)
 
-            for window_id in in_windows:
-                if window_id in self.logics:
-                    logic = self.logics[window_id]
-                else:
-                    logic = self.builder(None)
-                    self.logics[window_id] = logic
-                    events.append(
-                        (window_id, _Meta(self.windower.metadata_for(window_id)))
-                    )
-
-                ws = logic.on_value(value)
-                events.extend((window_id, _Emit(w)) for w in ws)
-
-            for window_id in late_windows:
-                events.append((window_id, _Late(value)))
-
-        # Handle merges. Only need to do once per batch.
-        events.extend(self._handle_merged())
-        # Handle closes since we're awake.
-        events.extend(self._handle_closed(watermark))
-
-        return (events, self.windower.is_empty())
+        events.extend(self._flush_queue(watermark))
+        return (events, self._is_empty())
 
     @override
     def on_notify(self) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
@@ -1121,8 +1169,8 @@ class _WindowLogic(
         assert watermark >= self._last_watermark
         self._last_watermark = watermark
 
-        events = list(self._handle_closed(watermark))
-        return (events, self.windower.is_empty())
+        events = list(self._flush_queue(watermark))
+        return (events, self._is_empty())
 
     @override
     def on_eof(self) -> Tuple[Iterable[_WindowEvent[V, W]], bool]:
@@ -1130,8 +1178,8 @@ class _WindowLogic(
         assert watermark >= self._last_watermark
         self._last_watermark = watermark
 
-        events = list(self._handle_closed(watermark))
-        return (events, self.windower.is_empty())
+        events = list(self._flush_queue(watermark))
+        return (events, self._is_empty())
 
     @override
     def notify_at(self) -> Optional[datetime]:
@@ -1141,11 +1189,13 @@ class _WindowLogic(
         return notify_at
 
     @override
-    def snapshot(self) -> _WindowSnapshot[SC, SW, S]:
+    def snapshot(self) -> _WindowSnapshot[V, SC, SW, S]:
         return _WindowSnapshot(
             self.clock.snapshot(),
             self.windower.snapshot(),
             {window_id: logic.snapshot() for window_id, logic in self.logics.items()},
+            # No need to deepcopy since entries are frozen.
+            list(self.queue),
         )
 
 
@@ -1162,6 +1212,10 @@ class WindowOut(Generic[V, W_co]):
     late: KeyedStream[Tuple[int, V]]
     """Upstreams items that were deemed late for a window.
 
+    It's possible you will see window IDs here that were never in the
+    `down` stream, depending on the specifics of the ordering of the
+    data.
+
     Sub-keyed by window ID."""
 
     meta: KeyedStream[Tuple[int, WindowMetadata]]
@@ -1173,25 +1227,33 @@ class WindowOut(Generic[V, W_co]):
     """
 
 
-def _unwrap_emit(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, W]]:
-    window_id, event = id_event
-    if isinstance(event, _Emit):
-        return (window_id, event.value)
-    return None
+def _unwrap_emit(id_typ_obj: _WindowEvent[V, W]) -> Optional[Tuple[int, W]]:
+    window_id, typ, obj = id_typ_obj
+    if typ == "E":
+        value = cast(W, obj)
+        return (window_id, value)
+    else:
+        return None
 
 
-def _unwrap_late(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, V]]:
-    window_id, event = id_event
-    if isinstance(event, _Late):
-        return (window_id, event.value)
-    return None
+def _unwrap_late(id_typ_obj: _WindowEvent[V, W]) -> Optional[Tuple[int, V]]:
+    window_id, typ, obj = id_typ_obj
+    if typ == "L":
+        value = cast(V, obj)
+        return (window_id, value)
+    else:
+        return None
 
 
-def _unwrap_meta(id_event: _WindowEvent[V, W]) -> Optional[Tuple[int, WindowMetadata]]:
-    window_id, event = id_event
-    if isinstance(event, _Meta):
-        return (window_id, event.meta)
-    return None
+def _unwrap_meta(
+    id_typ_obj: _WindowEvent[V, W],
+) -> Optional[Tuple[int, WindowMetadata]]:
+    window_id, typ, obj = id_typ_obj
+    if typ == "M":
+        meta = cast(WindowMetadata, obj)
+        return (window_id, meta)
+    else:
+        return None
 
 
 @operator
@@ -1201,6 +1263,7 @@ def window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     builder: Callable[[Optional[S]], WindowLogic[V, W, S]],
+    ordered: bool = True,
 ) -> WindowOut[V, W]:
     """Advanced generic windowing operator.
 
@@ -1224,6 +1287,11 @@ def window(
         configuration and combine it with the resume state to return a
         prepared {py:obj}`WindowLogic` for this window.
 
+    :arg ordered: Wheither to apply values to the logic in timestamp
+        order. If not, they'll be in upstream order. There is a
+        performance and latency penalty to ordering by timestamp.
+        Defaults to `True`.
+
     :returns: Window result streams.
 
     """
@@ -1238,11 +1306,23 @@ def window(
                 window_id: builder(logic_state)
                 for window_id, logic_state in resume_state.logic_states.items()
             }
+            return _WindowLogic(
+                clock_logic,
+                windower_logic,
+                builder,
+                ordered,
+                logics,
+                resume_state.queue,
+            )
         else:
             clock_logic = clock.build(None)
             windower_logic = windower.build(None)
-            logics = {}
-        return _WindowLogic(clock_logic, windower_logic, builder, logics)
+            return _WindowLogic(
+                clock_logic,
+                windower_logic,
+                builder,
+                ordered,
+            )
 
     events = op.stateful_batch("stateful_batch", up, shim_builder)
 
@@ -1366,6 +1446,7 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into=list,
+    ordered: bool = True,
 ) -> WindowOut[V, Any]:
     """Collect items in a window into a container.
 
@@ -1382,14 +1463,27 @@ def collect_window(
 
     :arg into: Type to collect into. Defaults to {py:obj}`list`.
 
-    :returns: Window result of the collected containers at the end of
-        each window.
+    :arg ordered: Wheither values in the resulting containers are in
+        timestamp order. There is a performance and latency penalty to
+        ordering by timestamp. If not, they'll be in upstream order.
+        Defaults to `True`.
+
+    :returns: Window result streams. Downstream contains the collected
+        containers with values in timestamp order at the end of each
+        window.
 
     """
     shim_builder, shim_folder, shim_merger = _collect_get_callbacks(step_id, into)
 
     return fold_window(
-        "fold_window", up, clock, windower, shim_builder, shim_folder, shim_merger
+        "fold_window",
+        up,
+        clock,
+        windower,
+        shim_builder,
+        shim_folder,
+        shim_merger,
+        ordered,
     )
 
 
@@ -1415,8 +1509,8 @@ def count_window(
         counting machinery does not compare the items directly,
         instead it groups by this string key.
 
-    :returns: Window result of `(key, count)` per window at the end of
-        each window.
+    :returns: Window result streams. Downstream contains of `(key,
+        count)` per window at the end of each window.
 
     """
     keyed = op.key_on("keyed", up, key)
@@ -1428,6 +1522,7 @@ def count_window(
         lambda: 0,
         lambda s, _: s + 1,
         lambda s, t: s + t,
+        ordered=False,
     )
 
 
@@ -1464,6 +1559,7 @@ def fold_window(
     builder: Callable[[], S],
     folder: Callable[[S, V], S],
     merger: Callable[[S, S], S],
+    ordered: bool = True,
 ) -> WindowOut[V, S]:
     """Build an empty accumulator, then combine values into it.
 
@@ -1483,13 +1579,18 @@ def fold_window(
 
     :arg folder: Combines a new value into an existing accumulator and
         returns the updated accumulator. The accumulator is initially
-        the empty accumulator.
+        the empty accumulator. Values will be passed in timestamp
+        order.
 
     :arg merger: Combines two states whenever two windows merge. Not
         all window definitions result in merges.
 
-    :returns: Window result of the accumulators once each window has
-        closed.
+    :arg ordered: Wheither to fold values in timestamp order. If not,
+        they'll be in upstream order. There is a performance and
+        latency penalty to ordering by timestamp. Defaults to `True`.
+
+    :returns: Window result streams. Downstream contains the
+        accumulator for each window, once that window has closed.
 
     """
 
@@ -1497,7 +1598,7 @@ def fold_window(
         state = resume_state if resume_state is not None else builder()
         return _FoldWindowLogic(folder, merger, state)
 
-    return window("generic_window", up, clock, windower, shim_builder)
+    return window("generic_window", up, clock, windower, shim_builder, ordered)
 
 
 def _join_window_folder(state: _JoinState, name_value: Tuple[str, Any]) -> _JoinState:
@@ -1632,9 +1733,9 @@ def join_window(
         side 2 saw `"C"`: emit `("A", "C")`, `("B", "C")` downstream.
         Defaults to `False`.
 
-    :returns: Window result with tuples with the value from each
-        stream in the order of the argument list once each window has
-        closed.
+    :returns: Window result streams. Downstream contains tuples with
+        the value from each stream in the order of the argument list
+        once each window has closed.
 
     """
     named_sides = dict((str(i), s) for i, s in enumerate(sides))
@@ -1724,8 +1825,9 @@ def join_window_named(
     :arg **sides: Named keyed streams. The name of each stream will be
         used in the emitted {py:obj}`dict`s.
 
-    :returns: Window result with a {py:obj}`dict` mapping the name to
-        the value from each stream once each window has closed.
+    :returns: Window result streams. Downstream contains a
+        {py:obj}`dict` mapping the name to the value from each stream
+        once each window has closed.
 
     """
     names = list(sides.keys())
@@ -1810,8 +1912,8 @@ def max_window(
     :arg by: A function called on each value that is used to extract
         what to compare.
 
-    :returns: Window result of the max values once each window has
-        closed.
+    :returns: Window result streams. Downstream contains the max value
+        for each window, once that window has closed.
 
     """
     return reduce_window("reduce_window", up, clock, windower, partial(max, key=by))
@@ -1857,8 +1959,8 @@ def min_window(
     :arg by: A function called on each value that is used to extract
         what to compare.
 
-    :returns: Window result of the min values once each window has
-        closed.
+    :returns: Window result streams. Downstream contains the min value
+        for each window, once that window has closed.
 
     """
     return reduce_window("reduce_window", up, clock, windower, partial(min, key=by))
@@ -1888,8 +1990,8 @@ def reduce_window(
     :arg reducer: Combines a new value into an old value and returns
         the combined value.
 
-    :returns: Window result of the reduced values once each window has
-        closed.
+    :returns: Window result streams. Downstream contains the reduced
+        value for each window, once that window has closed.
 
     """
 
@@ -1902,5 +2004,12 @@ def reduce_window(
         return s
 
     return fold_window(
-        "fold_window", up, clock, windower, _untyped_none, shim_folder, reducer
+        "fold_window",
+        up,
+        clock,
+        windower,
+        _untyped_none,
+        shim_folder,
+        reducer,
+        ordered=False,
     )

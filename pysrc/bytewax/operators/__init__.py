@@ -1765,6 +1765,29 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
 
 
 @operator
+def key_rm(step_id: str, up: KeyedStream[X]) -> Stream[X]:
+    """Discard keys.
+
+    {py:obj}`KeyedStream`s are 2-tuples of `(key, value)`. This will
+    discard the key so you just have the values if you don't need the
+    keys anymore.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Keyed stream.
+
+    :returns: A stream of just values.
+
+    """
+
+    def shim_mapper(k_v: Tuple[str, X]) -> X:
+        k, v = k_v
+        return v
+
+    return map("map", up, shim_mapper)
+
+
+@operator
 def map(  # noqa: A001
     step_id: str,
     up: Stream[X],

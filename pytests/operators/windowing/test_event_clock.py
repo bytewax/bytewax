@@ -8,7 +8,7 @@ from bytewax.operators.windowing import (
 from bytewax.testing import TimeTestingGetter
 
 
-def test_watermark_starts_at_beginning_of_time():
+def test_watermark_starts_at_beginning_of_time() -> None:
     source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
@@ -16,12 +16,11 @@ def test_watermark_starts_at_beginning_of_time():
         lambda x: x,
         lambda x: x,
         timedelta(seconds=5),
-        None,
     )
     assert logic.on_notify() == UTC_MIN
 
 
-def test_watermark_is_item_timestamp_minus_wait():
+def test_watermark_is_item_timestamp_minus_wait() -> None:
     source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
@@ -29,7 +28,6 @@ def test_watermark_is_item_timestamp_minus_wait():
         lambda x: x,
         lambda x: x,
         timedelta(seconds=5),
-        None,
     )
     item_timestamp = datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc)
     logic.before_batch()
@@ -37,7 +35,7 @@ def test_watermark_is_item_timestamp_minus_wait():
     assert found_watermark == datetime(2024, 1, 1, 0, 0, 2, tzinfo=timezone.utc)
 
 
-def test_watermark_forwards_by_system_time():
+def test_watermark_forwards_by_system_time() -> None:
     source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
@@ -45,7 +43,6 @@ def test_watermark_forwards_by_system_time():
         lambda x: x,
         lambda x: x,
         timedelta(seconds=5),
-        None,
     )
     item_timestamp = datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc)
     logic.before_batch()
@@ -54,7 +51,7 @@ def test_watermark_forwards_by_system_time():
     assert logic.on_notify() == datetime(2024, 1, 1, 0, 0, 4, tzinfo=timezone.utc)
 
 
-def test_watermark_advances_in_batch():
+def test_watermark_advances_in_batch() -> None:
     source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
@@ -62,7 +59,6 @@ def test_watermark_advances_in_batch():
         lambda x: x,
         lambda x: x,
         timedelta(seconds=5),
-        None,
     )
     logic.before_batch()
     logic.on_item(datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc))
@@ -72,7 +68,7 @@ def test_watermark_advances_in_batch():
     assert found_watermark == datetime(2024, 1, 1, 0, 0, 5, tzinfo=timezone.utc)
 
 
-def test_watermark_does_not_reverse_in_batch():
+def test_watermark_does_not_reverse_in_batch() -> None:
     source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
@@ -80,7 +76,6 @@ def test_watermark_does_not_reverse_in_batch():
         lambda x: x,
         lambda x: x,
         timedelta(seconds=5),
-        None,
     )
     logic.before_batch()
     logic.on_item(datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc))
@@ -90,7 +85,7 @@ def test_watermark_does_not_reverse_in_batch():
     assert found_watermark == datetime(2024, 1, 1, 0, 0, 2, tzinfo=timezone.utc)
 
 
-def test_watermark_does_not_reverse_and_forwards_by_system_time_next_batch():
+def test_watermark_does_not_reverse_and_forwards_by_system_time_next_batch() -> None:
     source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
@@ -98,7 +93,6 @@ def test_watermark_does_not_reverse_and_forwards_by_system_time_next_batch():
         lambda x: x,
         lambda x: x,
         timedelta(seconds=5),
-        None,
     )
     logic.before_batch()
     logic.on_item(datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc))
@@ -110,7 +104,7 @@ def test_watermark_does_not_reverse_and_forwards_by_system_time_next_batch():
     assert found_watermark == datetime(2024, 1, 1, 0, 0, 4, tzinfo=timezone.utc)
 
 
-def test_watermark_is_end_of_time_on_eof():
+def test_watermark_is_end_of_time_on_eof() -> None:
     source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
@@ -118,13 +112,12 @@ def test_watermark_is_end_of_time_on_eof():
         lambda x: x,
         lambda x: x,
         timedelta(seconds=5),
-        None,
     )
     logic.on_eof()
     assert logic.on_eof() == UTC_MAX
 
 
-def test_watermark_doesnt_overflow_after_eof():
+def test_watermark_doesnt_overflow_after_eof() -> None:
     source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     logic = _EventClockLogic(
@@ -132,8 +125,41 @@ def test_watermark_doesnt_overflow_after_eof():
         lambda x: x,
         lambda x: x,
         timedelta(seconds=5),
-        None,
     )
     logic.on_eof()
     source.advance(timedelta(seconds=2))
     assert logic.on_eof() == UTC_MAX
+
+
+def test_allows_max_wait_for_system_duration_init() -> None:
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
+
+    logic = _EventClockLogic(
+        source.get,
+        lambda x: x,
+        lambda x: x,
+        timedelta.max,
+    )
+    item_timestamp = datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc)
+    logic.before_batch()
+    _, found_watermark = logic.on_item(item_timestamp)
+    assert found_watermark == UTC_MIN
+
+
+def test_allows_max_wait_for_system_duration_update_does_not_regress() -> None:
+    source = TimeTestingGetter(datetime(2024, 1, 1, tzinfo=timezone.utc))
+
+    logic = _EventClockLogic(
+        source.get,
+        lambda x: x,
+        lambda x: x,
+        timedelta.max,
+    )
+    logic.before_batch()
+    logic.on_item(datetime(2024, 1, 1, 0, 0, 7, tzinfo=timezone.utc))
+    source.advance(timedelta(seconds=2))
+    logic.before_batch()
+    _, found_watermark = logic.on_item(
+        datetime(2024, 1, 1, 0, 0, 10, tzinfo=timezone.utc)
+    )
+    assert found_watermark == UTC_MIN + timedelta(seconds=2)
