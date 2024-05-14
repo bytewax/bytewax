@@ -125,9 +125,8 @@ behavior of the {py:obj}`~bytewax.operators.join` operator takes any
 number of upstream sides and waits until we have seen a value for a
 key on all sides of the join, and only then do we emit the gathered
 values downstream as a {py:obj}`tuple` of the values in the same order
-as the sides stream arguments. When emit once we have a value from all
-sides, Bytewax calls this a **complete join**. This is similar to an
-_inner join_ in SQL.
+as the sides stream arguments. Bytewax calls this a **complete join**. 
+This is similar to an _inner join_ in SQL.
 
 Let's see that in action. To recap our example:
 
