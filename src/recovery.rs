@@ -339,8 +339,7 @@ impl StateStore {
         // the right StatefulLogicKind variant.
         let deserialized_snaps = Python::with_gil(|py| -> PyResult<Vec<_>> {
             let pickle = py.import_bound("pickle")?;
-            Ok(self
-                .conn
+            self.conn
                 .as_ref()
                 // Unwrap here since we already checked conn is some.
                 .unwrap()
@@ -359,18 +358,21 @@ impl StateStore {
                 .reraise("Error binding query parameters in recovery store")?
                 .map(|res| res.expect("Error unpacking SerializedSnapshot"))
                 .map(|SerializedSnapshot(_, key, _, ser_state)| {
-                    let state = ser_state.map(|ser_state| {
-                        pickle
-                            .call_method1(
-                                intern!(py, "loads"),
-                                (PyBytes::new_bound(py, &ser_state),),
-                            )
-                            .unwrap()
-                            .unbind()
-                    });
-                    (key, state)
+                    let state = ser_state.map_or_else(
+                        || Ok::<Option<PyObject>, PyErr>(None),
+                        |ser_state| {
+                            let state = pickle
+                                .call_method1(
+                                    intern!(py, "loads"),
+                                    (PyBytes::new_bound(py, &ser_state),),
+                                )?
+                                .unbind();
+                            Ok(Some(state))
+                        },
+                    )?;
+                    Ok((key, state))
                 })
-                .collect())
+                .collect()
         })?;
 
         for (state_key, state) in deserialized_snaps {
