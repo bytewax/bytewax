@@ -26,6 +26,9 @@ generated from our Python source in `/pysrc`. The build process turns
 the source into automatically generated Markdown files in `/docs/api`,
 which are then passed through the Sphinx builder.
 
+All public functions, classes, and constants should have explicit type
+annotations.
+
 ## Local Prototyping
 
 You'll need to set up a local development environment. See
