@@ -49,15 +49,15 @@ from bytewax.operators import (
     _untyped_none,
 )
 
-ZERO_TD = timedelta(seconds=0)
+ZERO_TD: timedelta = timedelta(seconds=0)
 """A zero length of time."""
 
 
-UTC_MAX = datetime.max.replace(tzinfo=timezone.utc)
+UTC_MAX: datetime = datetime.max.replace(tzinfo=timezone.utc)
 """Maximum possible UTC date time."""
 
 
-UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
+UTC_MIN: datetime = datetime.min.replace(tzinfo=timezone.utc)
 """Minimum possible UTC date time."""
 
 
@@ -700,6 +700,7 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
 
 
 LATE_SESSION_ID: int = -1
+"""Sentinel window ID assigned to late items."""
 
 
 @dataclass
