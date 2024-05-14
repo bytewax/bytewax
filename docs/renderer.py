@@ -181,24 +181,10 @@ class BytewaxRenderer(MystRenderer):
             if anno:
                 yield f":type: {self.format_annotation(anno)}"
 
-            if isinstance(value, str):
-                if len(value.splitlines()) == 1:
-                    if len(value) > 100:
-                        value = value[:100] + "..."
-                    yield ":value: >"  # use > to ensure its understood as a string
-                    yield f"   {value!r}"
-                else:
-                    yield ":value: <Multiline-String>"
-                    # TODO in sphinx-autoapi, they made a code block
-                    # inside a details/summary HTML
-            elif value is not None:
-                value = str(value).replace("\n", " ")
-                if len(value) < 100:
-                    yield f":value: {value}"
-                else:
-                    value = value[:100] + "..."
-                    yield ":value: >"
-                    yield f"    {value}"
+            # TODO: Could emit a `":value: >\n {value!r}"` here but
+            # since the code isn't actually parsed, we don't get real
+            # values. We'd want to use this for `TypeAlias` so we can
+            # see the true types in the docs.
 
         yield ""
         if self.show_docstring(item):
