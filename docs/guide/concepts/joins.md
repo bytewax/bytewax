@@ -57,9 +57,7 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 ```
 
 Bytewax provides the {py:obj}`~bytewax.operators.join`,
-{py:obj}`~bytewax.operators.join_named`,
-{py:obj}`~bytewax.operators.windowing.join_window`,
-{py:obj}`~bytewax.operators.windowing.join_window_named` operators to
+{py:obj}`~bytewax.operators.windowing.join_window`, operators to
 provide this functionality.
 
 ## Join Keys
@@ -127,9 +125,8 @@ behavior of the {py:obj}`~bytewax.operators.join` operator takes any
 number of upstream sides and waits until we have seen a value for a
 key on all sides of the join, and only then do we emit the gathered
 values downstream as a {py:obj}`tuple` of the values in the same order
-as the sides stream arguments. When we wait for a value from all
-sides, Bytewax calls this a **complete** join. This is similar to an
-_inner join_ in SQL.
+as the sides stream arguments. Bytewax calls this a **complete join**.
+This is similar to an _inner join_ in SQL.
 
 Let's see that in action. To recap our example:
 
@@ -244,11 +241,11 @@ join_eg.check_join: ('123', ('Bee', 'bee@bytewax.io'))
 join_eg.check_join: ('456', ('Hive', 'hive@bytewax.io'))
 ```
 
-For our streaming inner join, by default, as soon as we see all the
-values for a key, we _discard the join state_ and send it down stream.
-Thus when the second "email" value comes in, there's no "name" value
-for the key `"123"`, and the join operator waits until another value
-comes in.
+For our complete join, by default, as soon as we see all the values
+for a key, we _discard the join state_ and send it down stream. Thus
+when the second "email" value comes in, there's no "name" value for
+the key `"123"`, and the join operator waits until another value comes
+in.
 
 Let's visualize the state of the {py:obj}`~bytewax.operators.join`
 operator evolving as it sees new items as a table. The table starts
@@ -317,7 +314,7 @@ Complete join semantics are useful in some cases, but on infinite data
 you could imagine other join semantics. What Bytewax calls a **running
 join** emits downstream the values for all sides of the join whenever
 any value comes in, _and keeps the state around_. This is similar to a
-_full outer join_ in SQL. Pass `running=True` to
+_full outer join_ in SQL. Pass `mode="running"` to
 {py:obj}`~bytewax.operators.join` to enable a running join. By default
 joins are complete, as described in the previous section, and not
 running.
@@ -347,7 +344,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["ema
 Now instead of the above join, let's use the running join:
 
 ```{testcode}
-joined = op.join("join", keyed_names, keyed_emails, running=True)
+joined = op.join("join", keyed_names, keyed_emails, mode="running")
 ```
 
 Now let's run the dataflow again an inspect the output.
@@ -452,15 +449,16 @@ sending the values downstream.
 
 The streaming join assumes that a key could come anywhere in the
 entire lifetime of a stream. This means it could possibly wait forever
-for a value that will never arrive. Another option is
-to use a **windowed join** that always flushes out the values for a
-key whenever the time-based window closes. You can use this if you
-need to know the join values over an infinite stream when you aren't
-sure that you'll see values on all sides of the join.
+for a value that will never arrive. Another option is to use a
+**windowed join** that always flushes out the final values for a key
+whenever the time-based window closes. Bytewax calls using the last
+set of values within each window for each key a **final join**. You
+can use this if you need to know the join values over an infinite
+stream when you aren't sure that you'll see values on all sides of the
+join.
 
 Bytewax provides the operators
-{py:obj}`~bytewax.operators.windowing.join_window` and
-{py:obj}`~bytewax.operators.windowing.join_window_named` to implement
+{py:obj}`~bytewax.operators.windowing.join_window` and to implement
 this.
 
 For the details of all the types of windows you can define and
@@ -640,14 +638,11 @@ You will have to decide in a downstream step how to handle these
 `None` values so you can focus only on the running list of complete
 updates, or fill in default values, etc.
 
-Bytewax currently only supports complete windowed joins and does not
-support running windowed joins.
-
 ## Product Joins
 
-Window operators, because they have a defined close time, also support
-another join type. The **product join** emits all of the combinations
-of _all_ of the input values seen on a side.
+Another windowing join mode Bytewax calls the **product join**. It
+emits all of the combinations of _all_ of the input values seen on a
+side during the window once the window closes.
 
 For example, if we don't change the join parameters, but update the
 input in the above dataflow to include multiple values in a window for
@@ -694,7 +689,7 @@ Notice how now we only have the latest email for the bee:
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
 ```
 
-Now if we re-define the dataflow and use `product=True`, we can see
+Now if we re-define the dataflow and use `mode="product"`, we can see
 all of the values for the Bee's email in that window.
 
 ```{testcode}
@@ -713,7 +708,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 
 ```{testcode}
 joined_out = win.join_window(
-    "join", clock, windower, keyed_names, keyed_emails, product=True
+    "join", clock, windower, keyed_names, keyed_emails, mode="product"
 )
 ```
 
@@ -730,100 +725,4 @@ Notice there are now two output values for that key.
 ```{testoutput}
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 15, tzinfo=datetime.timezone.utc), 'email': 'bee@bytewax.io'})))
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
-```
-
-## Named Joins
-
-The two previously described join operators have **named** versions.
-{py:obj}`~bytewax.operators.join`, has
-{py:obj}`~bytewax.operators.join_named` and
-{py:obj}`~bytewax.operators.windowing.join_window` has
-{py:obj}`~bytewax.operators.windowing.join_window_named`.
-
-The named versions have identical parameters and join semantics, but
-in stead of emitting {py:obj}`tuple`s downstream, they emit
-{py:obj}`dict`s in which the keys are the names of the keyword
-arguments you use to specify the upstream sides. This can help you
-keep track of the values of the joined data more easily in your code.
-Depending on the kinds of transformations you are doing downstream, it
-might make more sense to use named joins so that it makes it easiest
-to write that downstream code.
-
-For example, given our original streaming join. If you remember the
-output was 2-tuples because there were two sides to the join.
-
-```{testcode}
-flow = Dataflow("join_eg")
-
-names_l = [
-    {"user_id": 123, "name": "Bee"},
-    {"user_id": 456, "name": "Hive"},
-]
-names = op.input("names", flow, TestingSource(names_l))
-
-emails_l = [
-    {"user_id": 123, "email": "bee@bytewax.io"},
-    {"user_id": 456, "email": "hive@bytewax.io"},
-    {"user_id": 123, "email": "queen@bytewax.io"},
-]
-emails = op.input("emails", flow, TestingSource(emails_l))
-
-keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
-keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
-
-joined = op.join("join", keyed_names, keyed_emails)
-
-op.inspect("check_join", joined)
-```
-
-```{testcode}
-:hide:
-
-run_main(flow)
-```
-
-```{testoutput}
-join_eg.check_join: ('123', ('Bee', 'bee@bytewax.io'))
-join_eg.check_join: ('456', ('Hive', 'hive@bytewax.io'))
-```
-
-If we change this to use an equivalent
-{py:obj}`~bytewax.operators.join_named` instead:
-
-```{testcode}
-flow = Dataflow("join_eg")
-
-names_l = [
-    {"user_id": 123, "name": "Bee"},
-    {"user_id": 456, "name": "Hive"},
-]
-names = op.input("names", flow, TestingSource(names_l))
-
-emails_l = [
-    {"user_id": 123, "email": "bee@bytewax.io"},
-    {"user_id": 456, "email": "hive@bytewax.io"},
-    {"user_id": 123, "email": "queen@bytewax.io"},
-]
-emails = op.input("emails", flow, TestingSource(emails_l))
-
-keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
-keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
-
-joined = op.join_named("join", name=keyed_names, email=keyed_emails)
-
-op.inspect("check_join", joined)
-```
-
-```{testcode}
-:hide:
-
-run_main(flow)
-```
-
-Notice how the output is now `dict`s and how the kwargs `name` and
-`email` are represented as keys in the output dictionary.
-
-```{testoutput}
-join_eg.check_join: ('123', {'name': 'Bee', 'email': 'bee@bytewax.io'})
-join_eg.check_join: ('456', {'name': 'Hive', 'email': 'hive@bytewax.io'})
 ```

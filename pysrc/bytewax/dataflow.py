@@ -292,9 +292,7 @@ class Stream(Generic[X_co]):
         Because this style requires a single upstream before the
         method calling `.`, this transformation only works for
         operators that could be called like `op_fn(step_id, upstream,
-        ...)`, like {py:obj}`bytewax.operators.map`. It will not work
-        for operators like {py:obj}`bytewax.operators.join_named`,
-        since they do not have that shape of function signature.
+        ...)`, like {py:obj}`bytewax.operators.map`.
 
         :arg step_id: Unique ID.
 
