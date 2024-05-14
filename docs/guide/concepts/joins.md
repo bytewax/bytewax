@@ -125,8 +125,8 @@ behavior of the {py:obj}`~bytewax.operators.join` operator takes any
 number of upstream sides and waits until we have seen a value for a
 key on all sides of the join, and only then do we emit the gathered
 values downstream as a {py:obj}`tuple` of the values in the same order
-as the sides stream arguments. When we wait for a value from all
-sides, Bytewax calls this a **complete** join. This is similar to an
+as the sides stream arguments. When emit once we have a value from all
+sides, Bytewax calls this a **complete join**. This is similar to an
 _inner join_ in SQL.
 
 Let's see that in action. To recap our example:
@@ -242,11 +242,11 @@ join_eg.check_join: ('123', ('Bee', 'bee@bytewax.io'))
 join_eg.check_join: ('456', ('Hive', 'hive@bytewax.io'))
 ```
 
-For our streaming inner join, by default, as soon as we see all the
-values for a key, we _discard the join state_ and send it down stream.
-Thus when the second "email" value comes in, there's no "name" value
-for the key `"123"`, and the join operator waits until another value
-comes in.
+For our complete join, by default, as soon as we see all the values
+for a key, we _discard the join state_ and send it down stream. Thus
+when the second "email" value comes in, there's no "name" value for
+the key `"123"`, and the join operator waits until another value comes
+in.
 
 Let's visualize the state of the {py:obj}`~bytewax.operators.join`
 operator evolving as it sees new items as a table. The table starts
@@ -450,11 +450,13 @@ sending the values downstream.
 
 The streaming join assumes that a key could come anywhere in the
 entire lifetime of a stream. This means it could possibly wait forever
-for a value that will never arrive. Another option is
-to use a **windowed join** that always flushes out the values for a
-key whenever the time-based window closes. You can use this if you
-need to know the join values over an infinite stream when you aren't
-sure that you'll see values on all sides of the join.
+for a value that will never arrive. Another option is to use a
+**windowed join** that always flushes out the final values for a key
+whenever the time-based window closes. Bytewax calls using the last
+set of values within each window for each key a **final join**. You
+can use this if you need to know the join values over an infinite
+stream when you aren't sure that you'll see values on all sides of the
+join.
 
 Bytewax provides the operators
 {py:obj}`~bytewax.operators.windowing.join_window` and to implement
@@ -639,9 +641,9 @@ updates, or fill in default values, etc.
 
 ## Product Joins
 
-Window operators, because they have a defined close time, also support
-another join mode. The **product join** emits all of the combinations
-of _all_ of the input values seen on a side.
+Another windowing join mode Bytewax calls the **product join**. It
+emits all of the combinations of _all_ of the input values seen on a
+side during the window once the window closes.
 
 For example, if we don't change the join parameters, but update the
 input in the above dataflow to include multiple values in a window for
@@ -707,7 +709,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 
 ```{testcode}
 joined_out = win.join_window(
-    "join", clock, windower, keyed_names, keyed_emails, product=True
+    "join", clock, windower, keyed_names, keyed_emails, mode="product"
 )
 ```
 
