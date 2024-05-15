@@ -50,6 +50,10 @@ else:  # `latest` has type `"branch"`
 
 version = release
 
+git_id = os.environ.get("READTHEDOCS_GIT_IDENTIFIER", "HEAD")
+
+print("READTHEDOCS_GIT_IDENTIFIER", git_id)
+
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
@@ -155,7 +159,7 @@ html_theme_options = {
 html_context = {
     "github_user": "bytewax",
     "github_repo": "bytewax",
-    "github_version": "main",
+    "github_version": git_id,
     "doc_path": "docs",
 }
 
@@ -186,9 +190,25 @@ myst_number_code_blocks = [
     "python",
 ]
 myst_substitutions = {
+    "git_id": git_id,
     "release": release,
     "version": version,
 }
+myst_url_schemes = {
+    "gh-issue": {
+        "url": "https://github.com/bytewax/bytewax/issues/{{path}}#{{fragment}}",
+        "title": "Issue #{{path}}",
+        "classes": ["github"],
+    },
+    "gh-path": {
+        "url": f"https://github.com/bytewax/bytewax/blob/{git_id}" "{{path}}",
+        "title": "bytewax/bytewax{{path}}",
+        "classes": ["github"],
+    },
+    "http": None,
+    "https": None,
+}
+
 
 # -- Options for autodoc2 -----------------------------------------------------
 # https://sphinx-autodoc2.readthedocs.io/en/latest/config.html
