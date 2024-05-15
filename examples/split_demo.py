@@ -41,5 +41,5 @@ op.inspect("h", headers)
 nums = op.map("nums", inp, lambda msg: (msg.key, msg.num))
 op.inspect("n", nums)
 
-tog = op.join_named("join", vals=vals, headers=headers, nums=nums)
+tog = op.join("join", vals, headers, nums)
 op.output("tog_out", tog, StdOutSink())

@@ -40,8 +40,8 @@ keyed_stream = op.key_on("key", stream, lambda _: "ALL")
 
 # Batch for either 3 elements, or 1 second. This should emit at
 # the size limit since we emit more than 3 items per second.
-batched_stream = op.batch(
-    "batch_3_items", keyed_stream, batch_size=3, timeout=timedelta(seconds=1)
+batched_stream = op.collect(
+    "batch_3_items", keyed_stream, max_size=3, timeout=timedelta(seconds=1)
 )
 op.inspect("ins_batch", stream)
 
@@ -54,8 +54,8 @@ op.inspect("ins_avg", avg_stream)
 # since we don't emit items fast enough to fill the size
 # before the timeout triggers.
 same_key_stream = op.key_on("same_key", avg_stream, lambda _: "ALL")
-batch_avg_stream = op.batch(
-    "batch_avgs", same_key_stream, batch_size=10, timeout=timedelta(seconds=1)
+batch_avg_stream = op.collect(
+    "batch_avgs", same_key_stream, max_size=10, timeout=timedelta(seconds=1)
 )
 formatted_stream = op.map(
     "convert_to_string", batch_avg_stream, lambda x: f"Avg batch:\t{x[1]}"
