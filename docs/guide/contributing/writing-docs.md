@@ -365,6 +365,35 @@ Appears for the current version {{ version }} as:
 $ pip install bytewax==|version|
 ```
 
+### Linking to Files in the GitHub Repo
+
+If you'd like to link to a file in [our public GitHub
+repo](https://github.com/bytewax/bytewax/) but want to do it in a way
+for which the is a permalink to the version of the file in the same
+Git commit as the current documentation was built, use the `gh-path`
+scheme.
+
+```markdown
+<gh-path:/examples/wikistream.py>
+```
+
+Appears as:
+
+> <gh-path:/examples/wikistream.py>
+
+### Linking to GitHub Issues or PRs
+
+You can link to a GitHub issue or PR in our public repo using this
+shorthand. It will decorate it with a little GitHub logo.
+
+```markdown
+<gh-issue:123>
+```
+
+Appears as:
+
+> <gh-issue:123>
+
 ## Doctests
 
 We have a Sphinx builder which to run all Python code blocks in our
