@@ -95,8 +95,10 @@ pip install bytewax
 Now, let's import the required modules and set up the environment for building the dataflow.
 
 ```{literalinclude} dataflow.py
+:language: python
 :start-after: start-imports
 :end-before: end-imports
+:linenos:
 ```
 
 (xref-data-model)=
@@ -110,8 +112,10 @@ In this example, we will define a data model for the incoming events, generate i
 Let's start by defining a data model/schema for our incoming events. We'll make model classes for all the relevant events we'd want to monitor.
 
 ```{literalinclude} dataflow.py
+:language: python
 :start-after: start-dataclasses
 :end-before: end-dataclasses
+:linenos:
 ```
 
 In a production system, these might come from external schema or be auto generated.
@@ -119,8 +123,10 @@ In a production system, these might come from external schema or be auto generat
 Once the data model is defined, we can move on to generating input data to simulate user interactions. This will allow us to test our dataflow and logic functions before deploying them in a live environment. Let's create 2 users and simulate their click activity as follows:
 
 ```{literalinclude} dataflow.py
+:language: python
 :start-after: start-simulated-events
 :end-before: end-simulated-events
+:linenos:
 ```
 
 The client events will constitute the data input for our dataflow, simulating user interactions with the search engine. The events will include user IDs, search queries, search results, and click activity. This data will be used to calculate the Click-Through Rate (CTR) for each search session.
@@ -134,15 +140,19 @@ We will define three helper functions: `user_event`,  and `calculate_ctr` to pro
 1. The `user_event` function will extract the user ID from the incoming event and use it as the key for grouping the events by user.
 
 ```{literalinclude} dataflow.py
+:language: python
 :start-after: start-user-event
 :end-before: end-user-event
+:linenos:
 ```
 
 2. The `calculate_ctr` function will calculate the Click-Through Rate (CTR) for each search session based on the click activity in the session.
 
 ```{literalinclude} dataflow.py
+:language: python
 :start-after: start-calc-ctr
 :end-before: end-calc-ctr
+:linenos:
 ```
 
 (xref-create-dataflow)=
@@ -154,8 +164,10 @@ A dataflow is the unit of work in Bytewax. Dataflows are data-parallel directed 
 Complete dataflow:
 
 ```{literalinclude} dataflow.py
+:language: python
 :start-after: start-dataflow
 :end-before: end-dataflow
+:linenos:
 ```
 
 <details>

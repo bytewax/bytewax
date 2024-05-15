@@ -25,7 +25,12 @@ from bytewax.testing import TestingSource
 # start-dataclasses
 @dataclass
 class AppOpen:
-    """Represents an app opening event with user ID and timestamp."""
+    """Represents an app opening event.
+
+    This class encapsulates the data for an app
+    opening event,including the user ID and the
+    timestamp when the app was opened.
+    """
 
     user: int
     time: datetime
@@ -33,7 +38,12 @@ class AppOpen:
 
 @dataclass
 class Search:
-    """Represents a search event with user ID, query, and timestamp."""
+    """Represents a search event.
+
+    This class encapsulates the data for an app
+    search event,including the user ID and the
+    timestamp when the app was opened.
+    """
 
     user: int
     query: str
@@ -42,7 +52,12 @@ class Search:
 
 @dataclass
 class Results:
-    """Represents a search results event with user ID, list of items, and timestamp."""
+    """Represents a search results event.
+
+    This class encapsulates the data for an app
+    result event, including the user ID and the
+    timestamp when the app was opened.
+    """
 
     user: int
     items: List[str]
@@ -51,7 +66,12 @@ class Results:
 
 @dataclass
 class ClickResult:
-    """Represents a click result event with user ID, clicked item, and timestamp."""
+    """Represents a click result event.
+
+    This class encapsulates the data for an app
+    click event,including the user ID and the
+    timestamp when the app was opened.
+    """
 
     user: int
     item: str
@@ -92,7 +112,7 @@ def user_event(event):
 
 # start-calc-ctr
 def calc_ctr(window_out):
-    """Calculate the click-through rate (CTR) for each user session from WindowOut."""
+    """Calculate the click-through rate (CTR)."""
     _, search_session = window_out
     user, events = search_session
 
@@ -127,7 +147,8 @@ window = win.collect_window(
     "windowed_data", user_event_map, clock=event_time_config, windower=clock_config
 )
 
-# Calculate the click-through rate using the calc_ctr function and the windowed data
+# Calculate the click-through rate using the
+# calc_ctr function and the windowed data
 calc = op.map("calc_ctr", window.down, calc_ctr)
 
 # Output the results to the standard output
