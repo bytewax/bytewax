@@ -373,6 +373,8 @@ for which the is a permalink to the version of the file in the same
 Git commit as the current documentation was built, use the `gh-path`
 scheme.
 
+Note that the path is absolute to the repo and begins with a `/`.
+
 ```markdown
 <gh-path:/examples/wikistream.py>
 ```
@@ -385,6 +387,8 @@ Appears as:
 
 You can link to a GitHub issue or PR in our public repo using this
 shorthand. It will decorate it with a little GitHub logo.
+
+Note that the issue number does not have a `#` before it.
 
 ```markdown
 <gh-issue:123>
