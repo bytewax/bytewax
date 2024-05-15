@@ -6,6 +6,277 @@ Bytewax version to the next. For a detailed list of all changes, see
 the
 [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
 
+## From v0.19 to v0.20
+
+### Window renaming
+
+Windowing operators have been moved from `bytewax.operators.window`
+to {py:obj}`bytewax.operators.windowing`.
+
+In addition, `ClockConfig` classes have had the `Config` suffix
+dropped from them, and `WindowConfig`s have been renamed to
+`Windower`s.
+
+Before:
+
+% skip: next
+
+```python
+import bytewax.operators.window as win
+from bytewax.operators.window import EventClockConfig, TumblingWindow
+```
+
+After:
+
+```{testcode}
+import bytewax.operators.windowing as win
+from bytewax.operators.windowing import EventClock, TumblingWindower
+```
+
+### Window output changes
+
+Outputs from windowing oeprators now return a set of streams
+{py:obj}`~bytewax.operators.windowing.WindowOut`, which
+include a stream of late data and separates
+{py:obj}`~bytewax.operators.windowing.WindowMetadata` into
+it's own stream.
+
+Window outputs are now labeled with the unique window ID they were
+assigned to facilitate joining the data later.
+
+% skip: next
+
+Before:
+
+```python
+from datetime import datetime, timedelta, timezone
+
+from bytewax.dataflow import Dataflow
+import bytewax.operators as op
+import bytewax.operators.window as win
+from bytewax.operators.window import SystemClockConfig, TumblingWindow
+from bytewax.testing import TestingSource
+
+events = [
+    {"user": "a", "val": 1},
+    {"user": "a", "val": 1},
+    {"user": "b", "val": 1},
+]
+
+flow = Dataflow("count")
+inp = op.input("inp", flow, TestingSource(events))
+counts = win.count_window(
+    "count",
+    inp,
+    SystemClock(),
+    TumblingWindow(
+        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ),
+    lambda x: x["user"],
+)
+op.inspect("inspect", counts)
+# ("user", (WindowMetadata(...), count_per_window))
+```
+
+After:
+
+```{testcode}
+from datetime import datetime, timedelta, timezone
+
+from bytewax.dataflow import Dataflow
+import bytewax.operators as op
+import bytewax.operators.windowing as win
+from bytewax.operators.windowing import SystemClock, TumblingWindower
+from bytewax.testing import TestingSource
+
+events = [
+    {"user": "a", "val": 1},
+    {"user": "a", "val": 1},
+    {"user": "b", "val": 1},
+]
+
+flow = Dataflow("count")
+inp = op.input("inp", flow, TestingSource(events))
+counts = win.count_window(
+    "count",
+    inp,
+    SystemClock(),
+    TumblingWindower(
+        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ),
+    lambda x: x["user"],
+)
+op.inspect("inspect", counts.down)
+# ("user", (window_id, count_per_window))
+```
+
+### Fold window now requires a `merger` argument
+
+Fold window now requires a `merger` argument. The `merger` function
+will be called with when the session windower determines that two
+windows must be merged because a new item bridged a gap.
+
+% skip: next
+
+Before:
+
+```python
+from datetime import datetime, timedelta, timezone
+from typing import List
+
+import bytewax.operators as op
+import bytewax.operators.window as win
+from bytewax.dataflow import Dataflow
+from bytewax.operators.window import EventClockConfig, SessionWindow
+from bytewax.testing import TestingSource
+
+align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+events = [
+    {"user": "a", "val": 1, "time": align_to + timedelta(seconds=1)},
+    {"user": "a", "val": 2, "time": align_to + timedelta(seconds=3)},
+    {"user": "a", "val": 3, "time": align_to + timedelta(seconds=7)},
+]
+
+flow = Dataflow("merge_session")
+inp = op.input("inp", flow, TestingSource(events)).then(
+    op.key_on, "key_all", lambda _: "ALL"
+)
+
+
+def ts_getter(event: dict) -> datetime:
+    return event["time"]
+
+
+def add(acc: List[str], event: dict[str, str]) -> List[str]:
+    acc.append(event["val"])
+    return acc
+
+
+counts = win.fold_window(
+    "count",
+    inp,
+    EventClockConfig(ts_getter, wait_for_system_duration=timedelta(seconds=0)),
+    SessionWindow(gap=timedelta(seconds=3)),
+    list,
+    add,
+)
+op.inspect("inspect", counts.down)
+```
+
+After:
+
+```{testcode}
+from datetime import datetime, timedelta, timezone
+from typing import List
+
+import bytewax.operators as op
+import bytewax.operators.windowing as win
+from bytewax.dataflow import Dataflow
+from bytewax.operators.windowing import EventClock, SessionWindower
+from bytewax.testing import TestingSource
+
+align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+events = [
+    {"user": "a", "val": 1, "time": align_to + timedelta(seconds=1)},
+    {"user": "a", "val": 2, "time": align_to + timedelta(seconds=3)},
+    {"user": "a", "val": 3, "time": align_to + timedelta(seconds=7)},
+]
+
+flow = Dataflow("merge_session")
+inp = op.input("inp", flow, TestingSource(events)).then(
+    op.key_on, "key_all", lambda _: "ALL"
+)
+
+
+def ts_getter(event: dict) -> datetime:
+    return event["time"]
+
+
+def add(acc: List[str], event: dict[str, str]) -> List[str]:
+    acc.append(event["val"])
+    return acc
+
+
+counts = win.fold_window(
+    "count",
+    inp,
+    EventClock(ts_getter, wait_for_system_duration=timedelta(seconds=0)),
+    SessionWindower(gap=timedelta(seconds=3)),
+    list,
+    add,
+    list.__add__,
+)
+op.inspect("inspect", counts.down)
+```
+
+### Modal joins and windows
+
+{py:obj}`~bytewax.operators.join` and
+{py:obj}`~bytewax.operators.windowing.join_window` have had their
+`product` argument replaced with `mode`. You now can specify more
+nuanced kinds of join modes.
+
+Before:
+
+```python
+flow = Dataflow("running_join")
+
+names_l = [
+    {"user_id": 123, "name": "Bee"},
+    {"user_id": 456, "name": "Hive"},
+]
+
+names = op.input("names", flow, TestingSource(names_l))
+
+
+emails_l = [
+    {"user_id": 123, "email": "bee@bytewax.io"},
+    {"user_id": 456, "email": "hive@bytewax.io"},
+    {"user_id": 123, "email": "queen@bytewax.io"},
+]
+
+emails = op.input("emails", flow, TestingSource(emails_l))
+
+
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
+joined = op.join("join", keyed_names, keyed_emails, running=True)
+op.inspect("insp", joined)
+```
+
+After:
+
+```{testcode}
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("join_eg")
+
+names_l = [
+    {"user_id": 123, "name": "Bee"},
+    {"user_id": 456, "name": "Hive"},
+]
+
+names = op.input("names", flow, TestingSource(names_l))
+
+
+emails_l = [
+    {"user_id": 123, "email": "bee@bytewax.io"},
+    {"user_id": 456, "email": "hive@bytewax.io"},
+    {"user_id": 123, "email": "queen@bytewax.io"},
+]
+
+emails = op.input("emails", flow, TestingSource(emails_l))
+
+
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
+
+joined = op.join("join", keyed_names, keyed_emails, mode="running")
+op.inspect("insp", joined)
+```
+
 ## From v0.18 to v0.19
 
 ### Removal of the `builder` argument from `stateful_map`
