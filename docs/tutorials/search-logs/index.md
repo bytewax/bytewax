@@ -188,7 +188,7 @@ All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which 
 
 We will now turn our attention to windowing the data. In a dataflow pipeline, the role of collecting windowed data, particularly after mapping user events, is crucial for segmenting the continuous stream of events into manageable, discrete chunks based on time or event characteristics. This step enables the aggregation and analysis of events within specific time frames or sessions, which is essential for understanding patterns, behaviors, and trends over time.
 
-After user events are mapped, typically transforming each event into a tuple of (user_id, event_data), the next step is to group these events into windows. In this example, we will use a `SessionWindow` to group events by user sessions. We will also use an `EventClockConfig` to manage the timing and order of events as they are processed through the dataflow.
+After user events are mapped, typically transforming each event into a tuple of (user_id, event_data), the next step is to group these events into windows. In this example, we will use a {py:obj}`~bytewax.operators.windowing.SessionWindower` to group events by user sessions. We will also use an {py:obj}`~bytewax.operators.windowing.EventClock` to manage the timing and order of events as they are processed through the dataflow.
 
 
 * The `EventClockConfig` is responsible for managing the timing and order of events as they are processed through the dataflow. It's crucial for ensuring that events are handled accurately in real-time or near-real-time streaming applications.
