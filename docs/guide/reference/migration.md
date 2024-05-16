@@ -19,7 +19,6 @@ dropped from them, and `WindowConfig`s have been renamed to
 
 Before:
 
-% skip: next
 
 ```python
 import bytewax.operators.window as win
