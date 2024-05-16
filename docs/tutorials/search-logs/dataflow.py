@@ -18,7 +18,6 @@ from bytewax.dataflow import Dataflow
 from bytewax.operators import windowing as win
 from bytewax.operators.windowing import EventClock, SessionWindower
 from bytewax.testing import TestingSource
-
 # end-imports
 
 
