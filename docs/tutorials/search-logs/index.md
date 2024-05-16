@@ -1,6 +1,6 @@
 # Building Sessions from Search Logs
 
-<p align='center'>Here is an introductory example of using Bytewax to turn an incoming stream of event logs from a hypothetical search engine into metrics over search sessions. In this example, we're going to focus on the dataflow itself and aggregating state.</p>
+Here is an introductory example of using Bytewax to turn an incoming stream of event logs from a hypothetical search engine into metrics over search sessions. In this example, we're going to focus on the dataflow itself and aggregating state.
 
 | Skill Level | Time to Complete | Level |
 | ----------- | ---------------- | ----- |
