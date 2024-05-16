@@ -13,7 +13,7 @@ This tutorial will teach you how to use Bytewax to detect and calculate the Clic
 
 ## Resources
 
-<https://github.com/bytewax/bytewax/tree/main/docs/tutorials/search-logs>
+<https://github.com/bytewax/bytewax/blob/main/docs/tutorials/search-logs/dataflow.py>
 
 ## Introduction and problem statement
 
