@@ -31,8 +31,6 @@ This tutorial will teach you how to use Bytewax to detect and calculate the Clic
   </a>
 </p>
 
-(xref-introduction)=
-
 ## Introduction and problem statement
 
 :::{dropdown} Click to Expand
@@ -51,8 +49,6 @@ Our focus on developing a dataflow using Bytewax—an open-source Python framewo
 - Product Managers: Who oversee digital platforms and are responsible for increasing user engagement and retention through data-driven methodologies.
 :::
 
-
-(xref-strategy)=
 
 ## Strategy and Assumptions
 
@@ -80,7 +76,6 @@ In this tutorial, we will demonstrate how to build a dataflow using Bytewax to p
 
 </details>
 
-(xref-imports)=
 
 ## Imports and Setup
 
@@ -101,10 +96,8 @@ Now, let's import the required modules and set up the environment for building t
 :linenos:
 ```
 
-(xref-data-model)=
 
 ## Data Model
-
 
 In this example, we will define a data model for the incoming events, generate input data to simulate user interactions, and implement logic functions to calculate the Click-Through Rate (CTR) for each search session. We will then create a dataflow to process the incoming event stream and execute it to generate actionable insights.
 
@@ -155,7 +148,6 @@ We will define three helper functions: `user_event`,  and `calculate_ctr` to pro
 :linenos:
 ```
 
-(xref-create-dataflow)=
 
 ## Creating our Dataflow
 
@@ -203,8 +195,6 @@ Once the events are grouped into windows, further processing can be performed on
 
 Finally, we can add an output step to our dataflow to return the results of the CTR calculation. This step will emit the CTR for each search session, providing a comprehensive overview of user engagement with search results.
 
-
-(xref-execution-search-logs)=
 ## Execution
 
 Now we're done with defining the dataflow. Let's run it! We can see that the CTR for each search session is calculated based on the simulated user interactions.
@@ -217,7 +207,6 @@ User 2: 1 searches, 2 clicks
 ('2', 2.0)
 ```
 
-(xref-summary)=
 ## Summary
 
 That’s it, now you have an understanding of how you can build custom session windows, how you can define data classes to be used in Bytewax, and how to calculate the click-through rate on a stream of logs.
