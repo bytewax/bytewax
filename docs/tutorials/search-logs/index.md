@@ -2,18 +2,9 @@
 
 <p align='center'>Here is an introductory example of using Bytewax to turn an incoming stream of event logs from a hypothetical search engine into metrics over search sessions. In this example, we're going to focus on the dataflow itself and aggregating state.</p>
 
-<table style="width:100%; border: none;">
-  <tr>
-    <th style="text-align:center; padding: 8px;">Skill level</th>
-    <th style="text-align:center; padding: 8px;">Time to complete</th>
-    <th style="text-align:center; padding: 8px;">Level</th>
-  </tr>
-  <tr>
-    <td style="text-align:center; padding: 8px;">Basic, no prior knowledge requirements</td>
-    <td style="text-align:center; padding: 8px;">Approx. 25 min</td>
-    <td style="text-align:center; padding: 8px; color:#30D5C8">Beginner</td>
-  </tr>
-</table>
+| Skill Level | Time to Complete | Level |
+| ----------- | ---------------- | ----- |
+| Basic, no prior knowledge requirement | Approx. 25 Min | Beginner |
 
 
 ## Your Takeaway
