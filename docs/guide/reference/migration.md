@@ -84,9 +84,9 @@ After:
 ```{testcode}
 from datetime import datetime, timedelta, timezone
 
-from bytewax.dataflow import Dataflow
 import bytewax.operators as op
 import bytewax.operators.windowing as win
+from bytewax.dataflow import Dataflow
 from bytewax.operators.windowing import SystemClock, TumblingWindower
 from bytewax.testing import TestingSource
 
@@ -107,8 +107,13 @@ counts = win.count_window(
     ),
     lambda x: x["user"],
 )
-op.inspect("inspect", counts.down)
-# ("user", (window_id, count_per_window))
+# Returning just the counts per window: ('user', (window_id, count_per_window))
+op.inspect("new_output", counts.down)
+keyed_metadata = op.map_value("k_md", counts.meta, lambda x: x[1])
+keyed_counts = op.map_value("k_count", counts.down, lambda x: x[1])
+# Returning the old output ('user', (WindowMetadata(..), count_per_window))
+joined_meta = op.join("joined_output", keyed_metadata, keyed_counts, mode="complete")
+op.inspect("old_output", joined_meta)
 ```
 
 If your original dataflow ignored the {py:obj}`~bytewax.operators.windowing.WindowMetadata`, you can skip doing the above step and instead use `down` directly without joining and drop the window ID.
