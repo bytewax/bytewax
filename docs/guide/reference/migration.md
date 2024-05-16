@@ -113,6 +113,8 @@ op.inspect("inspect", counts.down)
 # ("user", (window_id, count_per_window))
 ```
 
+If your original dataflow ignored the {py:obj}`~bytewax.operators.windowing.WindowMetadata`, you can skip doing the above step and instead use `down` directly without joining and drop the window ID.
+ 
 ### Fold Window Merges
 
 {py:obj}`~bytewax.operators.windowing.fold_window` now requires a `merger` callback that takes two fully formed accumulators and combines them into one. The `merger` function
