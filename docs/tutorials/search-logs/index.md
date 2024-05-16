@@ -16,11 +16,11 @@
 </table>
 
 
-<h2 align='center'> Your Takeaway</h2>
+## Your Takeaway
 
 This tutorial will teach you how to use Bytewax to detect and calculate the Click-Through Rate (CTR) on a custom session window on streaming data using a window and then calculate metrics downstream.
 
-<h2 align='center'>Resources</h2>
+## Resources
 
 <p style="text-align: center;">
   <a href="https://github.com/bytewax/search-session" rel="noopener noreferrer" target="_blank" class="btn btn--github btn--lg">
@@ -33,7 +33,7 @@ This tutorial will teach you how to use Bytewax to detect and calculate the Clic
 
 (xref-introduction)=
 
-<h2 align='center'>Introduction and problem statement</h2>
+## Introduction and problem statement
 
 <details>
   <summary>Click to expand</summary>
@@ -54,7 +54,7 @@ This tutorial will teach you how to use Bytewax to detect and calculate the Clic
 
 (xref-strategy)=
 
-<h2 align='center'>Strategy and Assumptions</h2>
+## Strategy and Assumptions
 
 In this tutorial, we will demonstrate how to build a dataflow using Bytewax to process streaming data from a hypothetical search engine. The dataflow will be designed to calculate the Click-Through Rate (CTR) for each search session, providing a comprehensive overview of user engagement with search results.
 
@@ -71,7 +71,7 @@ In this tutorial, we will demonstrate how to build a dataflow using Bytewax to p
   <li>Executing the dataflow to generate actionable insights.</li>
 </ul>
 
-<h3 align='center'>Assumptions</h3>
+### Assumptions
 
 - Searches are per-user, so we need to divvy up events by user.
 - Searches don't span user sessions, so we should calculate user sessions first.
@@ -82,7 +82,7 @@ In this tutorial, we will demonstrate how to build a dataflow using Bytewax to p
 
 (xref-imports)=
 
-<h2 align='center'>Imports and Setup</h2>
+## Imports and Setup
 
 Before we begin, let's import the necessary modules and set up the environment for building the dataflow.
 
@@ -103,7 +103,7 @@ Now, let's import the required modules and set up the environment for building t
 
 (xref-data-model)=
 
-<h2 align='center'>Data Model</h2>
+## Data Model
 
 
 In this example, we will define a data model for the incoming events, generate input data to simulate user interactions, and implement logic functions to calculate the Click-Through Rate (CTR) for each search session. We will then create a dataflow to process the incoming event stream and execute it to generate actionable insights.
@@ -133,7 +133,7 @@ The client events will constitute the data input for our dataflow, simulating us
 
 (xref-define-user-events)=
 
-<h2 align='center'>Defining user events, adding events and calculating CTR</h2>
+## Defining user events, adding events and calculating CTR
 
 We will define three helper functions: `user_event`,  and `calculate_ctr` to process the incoming events and calculate the CTR for each search session.
 
@@ -157,7 +157,7 @@ We will define three helper functions: `user_event`,  and `calculate_ctr` to pro
 
 (xref-create-dataflow)=
 
-<h2 align='center'>Creating our Dataflow</h2>
+## Creating our Dataflow
 
 A dataflow is the unit of work in Bytewax. Dataflows are data-parallel directed acyclic graphs that are made up of processing steps. Each step in the dataflow is an operator that processes data in some way. In this example, we will create a dataflow to process the incoming event stream and calculate the Click-Through Rate (CTR) for each search session.
 
@@ -174,17 +174,17 @@ Complete dataflow:
   <summary>Click to expand what each step is doing</summary>
 
 
-<h3 align='center'>Generating Input Data</h3>
+### Generating Input Data
 
 Bytewax has a {py:obj}`~bytewax.testing.TestingSource` class that takes an enumerable list of events that it will emit, one at a time into our dataflow. {py:obj}`~bytewax.testing.TestingSource` will be initialized with the list of events we created earlier in the variable `client_events`. This will be our input source for the dataflow.
 
 
-<h3 align='center'>Mapping user events</h3>
+### Mapping user events
 
 All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which we've imported here by a shorter name, `op`. We are using the {py:obj}`~bytewax.operators.map` operator - it takes each event from the input and applies the `user_event` function. This function is transforming each event into a format suitable for grouping by user (key-value pairs where the key is the user ID).
 
 
-<h3 align='center'>The role of windowed data in analysis for CTR</h3>
+### The role of windowed data in analysis for CTR
 
 We will now turn our attention to windowing the data. In a dataflow pipeline, the role of collecting windowed data, particularly after mapping user events, is crucial for segmenting the continuous stream of events into manageable, discrete chunks based on time or event characteristics. This step enables the aggregation and analysis of events within specific time frames or sessions, which is essential for understanding patterns, behaviors, and trends over time.
 
@@ -199,14 +199,14 @@ These configurations ensure that your dataflow can handle streaming data effecti
 
 Once the events are grouped into windows, further processing can be performed on these grouped events, such as calculating metrics like CTR within each session. This step often involves applying additional functions to the windowed data to extract insights, such as counting clicks and searches to compute the CTR.
 
-<h3 align='center'>Returning results</h3>
+### Returning results
 
 Finally, we can add an output step to our dataflow to return the results of the CTR calculation. This step will emit the CTR for each search session, providing a comprehensive overview of user engagement with search results.
 </details>
 
 
 (xref-execution-search-logs)=
-<h2 align='center'>Execution</h2>
+## Execution
 
 Now we're done with defining the dataflow. Let's run it! We can see that the CTR for each search session is calculated based on the simulated user interactions.
 
@@ -219,6 +219,6 @@ User 2: 1 searches, 2 clicks
 ```
 
 (xref-summary)=
-<h2 align='center'>Summary</h2>
+## Summary
 
 That’s it, now you have an understanding of how you can build custom session windows, how you can define data classes to be used in Bytewax, and how to calculate the click-through rate on a stream of logs.
