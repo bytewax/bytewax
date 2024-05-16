@@ -117,7 +117,7 @@ op.inspect("old_output", joined_meta)
 ```
 
 If your original dataflow ignored the {py:obj}`~bytewax.operators.windowing.WindowMetadata`, you can skip doing the above step and instead use `down` directly without joining and drop the window ID.
- 
+
 ### Fold Window Merges
 
 {py:obj}`~bytewax.operators.windowing.fold_window` now requires a `merger` callback that takes two fully formed accumulators and combines them into one. The `merger` function
@@ -278,6 +278,66 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["ema
 
 joined = op.join("join", keyed_names, keyed_emails, mode="running")
 op.inspect("insp", joined)
+```
+
+### Removal of `join_named` and `join_window_named`
+
+The `join_named` and `join_window_named` operators have been removed as
+they can't be made to support fully type checked dataflows.
+
+The same functionality is still available but with a slightly
+differently shaped API in join or join_window:
+
+Before:
+
+```python
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("join_eg")
+names_l = [
+    {"user_id": 123, "name": "Bee"},
+    {"user_id": 456, "name": "Hive"},
+]
+names = op.input("names", flow, TestingSource(names_l))
+emails_l = [
+    {"user_id": 123, "email": "bee@bytewax.io"},
+    {"user_id": 456, "email": "hive@bytewax.io"},
+    {"user_id": 123, "email": "queen@bytewax.io"},
+]
+emails = op.input("emails", flow, TestingSource(emails_l))
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
+joined = op.join_named("join", name=keyed_names, email=keyed_emails, mode="complete")
+op.inspect("check_join", joined)
+```
+
+After:
+
+```{testcode}
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("join_eg")
+names_l = [
+    {"user_id": 123, "name": "Bee"},
+    {"user_id": 456, "name": "Hive"},
+]
+names = op.input("names", flow, TestingSource(names_l))
+emails_l = [
+    {"user_id": 123, "email": "bee@bytewax.io"},
+    {"user_id": 456, "email": "hive@bytewax.io"},
+    {"user_id": 123, "email": "queen@bytewax.io"},
+]
+emails = op.input("emails", flow, TestingSource(emails_l))
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
+joined = op.join("join", keyed_names, keyed_emails, mode="complete").then(
+    op.map_value, "to_dict", lambda x: dict(zip(["name", "email"], x))
+)
+op.inspect("check_join", joined)
 ```
 
 ## From v0.18 to v0.19
