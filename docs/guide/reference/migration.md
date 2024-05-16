@@ -34,11 +34,14 @@ from bytewax.operators.windowing import EventClock, TumblingWindower
 
 ### Window output changes
 
-Outputs from windowing oeprators now return a set of streams
-{py:obj}`~bytewax.operators.windowing.WindowOut`, which
-include a stream of late data and separates
-{py:obj}`~bytewax.operators.windowing.WindowMetadata` into
-it's own stream.
+Windowing operators now return a set of three streams bundled in a
+{py:obj}`~bytewax.operators.windowing.WindowOut` object:
+
+1. `down` stream - window IDs and the resulting output from that operator.
+
+2. `late` stream - items which were late and not assigned or processed in a window, but labeled with the window ID they would have been included in.
+
+3. `meta` stream - window IDs and the most recent {py:obj}`~bytewax.operators.windowing.WindowMetadata` describing the open and close times of that window.
 
 Items in all three window output streams are now labeled with the unique `int` window ID they were assigned to facilitate joining the data later to derive more complex context about the resulting windows.
 
