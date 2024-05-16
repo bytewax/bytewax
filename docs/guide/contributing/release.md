@@ -60,8 +60,6 @@ Make a PR which commits the following:
 
    If you had code that looked like this
 
-   % skip: next
-
    ```python
    from bytewax.dataflow import OldFlow
 

@@ -15,10 +15,10 @@ to {py:obj}`bytewax.operators.windowing`.
 
 In addition, `ClockConfig` classes have had the `Config` suffix
 dropped from them, and `WindowConfig`s have been renamed to
-`Windower`s.
+`Windower`s. Other than the name changes, the functionality
+is unchanged.
 
 Before:
-
 
 ```python
 import bytewax.operators.window as win
@@ -46,8 +46,6 @@ Windowing operators now return a set of three streams bundled in a
 Items in all three window output streams are now labeled with the unique `int` window ID they were assigned to facilitate joining the data later to derive more complex context about the resulting windows.
 
 To recreate the exact downstream items that window operators emitted in v0.19, you'll now need to {py:obj}`~bytewax.operators.join` the `down` stream with the `meta` stream on key and window ID, then remove the window ID.
-
-% skip: next
 
 Before:
 
@@ -120,8 +118,6 @@ If your original dataflow ignored the {py:obj}`~bytewax.operators.windowing.Wind
 {py:obj}`~bytewax.operators.windowing.fold_window` now requires a `merger` callback that takes two fully formed accumulators and combines them into one. The `merger` function
 will be called with when the windower determines that two
 windows must be merged. This most commonly happens when using the {py:obj}`~bytewax.operators.windowing.SessionWindower` and a new, out-of-order item bridges a gap.
-
-% skip: next
 
 Before:
 
