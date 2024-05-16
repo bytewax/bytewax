@@ -208,7 +208,7 @@ counts = win.fold_window(
 op.inspect("inspect", counts.down)
 ```
 
-### Modal joins and windows
+### Join Modes
 
 {py:obj}`~bytewax.operators.join` and
 {py:obj}`~bytewax.operators.windowing.join_window` have had their
