@@ -109,7 +109,7 @@ op.inspect("inspect", counts.down)
 # ("user", (window_id, count_per_window))
 ```
 
-### Fold window now requires a `merger` argument
+### Fold Window Merges
 
 {py:obj}`~bytewax.operators.windowing.fold_window` now requires a `merger` callback that takes two fully formed accumulators and combines them into one. The `merger` function
 will be called with when the windower determines that two
