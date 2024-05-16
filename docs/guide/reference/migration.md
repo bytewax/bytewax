@@ -40,8 +40,9 @@ include a stream of late data and separates
 {py:obj}`~bytewax.operators.windowing.WindowMetadata` into
 it's own stream.
 
-Window outputs are now labeled with the unique window ID they were
-assigned to facilitate joining the data later.
+Items in all three window output streams are now labeled with the unique `int` window ID they were assigned to facilitate joining the data later to derive more complex context about the resulting windows.
+
+To recreate the exact downstream items that window operators emitted in v0.19, you'll now need to {py:obj}`~bytewax.operators.join` the `down` stream with the `meta` stream on key and window ID, then remove the window ID.
 
 % skip: next
 
