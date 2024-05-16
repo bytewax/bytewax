@@ -17,7 +17,6 @@ This tutorial will teach you how to use Bytewax to detect and calculate the Clic
 
 ## Introduction and problem statement
 
-:::{dropdown} Click to Expand
 One of the most critical metrics in evaluating the effectiveness of online platforms, particularly search engines, is the Click-Through Rate (CTR). The CTR is a measure of how frequently users engage with search results or advertisements, making it an indispensable metric for digital marketers, web developers, and data analysts.
 
 This relevance of CTR extends to any enterprise aiming to understand user behavior, refine content relevancy, and ultimately, increase the profitability of online activities. As such, efficiently calculating and analyzing CTR is not only essential for enhancing user experience but also for driving strategic business decisions. The challenge, however, lies in accurately aggregating and processing streaming data to generate timely and actionable insights.
@@ -31,25 +30,19 @@ Our focus on developing a dataflow using Bytewax—an open-source Python framewo
 - Web Developers: Focused on improving site architecture and user interface to enhance user engagement and satisfaction.
 
 - Product Managers: Who oversee digital platforms and are responsible for increasing user engagement and retention through data-driven methodologies.
-:::
-
 
 ## Strategy and Assumptions
 
 In this tutorial, we will demonstrate how to build a dataflow using Bytewax to process streaming data from a hypothetical search engine. The dataflow will be designed to calculate the Click-Through Rate (CTR) for each search session, providing a comprehensive overview of user engagement with search results.
 
-<details>
-  <summary>Click to expand</summary>
+The key steps involved in this process include:
 
-<p>The key steps involved in this process include:</p>
+- Defining a data model/schema for incoming events.
+- Generating input data to simulate user interactions.
+- Implementing logic functions to calculate CTR for each search session.
+- Creating a dataflow that incorporates windowing to process the incoming event stream.
+- Executing the dataflow to generate actionable insights.
 
-<ul>
-  <li>Defining a data model/schema for incoming events.</li>
-  <li>Generating input data to simulate user interactions.</li>
-  <li>Implementing logic functions to calculate CTR for each search session.</li>
-  <li>Creating a dataflow that incorporates windowing to process the incoming event stream.</li>
-  <li>Executing the dataflow to generate actionable insights.</li>
-</ul>
 
 ### Assumptions
 
@@ -108,7 +101,6 @@ Once the data model is defined, we can move on to generating input data to simul
 
 The client events will constitute the data input for our dataflow, simulating user interactions with the search engine. The events will include user IDs, search queries, search results, and click activity. This data will be used to calculate the Click-Through Rate (CTR) for each search session.
 
-(xref-define-user-events)=
 
 ## Defining user events, adding events and calculating CTR
 
@@ -145,9 +137,6 @@ Complete dataflow:
 :end-before: end-dataflow
 :linenos:
 ```
-
-<details>
-  <summary>Click to expand what each step is doing</summary>
 
 
 ### Generating Input Data
