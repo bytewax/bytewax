@@ -202,7 +202,6 @@ Once the events are grouped into windows, further processing can be performed on
 ### Returning results
 
 Finally, we can add an output step to our dataflow to return the results of the CTR calculation. This step will emit the CTR for each search session, providing a comprehensive overview of user engagement with search results.
-</details>
 
 
 (xref-execution-search-logs)=
