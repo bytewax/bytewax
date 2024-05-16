@@ -35,21 +35,21 @@ This tutorial will teach you how to use Bytewax to detect and calculate the Clic
 
 ## Introduction and problem statement
 
-<details>
-  <summary>Click to expand</summary>
-<p>One of the most critical metrics in evaluating the effectiveness of online platforms, particularly search engines, is the Click-Through Rate (CTR). The CTR is a measure of how frequently users engage with search results or advertisements, making it an indispensable metric for digital marketers, web developers, and data analysts.</p>
+:::{dropdown} Click to Expand
+One of the most critical metrics in evaluating the effectiveness of online platforms, particularly search engines, is the Click-Through Rate (CTR). The CTR is a measure of how frequently users engage with search results or advertisements, making it an indispensable metric for digital marketers, web developers, and data analysts.
 
-  <p>This relevance of CTR extends to any enterprise aiming to understand user behavior, refine content relevancy, and ultimately, increase the profitability of online activities. As such, efficiently calculating and analyzing CTR is not only essential for enhancing user experience but also for driving strategic business decisions. The challenge, however, lies in accurately aggregating and processing streaming data to generate timely and actionable insights.</p>
+This relevance of CTR extends to any enterprise aiming to understand user behavior, refine content relevancy, and ultimately, increase the profitability of online activities. As such, efficiently calculating and analyzing CTR is not only essential for enhancing user experience but also for driving strategic business decisions. The challenge, however, lies in accurately aggregating and processing streaming data to generate timely and actionable insights.
 
-  <p>Our focus on developing a dataflow using Bytewax—an open-source Python framework for streaming data processing—addresses this challenge head-on. Bytewax allows for the real-time processing of large volumes of event data, which is particularly beneficial for organizations dealing with continuous streams of user interactions. This tutorial is specifically relevant for:</p>
+Our focus on developing a dataflow using Bytewax—an open-source Python framework for streaming data processing—addresses this challenge head-on. Bytewax allows for the real-time processing of large volumes of event data, which is particularly beneficial for organizations dealing with continuous streams of user interactions. This tutorial is specifically relevant for:
 
-  <ul>
-    <li>Digital Marketers: Who need to analyze user interaction to optimize ad placements and content strategy effectively.</li>
-    <li>Data Analysts and Scientists: Who require robust tools to process and interpret user data to derive insights that drive business intelligence.</li>
-    <li>Web Developers: Focused on improving site architecture and user interface to enhance user engagement and satisfaction.</li>
-    <li>Product Managers: Who oversee digital platforms and are responsible for increasing user engagement and retention through data-driven methodologies.</li>
-  </ul>
-</details>
+- Digital Marketers: Who need to analyze user interaction to optimize ad placements and content strategy effectively.
+
+- Data Analysts and Scientists: Who require robust tools to process and interpret user data to derive insights that drive business intelligence.
+
+- Web Developers: Focused on improving site architecture and user interface to enhance user engagement and satisfaction.
+
+- Product Managers: Who oversee digital platforms and are responsible for increasing user engagement and retention through data-driven methodologies.
+:::
 
 
 (xref-strategy)=
