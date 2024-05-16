@@ -111,9 +111,9 @@ op.inspect("inspect", counts.down)
 
 ### Fold window now requires a `merger` argument
 
-Fold window now requires a `merger` argument. The `merger` function
-will be called with when the session windower determines that two
-windows must be merged because a new item bridged a gap.
+{py:obj}`~bytewax.operators.windowing.fold_window` now requires a `merger` callback that takes two fully formed accumulators and combines them into one. The `merger` function
+will be called with when the windower determines that two
+windows must be merged. This most commonly happens when using the {py:obj}`~bytewax.operators.windowing.SessionWindower` and a new, out-of-order item bridges a gap.
 
 % skip: next
 
