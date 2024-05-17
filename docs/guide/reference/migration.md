@@ -347,7 +347,7 @@ def to_json(id_row: Tuple[str, Dict]) -> User:
     name, email = row
     json_obj = User(int(user_id), name, email)
     return json_obj
-    
+
 jsons = op.map("json", joined, to_json)
 op.inspect("check_json", jsons)
 op.inspect("check_join", joined)
