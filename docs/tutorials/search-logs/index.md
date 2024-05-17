@@ -161,7 +161,7 @@ After user events are mapped, typically transforming each event into a tuple of 
 :lineno-match:
 ```
 
-* The {py:obj}`~bytewax.operators.windowing.EventClock` is responsible for managing the timing and order of events as they are processed through the dataflow. It's crucial for ensuring that events are handled accurately in real-time or near-real-time streaming applications.
+* A clock defines the sense of time for the windowing operator and using an {py:obj}`~bytewax.operators.windowing.EventClock` means we want to use the timestamps embedded in the events themselves to determine ordering. This allows out-of-order events to still be processed correctly.
 
 * The {py:obj}`~bytewax.operators.windowing.SessionWindower` specifies how to group these timestamped events into sessions. A session window collects all events that occur within a specified gap of each other, allowing for dynamic window sizes based on the flow of incoming data
 
