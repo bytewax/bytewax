@@ -23,7 +23,7 @@ def _build_join_window_dataflow(
     inp_l: List[_Event],
     inp_r: List[_Event],
     out: List[Tuple[Optional[int], Optional[int]]],
-    mode: JoinMode,
+    mode: Optional[JoinMode] = None,
 ) -> Dataflow:
     flow = Dataflow("test_df")
     lefts = op.input("inp_l", flow, TestingSource(inp_l))
@@ -34,14 +34,23 @@ def _build_join_window_dataflow(
     clock = EventClock(_Event.ts_getter, wait_for_system_duration=timedelta.max)
     windower = SessionWindower(timedelta(seconds=10))
 
-    joined = win.join_window(
-        "join",
-        clock,
-        windower,
-        keyed_lefts,
-        keyed_rights,
-        mode=mode,
-    )
+    if mode is not None:
+        joined = win.join_window(
+            "join",
+            clock,
+            windower,
+            keyed_lefts,
+            keyed_rights,
+            mode=mode,
+        )
+    else:
+        joined = win.join_window(
+            "join",
+            clock,
+            windower,
+            keyed_lefts,
+            keyed_rights,
+        )
     unkeyed = op.key_rm("unkey", joined.down)
 
     def clean(
@@ -87,6 +96,25 @@ def test_join_window_final() -> None:
     out: List[Tuple[Optional[int], Optional[int]]] = []
 
     flow = _build_join_window_dataflow(inp_l, inp_r, out, "final")
+
+    run_main(flow)
+    assert out == [
+        (1, 3),
+    ]
+
+
+def test_join_window_default_mode_is_final() -> None:
+    align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    inp_l = [
+        _Event(align_to, 1),
+    ]
+    inp_r = [
+        _Event(align_to + timedelta(seconds=1), 2),
+        _Event(align_to + timedelta(seconds=2), 3),
+    ]
+    out: List[Tuple[Optional[int], Optional[int]]] = []
+
+    flow = _build_join_window_dataflow(inp_l, inp_r, out)
 
     run_main(flow)
     assert out == [

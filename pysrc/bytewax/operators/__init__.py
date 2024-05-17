@@ -1653,7 +1653,7 @@ def join(
     side2: KeyedStream[V],
     /,
     *,
-    mode: Literal["complete"],
+    mode: Literal["complete"] = ...,
 ) -> KeyedStream[Tuple[U, V]]: ...
 
 
@@ -1665,7 +1665,7 @@ def join(
     side3: KeyedStream[W],
     /,
     *,
-    mode: Literal["complete"],
+    mode: Literal["complete"] = ...,
 ) -> KeyedStream[Tuple[U, V, W]]: ...
 
 
@@ -1678,7 +1678,7 @@ def join(
     side4: KeyedStream[X],
     /,
     *,
-    mode: Literal["complete"],
+    mode: Literal["complete"] = ...,
 ) -> KeyedStream[Tuple[U, V, W, X]]: ...
 
 
@@ -1732,7 +1732,7 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[V],
-    mode: Literal["complete"],
+    mode: Literal["complete"] = ...,
 ) -> KeyedStream[Tuple[V, ...]]: ...
 
 
@@ -1748,7 +1748,7 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[Any],
-    mode: JoinMode,
+    mode: JoinMode = ...,
 ) -> KeyedStream[Tuple]: ...
 
 

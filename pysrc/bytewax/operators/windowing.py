@@ -1776,7 +1776,7 @@ def join_window(
     side1: KeyedStream[V],
     /,
     *,
-    mode: JoinMode,
+    mode: JoinMode = ...,
 ) -> WindowOut[V, Tuple[Optional[V]]]: ...
 
 
@@ -1789,7 +1789,7 @@ def join_window(
     side2: KeyedStream[V],
     /,
     *,
-    mode: JoinMode,
+    mode: JoinMode = ...,
 ) -> WindowOut[Union[U, V], Tuple[Optional[U], Optional[V]]]: ...
 
 
@@ -1803,7 +1803,7 @@ def join_window(
     side3: KeyedStream[W],
     /,
     *,
-    mode: JoinMode,
+    mode: JoinMode = ...,
 ) -> WindowOut[Union[U, V, W], Tuple[Optional[U], Optional[V], Optional[W]]]: ...
 
 
@@ -1818,7 +1818,7 @@ def join_window(
     side4: KeyedStream[X],
     /,
     *,
-    mode: JoinMode,
+    mode: JoinMode = ...,
 ) -> WindowOut[
     Union[U, V, W, X], Tuple[Optional[U], Optional[V], Optional[W], Optional[X]]
 ]: ...
@@ -1830,7 +1830,7 @@ def join_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     *sides: KeyedStream[V],
-    mode: JoinMode,
+    mode: JoinMode = ...,
 ) -> WindowOut[V, Tuple[Optional[V], ...]]: ...
 
 
@@ -1840,7 +1840,7 @@ def join_window(
     clock: Clock[Any, SC],
     windower: Windower[Any],
     *sides: KeyedStream[Any],
-    mode: JoinMode,
+    mode: JoinMode = ...,
 ) -> WindowOut[Any, Tuple]: ...
 
 
