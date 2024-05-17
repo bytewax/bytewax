@@ -33,17 +33,17 @@ class Backup(ABC):
         ...
 
     @abstractmethod
-    def upload(self, from_local: Path, to_key: str):
+    def upload(self, from_local: Path, to_key: str) -> None:
         """Upload the given file to durable storage under the name `to_key`."""
         ...
 
     @abstractmethod
-    def download(self, from_key: str, to_local: Path):
+    def download(self, from_key: str, to_local: Path) -> None:
         """Download the given key from the durable storage to a local path."""
         ...
 
     @abstractmethod
-    def delete(self, key: str):
+    def delete(self, key: str) -> None:
         """Delete the given key from durable storage.
 
         This is used for garbage collection/compaction.
@@ -62,13 +62,13 @@ class NoopBackup(Backup):
         return []
 
     @override
-    def upload(self, from_local: Path, to_key: str):
+    def upload(self, from_local: Path, to_key: str) -> None:
         pass
 
     @override
-    def download(self, from_key: str, to_local: Path):
+    def download(self, from_key: str, to_local: Path) -> None:
         pass
 
     @override
-    def delete(self, key: str):
+    def delete(self, key: str) -> None:
         pass

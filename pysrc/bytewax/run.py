@@ -29,7 +29,7 @@ __all__ = [
 ]
 
 
-def _locate_subclass(module_name: str, object_name: str, superclass: type):
+def _locate_subclass(module_name: str, object_name: str, superclass: Type[X]) -> X:
     """Import a module and try to find a Dataflow within it.
 
     Check if the given string is a variable name or a function.

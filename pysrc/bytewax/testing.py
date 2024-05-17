@@ -257,8 +257,7 @@ class TestingBackup(Backup):
 
     @override
     def list_keys(self) -> List[str]:
-        glob_str = self.path / "*"
-        return glob.glob(f"{glob_str}")
+        return [path.name for path in self.path.iterdir()]
 
     @override
     def upload(self, from_local: Union[str, Path], to_key: str):
