@@ -15,7 +15,7 @@ This tutorial will teach you how to use Bytewax to detect and calculate the Clic
 
 <gh-path:/docs/tutorials/search-logs/dataflow.py>
 
-## Introduction and problem statement
+## Introduction and Problem Statement
 
 One of the most critical metrics in evaluating the effectiveness of online platforms, particularly search engines, is the Click-Through Rate (CTR). The CTR is a measure of how frequently users engage with search results or advertisements, making it an indispensable metric for digital marketers, web developers, and data analysts.
 
