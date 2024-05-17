@@ -50,10 +50,6 @@ The key steps involved in this process include:
 - Searches don't span user sessions, so we should calculate user sessions first.
 - Sessions without a search shouldn't contribute.
 - Calculate one metric: **click through rate** (or **CTR**), if a user clicked on any result in a search.
-
-</details>
-
-
 ## Imports and Setup
 
 Before we begin, let's import the necessary modules and set up the environment for building the dataflow.
