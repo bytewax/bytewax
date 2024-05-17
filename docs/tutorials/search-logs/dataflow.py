@@ -21,6 +21,11 @@ from bytewax.testing import TestingSource
 
 # end-imports
 
+# start-dataflow
+# Create and configure the Dataflow
+flow = Dataflow("search_ctr")
+# end-dataflow
+
 
 # start-dataclasses
 @dataclass
@@ -100,6 +105,11 @@ client_events = [
 ]
 # end-simulated-events
 
+# start-feed-input
+# Feed input data
+inp = op.input("inp", flow, TestingSource(client_events))
+# end-feed-input
+
 
 # start-user-event
 def user_event(event):
@@ -107,6 +117,8 @@ def user_event(event):
     return str(event.user), event
 
 
+# Map the user event function to the input
+user_event_map = op.map("user_event", inp, user_event)
 # end-user-event
 
 
@@ -126,16 +138,7 @@ def calc_ctr(window_out):
 
 # end-calc-ctr
 
-# start-dataflow
-# Create and configure the Dataflow
-flow = Dataflow("search_ctr")
-
-# Feed input data
-inp = op.input("inp", flow, TestingSource(client_events))
-
-# Map the user event function to the input
-user_event_map = op.map("user_event", inp, user_event)
-
+# start-windowing
 # Configure the event clock and session windower
 event_time_config: EventClock = EventClock(
     ts_getter=lambda e: e.time, wait_for_system_duration=timedelta(seconds=1)
@@ -146,11 +149,15 @@ clock_config = SessionWindower(gap=timedelta(seconds=10))
 window = win.collect_window(
     "windowed_data", user_event_map, clock=event_time_config, windower=clock_config
 )
+# end-windowing
 
+# start-calc-map
 # Calculate the click-through rate using the
 # calc_ctr function and the windowed data
 calc = op.map("calc_ctr", window.down, calc_ctr)
+# end-calc-map
 
+# start-output
 # Output the results to the standard output
 op.output("out", calc, StdOutSink())
-# end-dataflow
+# end-output

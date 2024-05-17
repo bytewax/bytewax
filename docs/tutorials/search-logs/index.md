@@ -73,6 +73,18 @@ Now, let's import the required modules and set up the environment for building t
 :linenos:
 ```
 
+## Creating our Dataflow
+
+A dataflow is the unit of work in Bytewax. Dataflows are data-parallel directed acyclic graphs that are made up of processing steps. Each step in the dataflow is an operator that processes data in some way. In this example, we will create a dataflow to process the incoming event stream and calculate the Click-Through Rate (CTR) for each search session.
+
+We can initialize the dataflow as follows:
+
+```{literalinclude} dataflow.py
+:language: python
+:start-after: start-dataflow
+:end-before: end-dataflow
+:linenos:
+```
 
 ## Data Model
 
@@ -101,10 +113,18 @@ Once the data model is defined, we can move on to generating input data to simul
 
 The client events will constitute the data input for our dataflow, simulating user interactions with the search engine. The events will include user IDs, search queries, search results, and click activity. This data will be used to calculate the Click-Through Rate (CTR) for each search session.
 
+Once the events have been created, we can add them to the dataflow as input data. This will allow us to process the events and calculate the CTR for each search session.
 
-## Defining user events, adding events and calculating CTR
+Bytewax has a {py:obj}`~bytewax.testing.TestingSource` class that takes an enumerable list of events that it will emit, one at a time into our dataflow. {py:obj}`~bytewax.testing.TestingSource` will be initialized with the list of events we created earlier in the variable `client_events`. This will be our input source for the dataflow.
 
-We will define three helper functions: `user_event`,  and `calculate_ctr` to process the incoming events and calculate the CTR for each search session.
+```{literalinclude} dataflow.py
+:language: python
+:start-after: start-feed-input
+:end-before: end-feed-input
+:linenos:
+```
+
+The next step is to define the logic functions that will process the incoming events and calculate the CTR for each search session. We will define two helper functions: `user_event`, and `calculate_ctr`, these functions will be used to process the incoming events and calculate the CTR for each search session.
 
 1. The `user_event` function will extract the user ID from the incoming event and use it as the key for grouping the events by user.
 
@@ -115,6 +135,9 @@ We will define three helper functions: `user_event`,  and `calculate_ctr` to pro
 :linenos:
 ```
 
+All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which we've imported here by a shorter name, `op`. We are using the {py:obj}`~bytewax.operators.map` operator - it takes each event from the input and applies the `user_event` function. This function is transforming each event into a format suitable for grouping by user (key-value pairs where the key is the user ID).
+
+
 2. The `calculate_ctr` function will calculate the Click-Through Rate (CTR) for each search session based on the click activity in the session.
 
 ```{literalinclude} dataflow.py
@@ -124,49 +147,46 @@ We will define three helper functions: `user_event`,  and `calculate_ctr` to pro
 :linenos:
 ```
 
-
-## Creating our Dataflow
-
-A dataflow is the unit of work in Bytewax. Dataflows are data-parallel directed acyclic graphs that are made up of processing steps. Each step in the dataflow is an operator that processes data in some way. In this example, we will create a dataflow to process the incoming event stream and calculate the Click-Through Rate (CTR) for each search session.
-
-Complete dataflow:
-
-```{literalinclude} dataflow.py
-:language: python
-:start-after: start-dataflow
-:end-before: end-dataflow
-:linenos:
-```
-
-
-### Generating Input Data
-
-Bytewax has a {py:obj}`~bytewax.testing.TestingSource` class that takes an enumerable list of events that it will emit, one at a time into our dataflow. {py:obj}`~bytewax.testing.TestingSource` will be initialized with the list of events we created earlier in the variable `client_events`. This will be our input source for the dataflow.
-
-
-### Mapping user events
-
-All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which we've imported here by a shorter name, `op`. We are using the {py:obj}`~bytewax.operators.map` operator - it takes each event from the input and applies the `user_event` function. This function is transforming each event into a format suitable for grouping by user (key-value pairs where the key is the user ID).
-
-
-### The role of windowed data in analysis for CTR
-
 We will now turn our attention to windowing the data. In a dataflow pipeline, the role of collecting windowed data, particularly after mapping user events, is crucial for segmenting the continuous stream of events into manageable, discrete chunks based on time or event characteristics. This step enables the aggregation and analysis of events within specific time frames or sessions, which is essential for understanding patterns, behaviors, and trends over time.
 
 After user events are mapped, typically transforming each event into a tuple of (user_id, event_data), the next step is to group these events into windows. In this example, we will use a {py:obj}`~bytewax.operators.windowing.SessionWindower` to group events by user sessions. We will also use an {py:obj}`~bytewax.operators.windowing.EventClock` to manage the timing and order of events as they are processed through the dataflow.
 
 
-* The `EventClockConfig` is responsible for managing the timing and order of events as they are processed through the dataflow. It's crucial for ensuring that events are handled accurately in real-time or near-real-time streaming applications.
 
-* The `SessionWindow` specifies how to group these timestamped events into sessions. A session window collects all events that occur within a specified gap of each other, allowing for dynamic window sizes based on the flow of incoming data
+```{literalinclude} dataflow.py
+:language: python
+:start-after: start-windowing
+:end-before: end-windowing
+:linenos:
+```
+
+* The {py:obj}`~bytewax.operators.windowing.EventClock` is responsible for managing the timing and order of events as they are processed through the dataflow. It's crucial for ensuring that events are handled accurately in real-time or near-real-time streaming applications.
+
+* The {py:obj}`~bytewax.operators.windowing.SessionWindower` specifies how to group these timestamped events into sessions. A session window collects all events that occur within a specified gap of each other, allowing for dynamic window sizes based on the flow of incoming data
 
 These configurations ensure that your dataflow can handle streaming data effectively, capturing user behavior in sessions and calculating relevant metrics like CTR in a way that is timely and reflective of actual user interactions. This setup is ideal for scenarios where user engagement metrics over time are critical, such as in digital marketing analysis, website optimization, or interactive application monitoring.
 
 Once the events are grouped into windows, further processing can be performed on these grouped events, such as calculating metrics like CTR within each session. This step often involves applying additional functions to the windowed data to extract insights, such as counting clicks and searches to compute the CTR.
 
+We can apply the `calculate_ctr` function to the windowed data to calculate the CTR for each search session. This step will provide a comprehensive overview of user engagement with search results, enabling data analysts, marketers, and developers to evaluate the effectiveness of search algorithms, content relevance, and user experience.
+
+```{literalinclude} dataflow.py
+:language: python
+:start-after: start-calc-map
+:end-before: end-calc-map
+:linenos:
+```
+
 ### Returning results
 
 Finally, we can add an output step to our dataflow to return the results of the CTR calculation. This step will emit the CTR for each search session, providing a comprehensive overview of user engagement with search results.
+
+```{literalinclude} dataflow.py
+:language: python
+:start-after: start-output
+:end-before: end-output
+:linenos:
+```
 
 ## Execution
 
