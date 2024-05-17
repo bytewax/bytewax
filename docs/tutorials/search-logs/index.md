@@ -60,8 +60,9 @@ Before we begin, let's import the necessary modules and set up the environment f
 
 Complete installation - we recommend using a virtual environment to manage your Python dependencies. You can install Bytewax using pip:
 
-```console
-pip install bytewax
+```{code-block} console
+:substitutions:
+$ pip install bytewax==0.19
 ```
 
 Now, let's import the required modules and set up the environment for building the dataflow.
