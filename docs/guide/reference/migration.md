@@ -334,9 +334,22 @@ emails_l = [
 emails = op.input("emails", flow, TestingSource(emails_l))
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
-joined = op.join("join", keyed_names, keyed_emails, mode="complete").then(
-    op.map_value, "to_dict", lambda x: dict(zip(["name", "email"], x))
-)
+joined = op.join("join", keyed_names, keyed_emails)
+
+class User(TypedDict):
+    user_id: int
+    name: str
+    email: str
+
+def to_json(id_row: Tuple[str, Dict]) -> User:
+    user_id, row = id_row
+    # To convert to plain `join`, each row is a tuple, and you'd unpack values.
+    name, email = row
+    json_obj = User(int(user_id), name, email)
+    return json_obj
+    
+jsons = op.map("json", joined, to_json)
+op.inspect("check_json", jsons)
 op.inspect("check_join", joined)
 ```
 
