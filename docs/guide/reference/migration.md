@@ -112,7 +112,7 @@ op.inspect("new_output", counts.down)
 keyed_metadata = op.map_value("k_md", counts.meta, lambda x: x[1])
 keyed_counts = op.map_value("k_count", counts.down, lambda x: x[1])
 # Returning the old output ('user', (WindowMetadata(..), count_per_window))
-joined_meta = op.join("joined_output", keyed_metadata, keyed_counts, mode="complete")
+joined_meta = op.join("joined_output", keyed_metadata, keyed_counts)
 op.inspect("old_output", joined_meta)
 ```
 
@@ -309,7 +309,7 @@ emails_l = [
 emails = op.input("emails", flow, TestingSource(emails_l))
 keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
-joined = op.join_named("join", name=keyed_names, email=keyed_emails, mode="complete")
+joined = op.join_named("join", name=keyed_names, email=keyed_emails)
 op.inspect("check_join", joined)
 ```
 
