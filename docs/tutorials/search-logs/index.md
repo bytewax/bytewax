@@ -62,7 +62,7 @@ Complete installation - we recommend using a virtual environment to manage your 
 
 ```{code-block} console
 :substitutions:
-$ pip install bytewax==0.19
+$ pip install bytewax==|version|
 ```
 
 Now, let's import the required modules and set up the environment for building the dataflow.
