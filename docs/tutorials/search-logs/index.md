@@ -71,7 +71,7 @@ Now, let's import the required modules and set up the environment for building t
 :language: python
 :start-after: start-imports
 :end-before: end-imports
-:linenos:
+:lineno-match:
 ```
 
 ## Creating our Dataflow
@@ -84,7 +84,7 @@ We can initialize the dataflow as follows:
 :language: python
 :start-after: start-dataflow
 :end-before: end-dataflow
-:linenos:
+:lineno-match:
 ```
 
 ## Data Model
@@ -98,7 +98,7 @@ Let's start by defining a data model/schema for our incoming events. We'll make 
 :language: python
 :start-after: start-dataclasses
 :end-before: end-dataclasses
-:linenos:
+:lineno-match:
 ```
 
 In a production system, these might come from external schema or be auto generated.
@@ -109,7 +109,7 @@ Once the data model is defined, we can move on to generating input data to simul
 :language: python
 :start-after: start-simulated-events
 :end-before: end-simulated-events
-:linenos:
+:lineno-match:
 ```
 
 The client events will constitute the data input for our dataflow, simulating user interactions with the search engine. The events will include user IDs, search queries, search results, and click activity. This data will be used to calculate the Click-Through Rate (CTR) for each search session.
@@ -122,7 +122,7 @@ Bytewax has a {py:obj}`~bytewax.testing.TestingSource` class that takes an enume
 :language: python
 :start-after: start-feed-input
 :end-before: end-feed-input
-:linenos:
+:lineno-match:
 ```
 
 The next step is to define the logic functions that will process the incoming events and calculate the CTR for each search session. We will define two helper functions: `user_event`, and `calculate_ctr`, these functions will be used to process the incoming events and calculate the CTR for each search session.
@@ -133,7 +133,7 @@ The next step is to define the logic functions that will process the incoming ev
 :language: python
 :start-after: start-user-event
 :end-before: end-user-event
-:linenos:
+:lineno-match:
 ```
 
 All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which we've imported here by a shorter name, `op`. We are using the {py:obj}`~bytewax.operators.map` operator - it takes each event from the input and applies the `user_event` function. This function is transforming each event into a format suitable for grouping by user (key-value pairs where the key is the user ID).
@@ -145,7 +145,7 @@ All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which 
 :language: python
 :start-after: start-calc-ctr
 :end-before: end-calc-ctr
-:linenos:
+:lineno-match:
 ```
 
 We will now turn our attention to windowing the data. In a dataflow pipeline, the role of collecting windowed data, particularly after mapping user events, is crucial for segmenting the continuous stream of events into manageable, discrete chunks based on time or event characteristics. This step enables the aggregation and analysis of events within specific time frames or sessions, which is essential for understanding patterns, behaviors, and trends over time.
@@ -158,7 +158,7 @@ After user events are mapped, typically transforming each event into a tuple of 
 :language: python
 :start-after: start-windowing
 :end-before: end-windowing
-:linenos:
+:lineno-match:
 ```
 
 * The {py:obj}`~bytewax.operators.windowing.EventClock` is responsible for managing the timing and order of events as they are processed through the dataflow. It's crucial for ensuring that events are handled accurately in real-time or near-real-time streaming applications.
@@ -175,7 +175,7 @@ We can apply the `calculate_ctr` function to the windowed data to calculate the 
 :language: python
 :start-after: start-calc-map
 :end-before: end-calc-map
-:linenos:
+:lineno-match:
 ```
 
 ### Returning results
@@ -186,7 +186,7 @@ Finally, we can add an output step to our dataflow to return the results of the 
 :language: python
 :start-after: start-output
 :end-before: end-output
-:linenos:
+:lineno-match:
 ```
 
 ## Execution
