@@ -3,20 +3,10 @@
 import argparse
 from pathlib import Path
 
-from bytewax._bytewax import (
-    InconsistentPartitionsError,
-    MissingPartitionsError,
-    NoPartitionsError,
-    RecoveryConfig,
-    init_db_dir,
-)
+from bytewax._bytewax import RecoveryConfig
 
 __all__ = [
-    "InconsistentPartitionsError",
-    "NoPartitionsError",
-    "MissingPartitionsError",
     "RecoveryConfig",
-    "init_db_dir",
 ]
 
 
@@ -42,4 +32,3 @@ def _parse_args():
 
 if __name__ == "__main__":
     args = _parse_args()
-    init_db_dir(args.db_dir, args.part_count)
