@@ -316,6 +316,8 @@ op.inspect("check_join", joined)
 After:
 
 ```{testcode}
+from typing import Dict, Tuple, TypedDict
+
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSource
@@ -336,21 +338,23 @@ keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]
 keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
 joined = op.join("join", keyed_names, keyed_emails)
 
+
 class User(TypedDict):
     user_id: int
     name: str
     email: str
 
+
 def to_json(id_row: Tuple[str, Dict]) -> User:
     user_id, row = id_row
     # To convert to plain `join`, each row is a tuple, and you'd unpack values.
     name, email = row
-    json_obj = User(int(user_id), name, email)
+    json_obj = User(user_id=int(user_id), name=name, email=email)
     return json_obj
+
 
 jsons = op.map("json", joined, to_json)
 op.inspect("check_json", jsons)
-op.inspect("check_join", joined)
 ```
 
 ## From v0.18 to v0.19
