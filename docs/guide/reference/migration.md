@@ -250,34 +250,48 @@ op.inspect("insp", joined)
 After:
 
 ```{testcode}
+from datetime import datetime, timedelta, timezone
+
 import bytewax.operators as op
+import bytewax.operators.windowing as win
 from bytewax.dataflow import Dataflow
+from bytewax.operators.windowing import EventClock, TumblingWindower
 from bytewax.testing import TestingSource
+from typing import Tuple, Any
 
-flow = Dataflow("join_eg")
-
-names_l = [
-    {"user_id": 123, "name": "Bee"},
-    {"user_id": 456, "name": "Hive"},
+align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+events = [
+    {"user": "a", "val": 1, "timestamp": align_to + timedelta(seconds=0)},
+    {"user": "a", "val": 1, "timestamp": align_to + timedelta(seconds=1)},
+    {"user": "b", "val": 1, "timestamp": align_to + timedelta(seconds=3)},
 ]
 
-names = op.input("names", flow, TestingSource(names_l))
+flow = Dataflow("count")
+inp = op.input("inp", flow, TestingSource(events))
+clock = EventClock(lambda x: x["timestamp"], wait_for_system_duration=timedelta(seconds=0))
+counts = win.count_window(
+    "count",
+    inp,
+    clock,
+    TumblingWindower(
+        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ),
+    lambda x: x["user"],
+)
+# Returning just the counts per window: ('user', (window_id, count_per_window))
+op.inspect("new_output", counts.down)
 
+def join_window_id(window_out: Tuple[str, Tuple[int, Any]]) -> Tuple[str, Any]:
+    (user_id, (window_id, count)) = window_out
+    return (f"{user_id}:{window_id}", count)
 
-emails_l = [
-    {"user_id": 123, "email": "bee@bytewax.io"},
-    {"user_id": 456, "email": "hive@bytewax.io"},
-    {"user_id": 123, "email": "queen@bytewax.io"},
-]
-
-emails = op.input("emails", flow, TestingSource(emails_l))
-
-
-keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
-keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
-
-joined = op.join("join", keyed_names, keyed_emails, mode="running")
-op.inspect("insp", joined)
+# Re-key each stream by user-id:window-id
+keyed_metadata = op.map("k_md", counts.meta, join_window_id)
+keyed_counts = op.map("k_count", counts.down, join_window_id)
+# Join the output of the window and the metadata stream on user-id:window-id
+joined_meta = op.join("joined_output", keyed_metadata, keyed_counts)
+user_output = op.map("reformat-out", joined_meta, lambda x: (x[0].split(":")[0], x[1]))
+op.inspect("old_output", user_output)
 ```
 
 ### Removal of `join_named` and `join_window_named`
@@ -316,7 +330,7 @@ op.inspect("check_join", joined)
 After:
 
 ```{testcode}
-from typing import Dict, Tuple, TypedDict
+from typing import Dict, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -327,34 +341,30 @@ names_l = [
     {"user_id": 123, "name": "Bee"},
     {"user_id": 456, "name": "Hive"},
 ]
-names = op.input("names", flow, TestingSource(names_l))
 emails_l = [
     {"user_id": 123, "email": "bee@bytewax.io"},
     {"user_id": 456, "email": "hive@bytewax.io"},
     {"user_id": 123, "email": "queen@bytewax.io"},
 ]
+
+def id_field(field_name: str, x: Dict) -> Tuple[str, str]:
+    return (str(x["user_id"]), x[field_name])
+
+names = op.input("names", flow, TestingSource(names_l))
 emails = op.input("emails", flow, TestingSource(emails_l))
-keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
-keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
+keyed_names = op.map("key_names", names, lambda x: id_field("name", x))
+keyed_emails = op.map("key_emails", emails, lambda x: id_field("email", x))
 joined = op.join("join", keyed_names, keyed_emails)
+op.inspect("join_returns_tuples", joined)
 
-
-class User(TypedDict):
-    user_id: int
-    name: str
-    email: str
-
-
-def to_json(id_row: Tuple[str, Dict]) -> User:
+def as_dict(id_row: Tuple[str, Tuple[str, str]]) -> Dict:
     user_id, row = id_row
-    # To convert to plain `join`, each row is a tuple, and you'd unpack values.
+    # Unpack the tuple values in the id_row, and create the completed dict
     name, email = row
-    json_obj = User(user_id=int(user_id), name=name, email=email)
-    return json_obj
+    return {"user_id": int(user_id), "name": name, "email": email}
 
-
-jsons = op.map("json", joined, to_json)
-op.inspect("check_json", jsons)
+dicts = op.map("as_dict", joined, as_dict)
+op.inspect("inspect", dicts)
 ```
 
 ## From v0.18 to v0.19
