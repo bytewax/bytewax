@@ -68,6 +68,25 @@ def _build_join_window_dataflow(
     return flow
 
 
+def test_join_window_first_complete() -> None:
+    align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    inp_l = [
+        _Event(align_to, 1),
+    ]
+    inp_r = [
+        _Event(align_to + timedelta(seconds=2), 3),
+        _Event(align_to + timedelta(seconds=1), 2),
+    ]
+    out: List[Tuple[Optional[int], Optional[int]]] = []
+
+    flow = _build_join_window_dataflow(inp_l, inp_r, out, "first", "complete")
+
+    run_main(flow)
+    assert out == [
+        (1, 2),
+    ]
+
+
 def test_join_window_last_complete() -> None:
     align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
     inp_l = [

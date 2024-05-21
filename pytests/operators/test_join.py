@@ -78,6 +78,19 @@ def test_join_default_is_last_complete() -> None:
     ]
 
 
+def test_join_first_final() -> None:
+    inp_l = [1]
+    inp_r = [2, 3]
+    out: List[Tuple[Optional[int], Optional[int]]] = []
+
+    flow = _build_join_dataflow(inp_l, inp_r, out, "first", "final")
+
+    run_main(flow)
+    assert out == [
+        (1, 2),
+    ]
+
+
 def test_join_last_final() -> None:
     inp_l = [1]
     inp_r = [2, 3]
