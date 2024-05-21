@@ -1,6 +1,7 @@
 """Time-based windowing operators."""
 
 import copy
+import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -1615,9 +1616,6 @@ class _JoinWindowLogic(WindowLogic[Tuple[int, V], Tuple, _JoinState]):
             self.state.set_val(join_side, join_value)
         elif self.insert_mode == "product":
             self.state.add_val(join_side, join_value)
-        else:
-            msg = f"unknown join insert mode {self.insert_mode!r}"
-            raise ValueError(msg)
 
         return self._check_emit()
 
@@ -1633,9 +1631,6 @@ class _JoinWindowLogic(WindowLogic[Tuple[int, V], Tuple, _JoinState]):
             self.state = original.state
         elif self.insert_mode == "product":
             self.state += original.state
-        else:
-            msg = f"unknown join insert mode {self.insert_mode!r}"
-            raise ValueError(msg)
 
         return self._check_emit()
 
@@ -1827,6 +1822,13 @@ def join_window(
         are emitted.
 
     """
+    if insert_mode not in typing.get_args(JoinInsertMode):
+        msg = f"unknown join insert mode {insert_mode!r}"
+        raise ValueError(msg)
+    if emit_mode not in typing.get_args(JoinEmitMode):
+        msg = f"unknown join emit mode {emit_mode!r}"
+        raise ValueError(msg)
+
     side_count = len(sides)
 
     merged = op._join_label_merge("add_names", *sides)

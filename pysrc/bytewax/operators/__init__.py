@@ -7,6 +7,7 @@ dataflows.
 
 import copy
 import itertools
+import typing
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -1579,9 +1580,6 @@ class _JoinLogic(StatefulLogic[Tuple[int, Any], Tuple, _JoinState]):
             self.state.set_val(join_side, join_value)
         elif self.insert_mode == "product":
             self.state.add_val(join_side, join_value)
-        else:
-            msg = f"unknown join insert mode {self.insert_mode!r}"
-            raise ValueError(msg)
 
         if self.emit_mode == "complete" and self.state.all_set():
             return (self.state.astuples(), StatefulLogic.DISCARD)
@@ -1762,6 +1760,13 @@ def join(
         emitted.
 
     """
+    if insert_mode not in typing.get_args(JoinInsertMode):
+        msg = f"unknown join insert mode {insert_mode!r}"
+        raise ValueError(msg)
+    if emit_mode not in typing.get_args(JoinEmitMode):
+        msg = f"unknown join emit mode {emit_mode!r}"
+        raise ValueError(msg)
+
     side_count = len(sides)
 
     def shim_builder(
