@@ -435,7 +435,7 @@ class WindowMetadata:
     close_time: datetime
     """The timestamp this window closed."""
     merged_ids: Set[int] = field(default_factory=set)
-    """Any window IDs that were eventually merged into this window."""
+    """Any original window IDs merged into this window before close."""
 
 
 class WindowerLogic(ABC, Generic[S]):
@@ -505,9 +505,8 @@ class WindowerLogic(ABC, Generic[S]):
         items.
 
         You only need to report a merge once. After a window ID has
-        been returned as an original window, that ID will not be
-        passed to {py:obj}`~WindowerLogic.metadata_for` nor does it
-        need to be reported as closed.
+        been returned as an original window, that ID does not need to
+        be reported as closed.
 
         :returns: An iterable of 2-tuples of `(original_window_id,
             target_window_id)`.
@@ -530,7 +529,8 @@ class WindowerLogic(ABC, Generic[S]):
             regress across calls.
 
 
-        :returns: A list of now closed window IDs.
+        :returns: A list of now closed window IDs and the their final
+            metadata.
 
         """
         ...
@@ -1206,10 +1206,10 @@ class WindowOut(Generic[V, W_co]):
     meta: KeyedStream[Tuple[int, WindowMetadata]]
     """Metadata about closed windows.
 
-    Emitted once when that window closes. Not emitted for windows that
-    are merged into another window. The surviving window's
+    Emitted once when that window closes. Not emitted for original
+    windows that are merged into another window. The target window's
     {py:obj}{py:obj}`~bytewax.operators.windowing.WindowMetadata` will
-    have the merged window ID in
+    have the original window IDs in
     {py:obj}`~bytewax.operators.windowing.WindowMetadata.merged_ids`.
 
     Sub-keyed by window ID.
