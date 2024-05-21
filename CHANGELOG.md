@@ -61,8 +61,8 @@ notes on GitHub when we make a new release.__
 
 - *Breaking change* {py:obj}`~bytewax.operators.join` and
   {py:obj}`~bytewax.operators.windowing.join_window` have had their
-  `product` argument replaced with `mode`. You now can specify more
-  nuanced kinds of join modes.
+  `product` argument replaced with `insert_mode`. You now can specify
+  more nuanced kinds of join modes.
 
 - Python interfaces are now provided for custom clocks and windowers.
   Subclass {py:obj}`~bytewax.operators.windowing.Clock` (and a
@@ -75,6 +75,10 @@ notes on GitHub when we make a new release.__
   allow you to write more flexible custom windowing operators.
 
 - Session windows now work correctly with out-of-order data and joins.
+
+- {py:obj}`~bytewax.operators.windowing.WindowMetadata` now contains a
+  {py:obj}`~bytewax.operators.windowing.WindowMetadata.merged_ids`
+  field with any window IDs that were merged into this window.
 
 - All windowing operators now process items in timestamp order. The
   most visible change that this results in is that the

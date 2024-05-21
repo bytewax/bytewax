@@ -35,7 +35,8 @@ from bytewax.operators import (
     _EMPTY,
     DK,
     DV,
-    JoinMode,
+    JoinEmitMode,
+    JoinInsertMode,
     KeyedStream,
     S,
     StatefulBatchLogic,
@@ -432,6 +433,8 @@ class WindowMetadata:
     """The timestamp this window opened."""
     close_time: datetime
     """The timestamp this window closed."""
+    merged_ids: Set[int] = field(default_factory=set)
+    """Any window IDs that were eventually merged into this window."""
 
 
 class WindowerLogic(ABC, Generic[S]):
@@ -512,23 +515,7 @@ class WindowerLogic(ABC, Generic[S]):
         ...
 
     @abstractmethod
-    def metadata_for(self, window_id: int) -> WindowMetadata:
-        """Return metadata about an open window.
-
-        Called when encountering a new window or there was an
-        indication the window boundaries may have changed due to a
-        merge.
-
-        :arg window_id: Open window ID. Will never be a window that
-            has been closed.
-
-        :returns: Metadata for this window.
-
-        """
-        ...
-
-    @abstractmethod
-    def close_for(self, watermark: datetime) -> Iterable[int]:
+    def close_for(self, watermark: datetime) -> Iterable[Tuple[int, WindowMetadata]]:
         """Report what windows are now closed.
 
         Called periodically once the watermark has advanced.
@@ -670,17 +657,13 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
         return _EMPTY
 
     @override
-    def metadata_for(self, window_id: int) -> WindowMetadata:
-        return self.state.opened[window_id]
-
-    @override
-    def close_for(self, watermark: datetime) -> Iterable[int]:
+    def close_for(self, watermark: datetime) -> Iterable[Tuple[int, WindowMetadata]]:
         closed = [
-            window_id
+            (window_id, meta)
             for window_id, meta in self.state.opened.items()
             if meta.close_time <= watermark
         ]
-        for window_id in closed:
+        for window_id, _meta in closed:
             del self.state.opened[window_id]
 
         return closed
@@ -736,6 +719,7 @@ def _session_find_merges(
             # be fully within the last window).
             last_meta.close_time = max(last_meta.close_time, this_meta.close_time)
             merge_queue.append((this_id, last_window_id))
+            last_meta.merged_ids.add(this_id)
             del sessions[this_id]
         else:
             # If they don't merge, this current window is now
@@ -803,21 +787,17 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
         return merged
 
     @override
-    def metadata_for(self, window_id: int) -> WindowMetadata:
-        return self.state.sessions[window_id]
-
-    @override
-    def close_for(self, watermark: datetime) -> Iterable[int]:
+    def close_for(self, watermark: datetime) -> Iterable[Tuple[int, WindowMetadata]]:
         try:
             close_after = watermark - self.gap
         except OverflowError:
             close_after = UTC_MIN
         closed = [
-            window_id
+            (window_id, meta)
             for window_id, meta in self.state.sessions.items()
             if meta.close_time < close_after
         ]
-        for window_id in closed:
+        for window_id, _meta in closed:
             del self.state.sessions[window_id]
 
         return closed
@@ -1107,7 +1087,6 @@ class _WindowLogic(
                 else:
                     logic = self.builder(None)
                     self.logics[window_id] = logic
-                    yield (window_id, "M", self.windower.metadata_for(window_id))
 
                 ws = logic.on_value(value)
                 yield from ((window_id, "E", w) for w in ws)
@@ -1120,13 +1099,13 @@ class _WindowLogic(
                 ws = into_logic.on_merge(orig_logic)
                 yield from ((targ_window_id, "E", w) for w in ws)
 
-            yield (targ_window_id, "M", self.windower.metadata_for(targ_window_id))
-
     def _handle_closed(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
-        for window_id in self.windower.close_for(watermark):
+        for window_id, meta in self.windower.close_for(watermark):
             logic = self.logics.pop(window_id)
             ws = logic.on_close()
             yield from ((window_id, "E", w) for w in ws)
+
+            yield (window_id, "M", meta)
 
     def _flush_queue(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
         if self.ordered:
@@ -1218,15 +1197,19 @@ class WindowOut(Generic[V, W_co]):
     """Upstreams items that were deemed late for a window.
 
     It's possible you will see window IDs here that were never in the
-    `down` stream, depending on the specifics of the ordering of the
-    data.
+    `down` or `meta` streams, depending on the specifics of the
+    ordering of the data.
 
     Sub-keyed by window ID."""
 
     meta: KeyedStream[Tuple[int, WindowMetadata]]
-    """Metadata about opened windows.
+    """Metadata about closed windows.
 
-    Will contain updates to metadata if merges occur.
+    Emitted once when that window closes. Not emitted for windows that
+    are merged into another window. The surviving window's
+    {py:obj}{py:obj}`~bytewax.operators.windowing.WindowMetadata` will
+    have the merged window ID in
+    {py:obj}`~bytewax.operators.windowing.WindowMetadata.merged_ids`.
 
     Sub-keyed by window ID.
     """
@@ -1607,107 +1590,61 @@ def fold_window(
 
 
 @dataclass
-class _JoinWindowCompleteLogic(WindowLogic[Tuple[int, V], Tuple, _JoinState]):
+class _JoinWindowLogic(WindowLogic[Tuple[int, V], Tuple, _JoinState]):
+    insert_mode: JoinInsertMode
+    emit_mode: JoinEmitMode
+
     state: _JoinState
 
-    @override
-    def on_value(self, value: Tuple[int, V]) -> Iterable[Tuple]:
-        join_side, join_value = value
-        self.state.set_val(join_side, join_value)
-
-        if self.state.all_set():
+    def _check_emit(self) -> Iterable[Tuple]:
+        if self.emit_mode == "complete" and self.state.all_set():
             rows = self.state.astuples()
             self.state.clear()
             return rows
+        elif self.emit_mode == "running":
+            return self.state.astuples()
         else:
             return _EMPTY
 
     @override
-    def on_merge(self, original: Self) -> Iterable[Tuple]:
-        self.state |= original.state
+    def on_value(self, value: Tuple[int, V]) -> Iterable[Tuple]:
+        join_side, join_value = value
+        if self.insert_mode == "first" and not self.state.is_set(join_side):
+            self.state.set_val(join_side, join_value)
+        elif self.insert_mode == "last":
+            self.state.set_val(join_side, join_value)
+        elif self.insert_mode == "product":
+            self.state.add_val(join_side, join_value)
+        else:
+            msg = f"unknown join insert mode {self.insert_mode!r}"
+            raise ValueError(msg)
 
-        if self.state.all_set():
-            rows = self.state.astuples()
-            self.state.clear()
-            return rows
+        return self._check_emit()
+
+    @override
+    def on_merge(self, original: Self) -> Iterable[Tuple]:
+        if self.insert_mode == "first":
+            # Since `self` is the "older" window, only overwrites the
+            # current values if they don't exist.
+            self.state |= original.state
+        elif self.insert_mode == "last":
+            # Do the opposite.
+            original.state |= self.state
+            self.state = original.state
+        elif self.insert_mode == "product":
+            self.state += original.state
+        else:
+            msg = f"unknown join insert mode {self.insert_mode!r}"
+            raise ValueError(msg)
+
+        return self._check_emit()
+
+    @override
+    def on_close(self) -> Iterable[Tuple]:
+        if self.emit_mode == "final":
+            return self.state.astuples()
         else:
             return _EMPTY
-
-    @override
-    def on_close(self) -> Iterable[Tuple]:
-        return _EMPTY
-
-    @override
-    def snapshot(self) -> _JoinState:
-        return copy.deepcopy(self.state)
-
-
-@dataclass
-class _JoinWindowFinalLogic(WindowLogic[Tuple[int, V], Tuple, _JoinState]):
-    state: _JoinState
-
-    @override
-    def on_value(self, value: Tuple[int, V]) -> Iterable[Tuple]:
-        join_side, join_value = value
-        self.state.set_val(join_side, join_value)
-        return _EMPTY
-
-    @override
-    def on_merge(self, original: Self) -> Iterable[Tuple]:
-        self.state |= original.state
-        return _EMPTY
-
-    @override
-    def on_close(self) -> Iterable[Tuple]:
-        return self.state.astuples()
-
-    @override
-    def snapshot(self) -> _JoinState:
-        return copy.deepcopy(self.state)
-
-
-@dataclass
-class _JoinWindowRunningLogic(WindowLogic[Tuple[int, V], Tuple, _JoinState]):
-    state: _JoinState
-
-    @override
-    def on_value(self, value: Tuple[int, V]) -> Iterable[Tuple]:
-        join_side, join_value = value
-        self.state.set_val(join_side, join_value)
-        return self.state.astuples()
-
-    @override
-    def on_merge(self, original: Self) -> Iterable[Tuple]:
-        self.state |= original.state
-        return self.state.astuples()
-
-    @override
-    def on_close(self) -> Iterable[Tuple]:
-        return _EMPTY
-
-    @override
-    def snapshot(self) -> _JoinState:
-        return copy.deepcopy(self.state)
-
-
-@dataclass
-class _JoinWindowProductLogic(WindowLogic[Tuple[int, V], Tuple, _JoinState]):
-    state: _JoinState
-
-    @override
-    def on_value(self, value: Tuple[int, V]) -> Iterable[Tuple]:
-        join_side, join_value = value
-        self.state.add_val(join_side, join_value)
-        return _EMPTY
-
-    @override
-    def on_merge(self, original: Self) -> Iterable[Tuple]:
-        self.state += original.state
-        return _EMPTY
-
-    @override
-    def on_close(self) -> Iterable[Tuple]:
-        return self.state.astuples()
 
     @override
     def snapshot(self) -> _JoinState:
@@ -1722,7 +1659,8 @@ def join_window(
     side1: KeyedStream[V],
     /,
     *,
-    mode: Literal["complete"],
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: Literal["complete"],
 ) -> WindowOut[V, Tuple[V]]: ...
 
 
@@ -1735,7 +1673,8 @@ def join_window(
     side2: KeyedStream[V],
     /,
     *,
-    mode: Literal["complete"],
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: Literal["complete"],
 ) -> WindowOut[Union[U, V], Tuple[U, V]]: ...
 
 
@@ -1749,7 +1688,8 @@ def join_window(
     side3: KeyedStream[W],
     /,
     *,
-    mode: Literal["complete"],
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: Literal["complete"],
 ) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]: ...
 
 
@@ -1764,7 +1704,8 @@ def join_window(
     side4: KeyedStream[X],
     /,
     *,
-    mode: Literal["complete"],
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: Literal["complete"],
 ) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]: ...
 
 
@@ -1776,7 +1717,8 @@ def join_window(
     side1: KeyedStream[V],
     /,
     *,
-    mode: JoinMode = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode = ...,
 ) -> WindowOut[V, Tuple[Optional[V]]]: ...
 
 
@@ -1789,7 +1731,8 @@ def join_window(
     side2: KeyedStream[V],
     /,
     *,
-    mode: JoinMode = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode = ...,
 ) -> WindowOut[Union[U, V], Tuple[Optional[U], Optional[V]]]: ...
 
 
@@ -1803,7 +1746,8 @@ def join_window(
     side3: KeyedStream[W],
     /,
     *,
-    mode: JoinMode = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode = ...,
 ) -> WindowOut[Union[U, V, W], Tuple[Optional[U], Optional[V], Optional[W]]]: ...
 
 
@@ -1818,7 +1762,8 @@ def join_window(
     side4: KeyedStream[X],
     /,
     *,
-    mode: JoinMode = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode = ...,
 ) -> WindowOut[
     Union[U, V, W, X], Tuple[Optional[U], Optional[V], Optional[W], Optional[X]]
 ]: ...
@@ -1830,7 +1775,8 @@ def join_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     *sides: KeyedStream[V],
-    mode: JoinMode = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode = ...,
 ) -> WindowOut[V, Tuple[Optional[V], ...]]: ...
 
 
@@ -1840,7 +1786,8 @@ def join_window(
     clock: Clock[Any, SC],
     windower: Windower[Any],
     *sides: KeyedStream[Any],
-    mode: JoinMode = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode = ...,
 ) -> WindowOut[Any, Tuple]: ...
 
 
@@ -1850,7 +1797,8 @@ def join_window(
     clock: Clock[Any, Any],
     windower: Windower[Any],
     *sides: KeyedStream[Any],
-    mode: JoinMode = "final",
+    insert_mode: JoinInsertMode = "last",
+    emit_mode: JoinEmitMode = "final",
 ) -> WindowOut[Any, Tuple]:
     """Gather together the value for a key on multiple streams.
 
@@ -1864,14 +1812,19 @@ def join_window(
 
     :arg *sides: Keyed streams.
 
-    :arg mode: Mode of this join. See
-        {py:obj}`~bytewax.operators.JoinMode` for more info. Defaults
-        to `"final"`.
+    :arg insert_mode: Mode of this join. See
+        {py:obj}`~bytewax.operators.JoinInsertMode` for more info.
+        Defaults to `"last"`.
+
+    :arg emit_mode: Mode of this join. See
+        {py:obj}`~bytewax.operators.JoinEmitMode` for more info.
+        Defaults to `"final"`.
+
 
     :returns: Window result streams. Downstream contains tuples with
         the value from each stream in the order of the argument list.
-        See {py:obj}`~bytewax.operators.JoinMode` for when tuples are
-        emitted.
+        See {py:obj}`~bytewax.operators.JoinEmitMode` for when tuples
+        are emitted.
 
     """
     side_count = len(sides)
@@ -1895,27 +1848,14 @@ def join_window(
             wait_for_system_duration=clock.wait_for_system_duration,
         )
 
-    logic_class: Callable[[_JoinState], WindowLogic[Tuple[int, Any], Tuple, _JoinState]]
-    if mode == "complete":
-        logic_class = _JoinWindowCompleteLogic
-    elif mode == "final":
-        logic_class = _JoinWindowFinalLogic
-    elif mode == "running":
-        logic_class = _JoinWindowRunningLogic
-    elif mode == "product":
-        logic_class = _JoinWindowProductLogic
-    else:
-        msg = f"unknown `join_interval` mode: {mode!r}"
-        raise ValueError(msg)
-
     def shim_builder(
         resume_state: Optional[_JoinState],
     ) -> WindowLogic[Tuple[int, Any], Tuple, _JoinState]:
         if resume_state is None:
             state = _JoinState.for_side_count(side_count)
-            return logic_class(state)
+            return _JoinWindowLogic(insert_mode, emit_mode, state)
         else:
-            return logic_class(resume_state)
+            return _JoinWindowLogic(insert_mode, emit_mode, resume_state)
 
     return window(
         "window",

@@ -1499,6 +1499,9 @@ class _JoinState:
     def add_val(self, side: int, value: Any) -> None:
         self.seen[side].append(value)
 
+    def is_set(self, side: int) -> bool:
+        return len(self.seen[side]) > 0
+
     def all_set(self) -> bool:
         return all(len(values) > 0 for values in self.seen)
 
@@ -1530,73 +1533,69 @@ class _JoinState:
         return self
 
 
+JoinInsertMode: TypeAlias = Literal["first", "last", "product"]
+"""How to handle multiple values from a side during a join.
+
+- *First*: Emit a row containing only the first value from a side, if
+   any.
+
+- *Last*: Emit a row containing only the last value from a side, if
+   any.
+
+- *Product*: Emit a row with every combination of values for all
+   sides. This is similar to a SQL cross join.
+
+"""
+
+
+JoinEmitMode: TypeAlias = Literal["complete", "final", "running"]
+"""When should a join emit rows downstream.
+
+- *Complete*: Emit once a value has been seen from each side. Then
+   discard the state.
+
+- *Final*: Emit when the upstream ends or the window closes. Then
+   discard the state.
+
+- *Running*: Emit every time a new value is seen on any side. Retain
+   the state forever.
+
+"""
+
+
 @dataclass
-class _JoinCompleteLogic(StatefulLogic[Tuple[int, Any], Tuple, _JoinState]):
+class _JoinLogic(StatefulLogic[Tuple[int, Any], Tuple, _JoinState]):
+    insert_mode: JoinInsertMode
+    emit_mode: JoinEmitMode
+
     state: _JoinState
 
     @override
     def on_item(self, value: Tuple[int, Any]) -> Tuple[Iterable[Tuple], bool]:
         join_side, join_value = value
-        self.state.set_val(join_side, join_value)
+        if self.insert_mode == "first" and not self.state.is_set(join_side):
+            self.state.set_val(join_side, join_value)
+        elif self.insert_mode == "last":
+            self.state.set_val(join_side, join_value)
+        elif self.insert_mode == "product":
+            self.state.add_val(join_side, join_value)
+        else:
+            msg = f"unknown join insert mode {self.insert_mode!r}"
+            raise ValueError(msg)
 
-        if self.state.all_set():
+        if self.emit_mode == "complete" and self.state.all_set():
             return (self.state.astuples(), StatefulLogic.DISCARD)
+        elif self.emit_mode == "running":
+            return (self.state.astuples(), StatefulLogic.RETAIN)
         else:
             return (_EMPTY, StatefulLogic.RETAIN)
 
     @override
-    def snapshot(self) -> _JoinState:
-        return copy.deepcopy(self.state)
-
-
-@dataclass
-class _JoinFinalLogic(StatefulLogic[Tuple[int, Any], Tuple, _JoinState]):
-    state: _JoinState
-
-    @override
-    def on_item(self, value: Tuple[int, Any]) -> Tuple[Iterable[Tuple], bool]:
-        join_side, join_value = value
-        self.state.set_val(join_side, join_value)
-        return (_EMPTY, StatefulLogic.RETAIN)
-
-    @override
     def on_eof(self) -> Tuple[Iterable[Tuple], bool]:
-        return (self.state.astuples(), StatefulLogic.DISCARD)
-
-    @override
-    def snapshot(self) -> _JoinState:
-        return copy.deepcopy(self.state)
-
-
-@dataclass
-class _JoinProductLogic(StatefulLogic[Tuple[int, Any], Tuple, _JoinState]):
-    state: _JoinState
-
-    @override
-    def on_item(self, value: Tuple[int, Any]) -> Tuple[Iterable[Tuple], bool]:
-        join_side, join_value = value
-        self.state.add_val(join_side, join_value)
-        return (_EMPTY, StatefulLogic.RETAIN)
-
-    @override
-    def on_eof(self) -> Tuple[Iterable[Tuple], bool]:
-        # No need to deepcopy because we are discarding the state.
-        return (self.state.astuples(), StatefulLogic.DISCARD)
-
-    @override
-    def snapshot(self) -> _JoinState:
-        return copy.deepcopy(self.state)
-
-
-@dataclass
-class _JoinRunningLogic(StatefulLogic[Tuple[int, Any], Tuple, _JoinState]):
-    state: _JoinState
-
-    @override
-    def on_item(self, value: Tuple[int, Any]) -> Tuple[Iterable[Tuple], bool]:
-        join_side, join_value = value
-        self.state.set_val(join_side, join_value)
-        return (self.state.astuples(), StatefulLogic.RETAIN)
+        if self.emit_mode == "final":
+            return (self.state.astuples(), StatefulLogic.DISCARD)
+        else:
+            return (_EMPTY, StatefulLogic.RETAIN)
 
     @override
     def snapshot(self) -> _JoinState:
@@ -1617,34 +1616,6 @@ def _join_label_merge(
     return merge("merge", *with_labels)
 
 
-JoinMode: TypeAlias = Literal["complete", "final", "product", "running"]
-"""Under what conditions to emit joined data downstream.
-
-- **Complete** Join: Save only the most recent value from each side.
-    Only emit once all sides have a value. Discard the join state once
-    emitted or if the window has closed (for windowed joins). if new
-    values arrive, start from empty.
-
-- **Final** Join: Save only the most recent value from each side. Emit
-    that single set of values only once upstream is EOF (for
-    non-window joins) or the window has closed (for windowed joins).
-    If a side did not encounter a value, fill `None` for it. Only
-    discard the join state after emitting.
-
-- **Product** Join: Save all values encountered on each side. Emit
-    multiple sets of values, one for each combination of values on a
-    side, only once upstream is EOF (for non-window joins) or the
-    window has closed (for windowed joins). If a side did not
-    encounter a value, fill `None` for it. Only discard the join state
-    after emitting.
-
-- **Running** Join: Save only the most recent value from each side.
-    Emit on any new incoming value. If a side has not encountered a
-    value yet, fill `None` for it. Never discard the state.
-
-"""
-
-
 # https://stackoverflow.com/questions/73200382/using-typevartuple-with-inner-typevar
 @overload
 def join(
@@ -1653,7 +1624,8 @@ def join(
     side2: KeyedStream[V],
     /,
     *,
-    mode: Literal["complete"] = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: Literal["complete"] = ...,
 ) -> KeyedStream[Tuple[U, V]]: ...
 
 
@@ -1665,7 +1637,8 @@ def join(
     side3: KeyedStream[W],
     /,
     *,
-    mode: Literal["complete"] = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: Literal["complete"] = ...,
 ) -> KeyedStream[Tuple[U, V, W]]: ...
 
 
@@ -1678,7 +1651,8 @@ def join(
     side4: KeyedStream[X],
     /,
     *,
-    mode: Literal["complete"] = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: Literal["complete"] = ...,
 ) -> KeyedStream[Tuple[U, V, W, X]]: ...
 
 
@@ -1688,7 +1662,8 @@ def join(
     side1: KeyedStream[V],
     /,
     *,
-    mode: JoinMode,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode,
 ) -> KeyedStream[Tuple[V]]: ...
 
 
@@ -1699,7 +1674,8 @@ def join(
     side2: KeyedStream[V],
     /,
     *,
-    mode: JoinMode,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode,
 ) -> KeyedStream[Tuple[Optional[U], Optional[V]]]: ...
 
 
@@ -1711,7 +1687,8 @@ def join(
     side3: KeyedStream[W],
     /,
     *,
-    mode: JoinMode,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode,
 ) -> KeyedStream[Tuple[Optional[U], Optional[V], Optional[W]]]: ...
 
 
@@ -1724,7 +1701,8 @@ def join(
     side4: KeyedStream[X],
     /,
     *,
-    mode: JoinMode,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode,
 ) -> KeyedStream[Tuple[Optional[U], Optional[V], Optional[W], Optional[X]]]: ...
 
 
@@ -1732,7 +1710,8 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[V],
-    mode: Literal["complete"] = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: Literal["complete"] = ...,
 ) -> KeyedStream[Tuple[V, ...]]: ...
 
 
@@ -1740,7 +1719,8 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[V],
-    mode: JoinMode,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode,
 ) -> KeyedStream[Tuple[Optional[V], ...]]: ...
 
 
@@ -1748,7 +1728,8 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[Any],
-    mode: JoinMode = ...,
+    insert_mode: JoinInsertMode = ...,
+    emit_mode: JoinEmitMode,
 ) -> KeyedStream[Tuple]: ...
 
 
@@ -1756,7 +1737,8 @@ def join(
 def join(
     step_id: str,
     *sides: KeyedStream[Any],
-    mode: JoinMode = "complete",
+    insert_mode: JoinInsertMode = "last",
+    emit_mode: JoinEmitMode = "complete",
 ) -> KeyedStream[Tuple]:
     """Gather together the value for a key on multiple streams.
 
@@ -1766,41 +1748,30 @@ def join(
 
     :arg *sides: Keyed streams.
 
-    :arg mode: Mode of this join. See
-        {py:obj}`~bytewax.operators.JoinMode` for more info. Defaults
-        to `"complete"`.
+    :arg insert_mode: Mode of this join. See
+        {py:obj}`~bytewax.operators.JoinInsertMode` for more info.
+        Defaults to `"last"`.
+
+    :arg emit_mode: Mode of this join. See
+        {py:obj}`~bytewax.operators.JoinEmitMode` for more info.
+        Defaults to `"complete"`.
 
     :returns: Emits a tuple with the value from each stream in the
         order of the argument list. See
-        {py:obj}`~bytewax.operators.JoinMode` for when tuples are
+        {py:obj}`~bytewax.operators.JoinEmitMode` for when tuples are
         emitted.
 
     """
     side_count = len(sides)
-
-    logic_class: Callable[
-        [_JoinState], StatefulLogic[Tuple[int, Any], Tuple, _JoinState]
-    ]
-    if mode == "complete":
-        logic_class = _JoinCompleteLogic
-    elif mode == "final":
-        logic_class = _JoinFinalLogic
-    elif mode == "product":
-        logic_class = _JoinProductLogic
-    elif mode == "running":
-        logic_class = _JoinRunningLogic
-    else:
-        msg = f"unknown `join` mode: {mode!r}"
-        raise ValueError(msg)
 
     def shim_builder(
         resume_state: Optional[_JoinState],
     ) -> StatefulLogic[Tuple[int, Any], Tuple, _JoinState]:
         if resume_state is None:
             state = _JoinState.for_side_count(side_count)
-            return logic_class(state)
+            return _JoinLogic(insert_mode, emit_mode, state)
         else:
-            return logic_class(resume_state)
+            return _JoinLogic(insert_mode, emit_mode, resume_state)
 
     merged = _join_label_merge("add_names", *sides)
     return stateful("join", merged, shim_builder)
