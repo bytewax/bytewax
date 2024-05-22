@@ -243,7 +243,7 @@ op.inspect("inspect", counts.down)
 
 ### Join Modes
 
-To specify a running {py:obj}`~bytewax.operators.join`, now use `emit_mode="running"` instead of `running=True`. To specify a product {py:obj}`~bytewax.operators.windowing.join_window`, use `insert_mode="product"` instead of `product=True`. Both these operators now have more modes to choose from; see {py:obj}`bytewax.operators.JoinInsertMode` and {py:obj}`bytewax.operators.JoinEmitMode`.
+To specify a running {py:obj}`~bytewax.operators.join`, now use `mode="running"` instead of `running=True`. To specify a product {py:obj}`~bytewax.operators.windowing.join_window`, use `mode="product"` instead of `product=True`. Both these operators now have more modes to choose from; see {py:obj}`bytewax.operators.JoinMode`.
 
 Before:
 
@@ -326,7 +326,7 @@ The `join_named` and `join_window_named` operators have been removed as
 they can't be made to support fully type checked dataflows.
 
 The same functionality is still available but with a slightly
-differently shaped API via {py:obj}`~bytewax.operators.join` or {py:obj}`~bytewax.operators.join_window`:
+differently shaped API via {py:obj}`~bytewax.operators.join` or {py:obj}`~bytewax.operators.windowing.join_window`:
 
 Before:
 
