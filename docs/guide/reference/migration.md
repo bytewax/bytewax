@@ -8,7 +8,7 @@ the
 
 ## From v0.19 to v0.20
 
-### Window renaming
+### Windowing Components Renamed
 
 Windowing operators have been moved from `bytewax.operators.window`
 to {py:obj}`bytewax.operators.windowing`.
@@ -41,7 +41,7 @@ Windowing operators now return a set of three streams bundled in a
 
 2. `late` stream - items which were late and not assigned or processed in a window, but labeled with the window ID they would have been included in.
 
-3. `meta` stream - window IDs and the most recent {py:obj}`~bytewax.operators.windowing.WindowMetadata` describing the open and close times of that window.
+3. `meta` stream - window IDs and the final {py:obj}`~bytewax.operators.windowing.WindowMetadata` describing the open and close times of that window.
 
 Items in all three window output streams are now labeled with the unique `int`
 window ID they were assigned to facilitate joining the data later to derive more
@@ -243,7 +243,7 @@ op.inspect("inspect", counts.down)
 
 ### Join Modes
 
-To specify a running {py:obj}`~bytewax.operators.join`, now use `mode="running"` instead of `running=True`. To specify a product {py:obj}`~bytewax.operators.windowing.join_window`, use `mode="product"` instead of `product=True`. Both these operators now have more {py:obj}`bytewax.operators.JoinMode`s to choose from.
+To specify a running {py:obj}`~bytewax.operators.join`, now use `emit_mode="running"` instead of `running=True`. To specify a product {py:obj}`~bytewax.operators.windowing.join_window`, use `insert_mode="product"` instead of `product=True`. Both these operators now have more modes to choose from; see {py:obj}`bytewax.operators.JoinInsertMode` and {py:obj}`bytewax.operators.JoinEmitMode`.
 
 Before:
 
@@ -326,7 +326,7 @@ The `join_named` and `join_window_named` operators have been removed as
 they can't be made to support fully type checked dataflows.
 
 The same functionality is still available but with a slightly
-differently shaped API in join or join_window:
+differently shaped API via {py:obj}`~bytewax.operators.join` or {py:obj}`~bytewax.operators.join_window`:
 
 Before:
 
