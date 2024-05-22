@@ -43,9 +43,14 @@ Windowing operators now return a set of three streams bundled in a
 
 3. `meta` stream - window IDs and the most recent {py:obj}`~bytewax.operators.windowing.WindowMetadata` describing the open and close times of that window.
 
-Items in all three window output streams are now labeled with the unique `int` window ID they were assigned to facilitate joining the data later to derive more complex context about the resulting windows.
+Items in all three window output streams are now labeled with the unique `int`
+window ID they were assigned to facilitate joining the data later to derive more
+complex context about the resulting windows.
 
-To recreate the exact downstream items that window operators emitted in v0.19, you'll now need to {py:obj}`~bytewax.operators.join` the `down` stream with the `meta` stream on key and window ID, then remove the window ID.
+To recreate the exact downstream items that window operators emitted in v0.19,
+you'll now need to {py:obj}`~bytewax.operators.join` the `down` stream with the
+`meta` stream on key and window ID, then remove the window ID. This transformation
+only works with windowing operators that emit a single item downstream.
 
 Before:
 
@@ -83,11 +88,12 @@ After:
 
 ```{testcode}
 from datetime import datetime, timedelta, timezone
+from typing import Tuple, TypeVar
 
 import bytewax.operators as op
 import bytewax.operators.windowing as win
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import SystemClock, TumblingWindower
+from bytewax.operators.windowing import SystemClock, TumblingWindower, WindowMetadata
 from bytewax.testing import TestingSource
 
 events = [
@@ -98,7 +104,7 @@ events = [
 
 flow = Dataflow("count")
 inp = op.input("inp", flow, TestingSource(events))
-counts = win.count_window(
+count_out = win.count_window(
     "count",
     inp,
     SystemClock(),
@@ -108,12 +114,32 @@ counts = win.count_window(
     lambda x: x["user"],
 )
 # Returning just the counts per window: ('user', (window_id, count_per_window))
-op.inspect("new_output", counts.down)
-keyed_metadata = op.map_value("k_md", counts.meta, lambda x: x[1])
-keyed_counts = op.map_value("k_count", counts.down, lambda x: x[1])
+op.inspect("check_down", count_out.down)
+X = TypeVar("X")
+
+
+def rekey_by_window(key_id_obj: Tuple[str, Tuple[int, X]]) -> Tuple[str, X]:
+    key, id_obj = key_id_obj
+    win_id, obj = id_obj
+    return (f"{key}-{win_id}", obj)
+
+
+keyed_metadata = op.map("rekey_meta", count_out.meta, rekey_by_window)
+keyed_counts = op.map("rekey_counts", count_out.down, rekey_by_window)
+joined_counts = op.join("check_joined", keyed_metadata, keyed_counts)
+
+
+def unkey_join_rows(
+    rekey_row: Tuple[str, Tuple[WindowMetadata, int]],
+) -> Tuple[str, Tuple[WindowMetadata, int]]:
+    rekey, row = rekey_row
+    key, _win_id = rekey.rsplit("-", maxsplit=1)
+    return (key, row)
+
+
 # Returning the old output ('user', (WindowMetadata(..), count_per_window))
-joined_meta = op.join("joined_output", keyed_metadata, keyed_counts)
-op.inspect("old_output", joined_meta)
+cleaned_joined_counts = op.map("unkey_joined", joined_counts, unkey_join_rows)
+op.inspect("check_joined_counts", cleaned_joined_counts)
 ```
 
 If your original dataflow ignored the {py:obj}`~bytewax.operators.windowing.WindowMetadata`, you can skip doing the above step and instead use `down` directly without joining and drop the window ID.
@@ -330,6 +356,7 @@ op.inspect("check_join", joined)
 After:
 
 ```{testcode}
+from dataclasses import dataclass
 from typing import Dict, Tuple
 
 import bytewax.operators as op
@@ -347,8 +374,10 @@ emails_l = [
     {"user_id": 123, "email": "queen@bytewax.io"},
 ]
 
+
 def id_field(field_name: str, x: Dict) -> Tuple[str, str]:
     return (str(x["user_id"]), x[field_name])
+
 
 names = op.input("names", flow, TestingSource(names_l))
 emails = op.input("emails", flow, TestingSource(emails_l))
@@ -357,14 +386,23 @@ keyed_emails = op.map("key_emails", emails, lambda x: id_field("email", x))
 joined = op.join("join", keyed_names, keyed_emails)
 op.inspect("join_returns_tuples", joined)
 
-def as_dict(id_row: Tuple[str, Tuple[str, str]]) -> Dict:
-    user_id, row = id_row
-    # Unpack the tuple values in the id_row, and create the completed dict
-    name, email = row
-    return {"user_id": int(user_id), "name": name, "email": email}
 
-dicts = op.map("as_dict", joined, as_dict)
-op.inspect("inspect", dicts)
+@dataclass
+class User:
+    user_id: int
+    name: str
+    email: str
+
+
+def as_user(id_row: Tuple[str, Tuple[str, str]]) -> User:
+    user_id, row = id_row
+    # Unpack the tuple values in the id_row, and create the completed User
+    name, email = row
+    return User(int(user_id), name, email)
+
+
+users = op.map("as_dict", joined, as_user)
+op.inspect("inspect", users)
 ```
 
 ## From v0.18 to v0.19
