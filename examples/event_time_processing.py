@@ -21,19 +21,19 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+import bytewax.operators.windowing as win
 from bytewax import operators as op
 from bytewax.connectors.kafka import KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.operators import window as window_op
-from bytewax.operators.windowing import EventClockConfig, TumblingWindow
+from bytewax.operators.windowing import EventClock, TumblingWindower
 
 # Define the dataflow object and kafka input.
 flow = Dataflow("event time")
 brokers = ["localhost:19092"]
 topics = ["sensors"]
-stream = kop.input("inp", flow, brokers, topics, tail=False)
+stream = kop.input("inp", flow, brokers=brokers, topics=topics, tail=False)
 
 
 # We expect a json string that represents a reading from a sensor in msg.value.
@@ -41,7 +41,7 @@ def parse_value(msg: KafkaSourceMessage):
     return json.loads(msg.value)
 
 
-parsed_stream = op.map("parse_value", stream, parse_value)
+parsed_stream = op.map("parse_value", stream.oks, parse_value)
 
 
 # Group the readings by sensor type, so that we only
@@ -51,7 +51,7 @@ keyed_stream = op.key_on("extract_type", parsed_stream, lambda event: event["typ
 
 # Here is where we use the event time processing, with
 # the fold_window operator.
-# The `EventClockConfig` allows us to advance our internal clock
+# The `EventClock` allows us to advance our internal clock
 # based on the time received in each event.
 
 
@@ -71,13 +71,13 @@ def get_event_time(event):
 
 
 # Configure the `collect_window` operator to use the event time.
-cc = EventClockConfig(get_event_time, wait_for_system_duration=timedelta(seconds=10))
+cc = EventClock(get_event_time, wait_for_system_duration=timedelta(seconds=10))
 
 # And a 5 seconds tumbling window
 align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
-wc = TumblingWindow(align_to=align_to, length=timedelta(seconds=5))
+wc = TumblingWindower(align_to=align_to, length=timedelta(seconds=5))
 
-windowed_stream = window_op.collect_window("window", keyed_stream, cc, wc, acc_values)
+windowed_stream = win.collect_window("window", keyed_stream, cc, wc)
 
 
 # Calculate the average of the values for each window, and
@@ -94,5 +94,5 @@ def format_event(event):
     )
 
 
-formatted_stream = op.map("format_event", windowed_stream, format_event)
+formatted_stream = op.map("format_event", windowed_stream.down, format_event)
 op.output("out", formatted_stream, StdOutSink())

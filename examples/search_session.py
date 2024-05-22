@@ -6,8 +6,8 @@ from typing import List
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.operators import window as window_op
-from bytewax.operators.windowing import EventClockConfig, SessionWindow
+from bytewax.operators import windowing as win
+from bytewax.operators.windowing import EventClock, SessionWindower
 from bytewax.testing import TestingSource
 
 
@@ -106,13 +106,16 @@ stream = op.input("inp", flow, TestingSource(IMAGINE_THESE_EVENTS_STREAM_FROM_CL
 initial_session_stream = op.map("initial_session", stream, lambda e: [e])
 keyed_stream = op.key_on("add_key", initial_session_stream, lambda e: str(e[0].user))
 # (user, [event])
-clock = EventClockConfig(lambda x: x[-1].dt, timedelta(seconds=10))
-window = SessionWindow(gap=timedelta(seconds=5))
-session_stream = window_op.reduce_window(
-    "sessionizer", keyed_stream, clock, window, operator.add
+window = SessionWindower(gap=timedelta(seconds=5))
+session_stream = win.reduce_window(
+    "sessionizer",
+    keyed_stream,
+    EventClock(lambda x: x[-1].dt, timedelta(seconds=10)),
+    window,
+    operator.add,
 )
 # (user, [event, ...])
-event_stream = op.map("remove_key", session_stream, remove_key)
+event_stream = op.map("remove_key", session_stream.down, remove_key)
 # [event, ...]
 # Take a user session and split it up into a search session, one per
 # search.

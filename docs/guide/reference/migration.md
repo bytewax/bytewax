@@ -6,6 +6,405 @@ Bytewax version to the next. For a detailed list of all changes, see
 the
 [CHANGELOG](https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md).
 
+## From v0.19 to v0.20
+
+### Windowing Components Renamed
+
+Windowing operators have been moved from `bytewax.operators.window`
+to {py:obj}`bytewax.operators.windowing`.
+
+In addition, `ClockConfig` classes have had the `Config` suffix
+dropped from them, and `WindowConfig`s have been renamed to
+`Windower`s. Other than the name changes, the functionality
+is unchanged.
+
+Before:
+
+```python
+import bytewax.operators.window as win
+from bytewax.operators.window import EventClockConfig, TumblingWindow
+```
+
+After:
+
+```{testcode}
+import bytewax.operators.windowing as win
+from bytewax.operators.windowing import EventClock, TumblingWindower
+```
+
+### Windowing Operator Output
+
+Windowing operators now return a set of three streams bundled in a
+{py:obj}`~bytewax.operators.windowing.WindowOut` object:
+
+1. `down` stream - window IDs and the resulting output from that operator.
+
+2. `late` stream - items which were late and not assigned or processed in a window, but labeled with the window ID they would have been included in.
+
+3. `meta` stream - window IDs and the final {py:obj}`~bytewax.operators.windowing.WindowMetadata` describing the open and close times of that window.
+
+Items in all three window output streams are now labeled with the unique `int`
+window ID they were assigned to facilitate joining the data later to derive more
+complex context about the resulting windows.
+
+To recreate the exact downstream items that window operators emitted in v0.19,
+you'll now need to {py:obj}`~bytewax.operators.join` the `down` stream with the
+`meta` stream on key and window ID, then remove the window ID. This transformation
+only works with windowing operators that emit a single item downstream.
+
+Before:
+
+```python
+from datetime import datetime, timedelta, timezone
+
+from bytewax.dataflow import Dataflow
+import bytewax.operators as op
+import bytewax.operators.window as win
+from bytewax.operators.window import SystemClockConfig, TumblingWindow
+from bytewax.testing import TestingSource
+
+events = [
+    {"user": "a", "val": 1},
+    {"user": "a", "val": 1},
+    {"user": "b", "val": 1},
+]
+
+flow = Dataflow("count")
+inp = op.input("inp", flow, TestingSource(events))
+counts = win.count_window(
+    "count",
+    inp,
+    SystemClock(),
+    TumblingWindow(
+        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ),
+    lambda x: x["user"],
+)
+op.inspect("inspect", counts)
+# ("user", (WindowMetadata(...), count_per_window))
+```
+
+After:
+
+```{testcode}
+from datetime import datetime, timedelta, timezone
+from typing import Tuple, TypeVar
+
+import bytewax.operators as op
+import bytewax.operators.windowing as win
+from bytewax.dataflow import Dataflow
+from bytewax.operators.windowing import SystemClock, TumblingWindower, WindowMetadata
+from bytewax.testing import TestingSource
+
+events = [
+    {"user": "a", "val": 1},
+    {"user": "a", "val": 1},
+    {"user": "b", "val": 1},
+]
+
+flow = Dataflow("count")
+inp = op.input("inp", flow, TestingSource(events))
+count_out = win.count_window(
+    "count",
+    inp,
+    SystemClock(),
+    TumblingWindower(
+        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ),
+    lambda x: x["user"],
+)
+# Returning just the counts per window: ('user', (window_id, count_per_window))
+op.inspect("check_down", count_out.down)
+X = TypeVar("X")
+
+
+def rekey_by_window(key_id_obj: Tuple[str, Tuple[int, X]]) -> Tuple[str, X]:
+    key, id_obj = key_id_obj
+    win_id, obj = id_obj
+    return (f"{key}-{win_id}", obj)
+
+
+keyed_metadata = op.map("rekey_meta", count_out.meta, rekey_by_window)
+keyed_counts = op.map("rekey_counts", count_out.down, rekey_by_window)
+joined_counts = op.join("check_joined", keyed_metadata, keyed_counts)
+
+
+def unkey_join_rows(
+    rekey_row: Tuple[str, Tuple[WindowMetadata, int]],
+) -> Tuple[str, Tuple[WindowMetadata, int]]:
+    rekey, row = rekey_row
+    key, _win_id = rekey.rsplit("-", maxsplit=1)
+    return (key, row)
+
+
+# Returning the old output ('user', (WindowMetadata(..), count_per_window))
+cleaned_joined_counts = op.map("unkey_joined", joined_counts, unkey_join_rows)
+op.inspect("check_joined_counts", cleaned_joined_counts)
+```
+
+If your original dataflow ignored the {py:obj}`~bytewax.operators.windowing.WindowMetadata`, you can skip doing the above step and instead use `down` directly without joining and drop the window ID.
+
+### Fold Window Merges
+
+{py:obj}`~bytewax.operators.windowing.fold_window` now requires a `merger` callback that takes two fully formed accumulators and combines them into one. The `merger` function
+will be called with when the windower determines that two
+windows must be merged. This most commonly happens when using the {py:obj}`~bytewax.operators.windowing.SessionWindower` and a new, out-of-order item bridges a gap.
+
+Before:
+
+```python
+from datetime import datetime, timedelta, timezone
+from typing import List
+
+import bytewax.operators as op
+import bytewax.operators.window as win
+from bytewax.dataflow import Dataflow
+from bytewax.operators.window import EventClockConfig, SessionWindow
+from bytewax.testing import TestingSource
+
+align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+events = [
+    {"user": "a", "val": 1, "time": align_to + timedelta(seconds=1)},
+    {"user": "a", "val": 2, "time": align_to + timedelta(seconds=3)},
+    {"user": "a", "val": 3, "time": align_to + timedelta(seconds=7)},
+]
+
+flow = Dataflow("merge_session")
+inp = op.input("inp", flow, TestingSource(events)).then(
+    op.key_on, "key_all", lambda _: "ALL"
+)
+
+
+def ts_getter(event: dict) -> datetime:
+    return event["time"]
+
+
+def add(acc: List[str], event: dict[str, str]) -> List[str]:
+    acc.append(event["val"])
+    return acc
+
+
+counts = win.fold_window(
+    "count",
+    inp,
+    EventClockConfig(ts_getter, wait_for_system_duration=timedelta(seconds=0)),
+    SessionWindow(gap=timedelta(seconds=3)),
+    list,
+    add,
+)
+op.inspect("inspect", counts.down)
+```
+
+After:
+
+```{testcode}
+from datetime import datetime, timedelta, timezone
+from typing import List
+
+import bytewax.operators as op
+import bytewax.operators.windowing as win
+from bytewax.dataflow import Dataflow
+from bytewax.operators.windowing import EventClock, SessionWindower
+from bytewax.testing import TestingSource
+
+align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+events = [
+    {"user": "a", "val": 1, "time": align_to + timedelta(seconds=1)},
+    {"user": "a", "val": 2, "time": align_to + timedelta(seconds=3)},
+    {"user": "a", "val": 3, "time": align_to + timedelta(seconds=7)},
+]
+
+flow = Dataflow("merge_session")
+inp = op.input("inp", flow, TestingSource(events)).then(
+    op.key_on, "key_all", lambda _: "ALL"
+)
+
+
+def ts_getter(event: dict) -> datetime:
+    return event["time"]
+
+
+def add(acc: List[str], event: dict[str, str]) -> List[str]:
+    acc.append(event["val"])
+    return acc
+
+
+counts = win.fold_window(
+    "count",
+    inp,
+    EventClock(ts_getter, wait_for_system_duration=timedelta(seconds=0)),
+    SessionWindower(gap=timedelta(seconds=3)),
+    list,
+    add,
+    list.__add__,
+)
+op.inspect("inspect", counts.down)
+```
+
+### Join Modes
+
+To specify a running {py:obj}`~bytewax.operators.join`, now use `mode="running"` instead of `running=True`. To specify a product {py:obj}`~bytewax.operators.windowing.join_window`, use `mode="product"` instead of `product=True`. Both these operators now have more modes to choose from; see {py:obj}`bytewax.operators.JoinMode`.
+
+Before:
+
+```python
+flow = Dataflow("running_join")
+
+names_l = [
+    {"user_id": 123, "name": "Bee"},
+    {"user_id": 456, "name": "Hive"},
+]
+
+names = op.input("names", flow, TestingSource(names_l))
+
+
+emails_l = [
+    {"user_id": 123, "email": "bee@bytewax.io"},
+    {"user_id": 456, "email": "hive@bytewax.io"},
+    {"user_id": 123, "email": "queen@bytewax.io"},
+]
+
+emails = op.input("emails", flow, TestingSource(emails_l))
+
+
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
+joined = op.join("join", keyed_names, keyed_emails, running=True)
+op.inspect("insp", joined)
+```
+
+After:
+
+```{testcode}
+from datetime import datetime, timedelta, timezone
+
+import bytewax.operators as op
+import bytewax.operators.windowing as win
+from bytewax.dataflow import Dataflow
+from bytewax.operators.windowing import EventClock, TumblingWindower
+from bytewax.testing import TestingSource
+from typing import Tuple, Any
+
+align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+events = [
+    {"user": "a", "val": 1, "timestamp": align_to + timedelta(seconds=0)},
+    {"user": "a", "val": 1, "timestamp": align_to + timedelta(seconds=1)},
+    {"user": "b", "val": 1, "timestamp": align_to + timedelta(seconds=3)},
+]
+
+flow = Dataflow("count")
+inp = op.input("inp", flow, TestingSource(events))
+clock = EventClock(lambda x: x["timestamp"], wait_for_system_duration=timedelta(seconds=0))
+counts = win.count_window(
+    "count",
+    inp,
+    clock,
+    TumblingWindower(
+        length=timedelta(seconds=2), align_to=datetime(2023, 1, 1, tzinfo=timezone.utc)
+    ),
+    lambda x: x["user"],
+)
+# Returning just the counts per window: ('user', (window_id, count_per_window))
+op.inspect("new_output", counts.down)
+
+def join_window_id(window_out: Tuple[str, Tuple[int, Any]]) -> Tuple[str, Any]:
+    (user_id, (window_id, count)) = window_out
+    return (f"{user_id}:{window_id}", count)
+
+# Re-key each stream by user-id:window-id
+keyed_metadata = op.map("k_md", counts.meta, join_window_id)
+keyed_counts = op.map("k_count", counts.down, join_window_id)
+# Join the output of the window and the metadata stream on user-id:window-id
+joined_meta = op.join("joined_output", keyed_metadata, keyed_counts)
+user_output = op.map("reformat-out", joined_meta, lambda x: (x[0].split(":")[0], x[1]))
+op.inspect("old_output", user_output)
+```
+
+### Removal of `join_named` and `join_window_named`
+
+The `join_named` and `join_window_named` operators have been removed as
+they can't be made to support fully type checked dataflows.
+
+The same functionality is still available but with a slightly
+differently shaped API via {py:obj}`~bytewax.operators.join` or {py:obj}`~bytewax.operators.windowing.join_window`:
+
+Before:
+
+```python
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("join_eg")
+names_l = [
+    {"user_id": 123, "name": "Bee"},
+    {"user_id": 456, "name": "Hive"},
+]
+names = op.input("names", flow, TestingSource(names_l))
+emails_l = [
+    {"user_id": 123, "email": "bee@bytewax.io"},
+    {"user_id": 456, "email": "hive@bytewax.io"},
+    {"user_id": 123, "email": "queen@bytewax.io"},
+]
+emails = op.input("emails", flow, TestingSource(emails_l))
+keyed_names = op.map("key_names", names, lambda x: (str(x["user_id"]), x["name"]))
+keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["email"]))
+joined = op.join_named("join", name=keyed_names, email=keyed_emails)
+op.inspect("check_join", joined)
+```
+
+After:
+
+```{testcode}
+from dataclasses import dataclass
+from typing import Dict, Tuple
+
+import bytewax.operators as op
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+
+flow = Dataflow("join_eg")
+names_l = [
+    {"user_id": 123, "name": "Bee"},
+    {"user_id": 456, "name": "Hive"},
+]
+emails_l = [
+    {"user_id": 123, "email": "bee@bytewax.io"},
+    {"user_id": 456, "email": "hive@bytewax.io"},
+    {"user_id": 123, "email": "queen@bytewax.io"},
+]
+
+
+def id_field(field_name: str, x: Dict) -> Tuple[str, str]:
+    return (str(x["user_id"]), x[field_name])
+
+
+names = op.input("names", flow, TestingSource(names_l))
+emails = op.input("emails", flow, TestingSource(emails_l))
+keyed_names = op.map("key_names", names, lambda x: id_field("name", x))
+keyed_emails = op.map("key_emails", emails, lambda x: id_field("email", x))
+joined = op.join("join", keyed_names, keyed_emails)
+op.inspect("join_returns_tuples", joined)
+
+
+@dataclass
+class User:
+    user_id: int
+    name: str
+    email: str
+
+
+def as_user(id_row: Tuple[str, Tuple[str, str]]) -> User:
+    user_id, row = id_row
+    # Unpack the tuple values in the id_row, and create the completed User
+    name, email = row
+    return User(int(user_id), name, email)
+
+
+users = op.map("as_dict", joined, as_user)
+op.inspect("inspect", users)
+```
+
 ## From v0.18 to v0.19
 
 ### Removal of the `builder` argument from `stateful_map`

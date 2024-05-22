@@ -79,9 +79,11 @@ lint-pc: _assert-venv
 test-rs:
     cargo test --no-default-features
 
+pytests := 'pytests/'
+
 # Run the Python tests; runs in CI
-test-py: _assert-venv
-    pytest --benchmark-skip pytests/
+test-py tests=pytests: _assert-venv
+    pytest --benchmark-skip {{tests}}
 
 # Run the Python benchmarks; runs in CI
 test-benchmark:
