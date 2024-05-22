@@ -32,7 +32,7 @@ import bytewax.operators.windowing as win
 from bytewax.operators.windowing import EventClock, TumblingWindower
 ```
 
-### Window output changes
+### Windowing Operator Output
 
 Windowing operators now return a set of three streams bundled in a
 {py:obj}`~bytewax.operators.windowing.WindowOut` object:
