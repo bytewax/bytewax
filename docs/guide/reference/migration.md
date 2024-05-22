@@ -243,7 +243,7 @@ op.inspect("inspect", counts.down)
 
 ### Join Modes
 
-To specify a running {py:obj}`~bytewax.operators.join`, now use `mode="running"` instead of `running=True`. To specify a product {py:obj}`~bytewax.operators.windowing.join_window`, use `mode="product"` instead of `product=True`. Both these operators now have more modes to choose from; see {py:obj}`bytewax.operators.JoinMode`.
+To specify a running {py:obj}`~bytewax.operators.join`, now use `mode="running"` instead of `running=True`. To specify a product {py:obj}`~bytewax.operators.windowing.join_window`, use `mode="product"` instead of `product=True`. Both these operators now have more modes to choose from; see {py:obj}`bytewax.operators.JoinInsertMode` and {py:obj}`bytewax.operators.JoinEmitMode`.
 
 Before:
 
