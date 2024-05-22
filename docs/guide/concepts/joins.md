@@ -314,7 +314,7 @@ Complete join semantics are useful in some cases, but on infinite data
 you could imagine other join semantics. What Bytewax calls a **running
 join** emits downstream the values for all sides of the join whenever
 any value comes in, _and keeps the state around_. This is similar to a
-_full outer join_ in SQL. Pass `mode="running"` to
+_full outer join_ in SQL. Pass `emit_mode="running"` to
 {py:obj}`~bytewax.operators.join` to enable a running join. By default
 joins are complete, as described in the previous section, and not
 running.
@@ -344,7 +344,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x["ema
 Now instead of the above join, let's use the running join:
 
 ```{testcode}
-joined = op.join("join", keyed_names, keyed_emails, mode="running")
+joined = op.join("join", keyed_names, keyed_emails, emit_mode="running")
 ```
 
 Now let's run the dataflow again an inspect the output.
@@ -361,7 +361,7 @@ run_main(flow)
 
 Here's what we get. Let's visualize the progress and outputs of the
 {py:obj}`~bytewax.operators.join` state table again but with
-`running=True`.
+`emit_mode="running"`.
 
 ```{testoutput}
 join_eg.check_join: ('123', ('Bee', None))
@@ -640,9 +640,9 @@ updates, or fill in default values, etc.
 
 ## Product Joins
 
-Another windowing join mode Bytewax calls the **product join**. It
-emits all of the combinations of _all_ of the input values seen on a
-side during the window once the window closes.
+Bytewax has another windowing join mode called the **product join**.
+It emits all of the combinations of _all_ of the input values seen on
+a side during the window once the window closes.
 
 For example, if we don't change the join parameters, but update the
 input in the above dataflow to include multiple values in a window for
@@ -689,8 +689,8 @@ Notice how now we only have the latest email for the bee:
 join_eg.check_join: ('123', (8328, ({'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 0, tzinfo=datetime.timezone.utc), 'name': 'Bee'}, {'user_id': 123, 'at': datetime.datetime(2023, 12, 14, 0, 30, tzinfo=datetime.timezone.utc), 'email': 'queen@bytewax.io'})))
 ```
 
-Now if we re-define the dataflow and use `mode="product"`, we can see
-all of the values for the Bee's email in that window.
+Now if we re-define the dataflow and use `insert_mode="product"`, we
+can see all of the values for the Bee's email in that window.
 
 ```{testcode}
 :hide:
@@ -708,7 +708,7 @@ keyed_emails = op.map("key_emails", emails, lambda x: (str(x["user_id"]), x))
 
 ```{testcode}
 joined_out = win.join_window(
-    "join", clock, windower, keyed_names, keyed_emails, mode="product"
+    "join", clock, windower, keyed_names, keyed_emails, insert_mode="product"
 )
 ```
 

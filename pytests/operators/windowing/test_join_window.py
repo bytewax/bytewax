@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 import bytewax.operators as op
 import bytewax.operators.windowing as win
 from bytewax.dataflow import Dataflow
-from bytewax.operators import JoinMode
+from bytewax.operators import JoinEmitMode, JoinInsertMode
 from bytewax.operators.windowing import EventClock, SessionWindower
 from bytewax.testing import TestingSink, TestingSource, run_main
 
@@ -23,7 +23,8 @@ def _build_join_window_dataflow(
     inp_l: List[_Event],
     inp_r: List[_Event],
     out: List[Tuple[Optional[int], Optional[int]]],
-    mode: Optional[JoinMode] = None,
+    insert_mode: Optional[JoinInsertMode] = None,
+    emit_mode: Optional[JoinEmitMode] = None,
 ) -> Dataflow:
     flow = Dataflow("test_df")
     lefts = op.input("inp_l", flow, TestingSource(inp_l))
@@ -34,14 +35,15 @@ def _build_join_window_dataflow(
     clock = EventClock(_Event.ts_getter, wait_for_system_duration=timedelta.max)
     windower = SessionWindower(timedelta(seconds=10))
 
-    if mode is not None:
+    if insert_mode is not None and emit_mode is not None:
         joined = win.join_window(
             "join",
             clock,
             windower,
             keyed_lefts,
             keyed_rights,
-            mode=mode,
+            insert_mode=insert_mode,
+            emit_mode=emit_mode,
         )
     else:
         joined = win.join_window(
@@ -66,7 +68,26 @@ def _build_join_window_dataflow(
     return flow
 
 
-def test_join_window_complete() -> None:
+def test_join_window_first_complete() -> None:
+    align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    inp_l = [
+        _Event(align_to, 1),
+    ]
+    inp_r = [
+        _Event(align_to + timedelta(seconds=2), 3),
+        _Event(align_to + timedelta(seconds=1), 2),
+    ]
+    out: List[Tuple[Optional[int], Optional[int]]] = []
+
+    flow = _build_join_window_dataflow(inp_l, inp_r, out, "first", "complete")
+
+    run_main(flow)
+    assert out == [
+        (1, 2),
+    ]
+
+
+def test_join_window_last_complete() -> None:
     align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
     inp_l = [
         _Event(align_to, 1),
@@ -76,7 +97,7 @@ def test_join_window_complete() -> None:
     ]
     out: List[Tuple[Optional[int], Optional[int]]] = []
 
-    flow = _build_join_window_dataflow(inp_l, inp_r, out, "complete")
+    flow = _build_join_window_dataflow(inp_l, inp_r, out, "last", "complete")
 
     run_main(flow)
     assert out == [
@@ -84,7 +105,7 @@ def test_join_window_complete() -> None:
     ]
 
 
-def test_join_window_final() -> None:
+def test_join_window_last_final() -> None:
     align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
     inp_l = [
         _Event(align_to, 1),
@@ -95,7 +116,7 @@ def test_join_window_final() -> None:
     ]
     out: List[Tuple[Optional[int], Optional[int]]] = []
 
-    flow = _build_join_window_dataflow(inp_l, inp_r, out, "final")
+    flow = _build_join_window_dataflow(inp_l, inp_r, out, "last", "final")
 
     run_main(flow)
     assert out == [
@@ -103,7 +124,7 @@ def test_join_window_final() -> None:
     ]
 
 
-def test_join_window_default_mode_is_final() -> None:
+def test_join_window_default_mode_is_last_final() -> None:
     align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
     inp_l = [
         _Event(align_to, 1),
@@ -122,7 +143,7 @@ def test_join_window_default_mode_is_final() -> None:
     ]
 
 
-def test_join_window_running() -> None:
+def test_join_window_last_running() -> None:
     align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
     inp_l = [
         _Event(align_to, 1),
@@ -133,7 +154,7 @@ def test_join_window_running() -> None:
     ]
     out: List[Tuple[Optional[int], Optional[int]]] = []
 
-    flow = _build_join_window_dataflow(inp_l, inp_r, out, "running")
+    flow = _build_join_window_dataflow(inp_l, inp_r, out, "last", "running")
 
     run_main(flow)
     assert out == [
@@ -143,7 +164,7 @@ def test_join_window_running() -> None:
     ]
 
 
-def test_join_window_product() -> None:
+def test_join_window_product_final() -> None:
     align_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
     inp_l = [
         _Event(align_to, 1),
@@ -155,7 +176,7 @@ def test_join_window_product() -> None:
     ]
     out: List[Tuple[Optional[int], Optional[int]]] = []
 
-    flow = _build_join_window_dataflow(inp_l, inp_r, out, "product")
+    flow = _build_join_window_dataflow(inp_l, inp_r, out, "product", "final")
 
     run_main(flow)
     assert out == [

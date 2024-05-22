@@ -24,7 +24,7 @@ def test_initial_session() -> None:
     found = logic.open_for(datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc))
     assert list(found) == [0]
 
-    assert logic.metadata_for(0) == WindowMetadata(
+    assert logic.state.sessions[0] == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
         close_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
     )
@@ -40,7 +40,7 @@ def test_extend_forward_within_gap() -> None:
     found = logic.open_for(datetime(2024, 1, 1, 9, 0, 5, tzinfo=timezone.utc))
     assert list(found) == [0]
 
-    assert logic.metadata_for(0) == WindowMetadata(
+    assert logic.state.sessions[0] == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
         close_time=datetime(2024, 1, 1, 9, 0, 5, tzinfo=timezone.utc),
     )
@@ -56,7 +56,7 @@ def test_extend_forward_exact_gap() -> None:
     found = logic.open_for(datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc))
     assert list(found) == [0]
 
-    assert logic.metadata_for(0) == WindowMetadata(
+    assert logic.state.sessions[0] == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
         close_time=datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc),
     )
@@ -72,7 +72,7 @@ def test_extend_backward_within_gap() -> None:
     found = logic.open_for(datetime(2024, 1, 1, 8, 59, 55, tzinfo=timezone.utc))
     assert list(found) == [0]
 
-    assert logic.metadata_for(0) == WindowMetadata(
+    assert logic.state.sessions[0] == WindowMetadata(
         open_time=datetime(2024, 1, 1, 8, 59, 55, tzinfo=timezone.utc),
         close_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
     )
@@ -88,7 +88,7 @@ def test_extend_backward_exact_gap() -> None:
     found = logic.open_for(datetime(2024, 1, 1, 8, 59, 50, tzinfo=timezone.utc))
     assert list(found) == [0]
 
-    assert logic.metadata_for(0) == WindowMetadata(
+    assert logic.state.sessions[0] == WindowMetadata(
         open_time=datetime(2024, 1, 1, 8, 59, 50, tzinfo=timezone.utc),
         close_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
     )
@@ -108,9 +108,10 @@ def test_extend_merge() -> None:
     assert list(found) == [0]
     assert logic.merged() == [(1, 0)]
 
-    assert logic.metadata_for(0) == WindowMetadata(
+    assert logic.state.sessions[0] == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
         close_time=datetime(2024, 1, 1, 9, 0, 20, tzinfo=timezone.utc),
+        merged_ids={1},
     )
 
 
@@ -131,7 +132,7 @@ def test_within_existing() -> None:
     found = logic.open_for(datetime(2024, 1, 1, 9, 0, 5, tzinfo=timezone.utc))
     assert list(found) == [0]
 
-    assert logic.metadata_for(0) == WindowMetadata(
+    assert logic.state.sessions[0] == WindowMetadata(
         open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
         close_time=datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc),
     )
@@ -180,6 +181,7 @@ def test_find_merges_within_gap() -> None:
         0: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
             close_time=datetime(2024, 1, 1, 9, 0, 5, tzinfo=timezone.utc),
+            merged_ids={1},
         ),
     }
 
@@ -201,6 +203,7 @@ def test_find_merges_exact_gap() -> None:
         0: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
             close_time=datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc),
+            merged_ids={1},
         ),
     }
 
@@ -226,6 +229,7 @@ def test_find_merges_multi() -> None:
         0: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc),
             close_time=datetime(2024, 1, 1, 9, 0, 10, tzinfo=timezone.utc),
+            merged_ids={1, 2},
         ),
     }
 
@@ -259,6 +263,7 @@ def test_find_merges_no_yes_no() -> None:
         1: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 20, tzinfo=timezone.utc),
             close_time=datetime(2024, 1, 1, 9, 0, 25, tzinfo=timezone.utc),
+            merged_ids={2},
         ),
         3: WindowMetadata(
             open_time=datetime(2024, 1, 1, 9, 0, 40, tzinfo=timezone.utc),
