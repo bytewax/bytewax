@@ -9,6 +9,10 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes a bug when using
+  {py:obj}`~bytewax.operators.windowing.EventClock` where in-order but
+  "slow" data results in watermark assertion errors.
+
 ## v0.20.0
 
 - Adds a dataflow structure visualizer. Run `python -m
