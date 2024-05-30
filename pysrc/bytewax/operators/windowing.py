@@ -224,7 +224,6 @@ class _SystemClockLogic(ClockLogic[Any, None]):
 
 @dataclass
 class _EventClockState:
-    max_event_timestamp: datetime
     system_time_of_max_event: datetime
     watermark_base: datetime
 
@@ -238,7 +237,6 @@ class _EventClockLogic(ClockLogic[V, _EventClockState]):
 
     state: _EventClockState = field(
         default_factory=lambda: _EventClockState(
-            max_event_timestamp=UTC_MIN,
             system_time_of_max_event=UTC_MIN,
             watermark_base=UTC_MIN,
         )
@@ -259,26 +257,27 @@ class _EventClockLogic(ClockLogic[V, _EventClockState]):
     @override
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
         value_event_timestamp = self.timestamp_getter(value)
-        if value_event_timestamp > self.state.max_event_timestamp:
-            try:
-                self.state.watermark_base = (
-                    value_event_timestamp - self.wait_for_system_duration
-                )
-                self.state.max_event_timestamp = value_event_timestamp
-                assert self._system_now >= self.state.system_time_of_max_event
-                self.state.system_time_of_max_event = self._system_now
-                watermark = self.state.watermark_base
-
-                return value_event_timestamp, watermark
-            except OverflowError:
-                # Since the new actual watermark is unrepresentable,
-                # we need to keep the watermark advancing at UTC_MIN +
-                # system time, so that the watermark does not regress.
-                pass
 
         watermark = self.state.watermark_base + (
             self._system_now - self.state.system_time_of_max_event
         )
+
+        try:
+            watermark_base = value_event_timestamp - self.wait_for_system_duration
+            if watermark_base > watermark:
+                assert watermark_base >= self.state.watermark_base
+                self.state.watermark_base = watermark_base
+
+                assert self._system_now >= self.state.system_time_of_max_event
+                self.state.system_time_of_max_event = self._system_now
+
+                return value_event_timestamp, watermark_base
+        except OverflowError:
+            # Since the new actual watermark is unrepresentable, we
+            # need to keep the watermark advancing at UTC_MIN + system
+            # time, so that the watermark does not regress.
+            pass
+
         return value_event_timestamp, watermark
 
     @override
