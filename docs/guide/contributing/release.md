@@ -11,8 +11,8 @@ Make a PR which commits the following:
 
 1. Bumps version number in `Cargo.toml`
 
-   ```diff
-   *** Cargo.toml
+   ```{code-block} diff
+   :caption: Cargo.toml
     [package]
    -version = "0.1.0"
    +version = "1.2.3"
@@ -33,8 +33,8 @@ Make a PR which commits the following:
    Look in `CHANGELOG.md` for the latest batch of hand-written
    changelog notes and add a new headings with the version number.
 
-   ```diff
-   *** CHANGELOG.md
+   ```{code-block} diff
+   :caption: CHANGELOG.md
     ## Latest
 
     __Add any extra change notes here and we'll put them in the release
@@ -51,27 +51,28 @@ Make a PR which commits the following:
 
    Add a section to `docs/user_guide/reference/migration.md` like
 
-   ````markdown
+   ````{code-block} markdown
+   :caption: docs/user_guide/reference/migration.md
    ## From v1.2.2 to v1.2.3
 
-   ### Breaking change to Cow API
+   ### Breaking change to `Cow` API
 
    The `Cow` API is now named `Bear`.
 
    If you had code that looked like this
 
    ```python
-   from bytewax.dataflow import OldFlow
+   from bytewax.dataflow import Cow
 
-   flow = OldFlow()
+   flow = Cow()
    ```
 
    It now is should be written as
 
    ```{testcode}
-   from bytewax.dataflow import Dataflow
+   from bytewax.dataflow import Bear
 
-   flow = Dataflow("flow_id")
+   flow = Bear("flow_id")
    ```
    ````
 
@@ -115,7 +116,8 @@ repo](https://github.com/bytewax/bytewax/releases).
    with this version into a new section of the GitHub release
    description at the top.
 
-   ```diff
+   ```{code-block} diff
+   :caption: GitHub Release Notes Form
    +## Overview
    +* Paste in the stuff in `CHANGELOG.md` here.
    +
