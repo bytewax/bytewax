@@ -95,7 +95,7 @@ Then check before merging:
 Approve and merge that PR.
 
 Check that the CI run completed for the just updated `main` branch on
-our CI actions
+[our CI actions
 page](https://github.com/bytewax/bytewax/actions/workflows/CI.yml)
 after merging the PR.
 
