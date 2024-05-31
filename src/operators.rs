@@ -662,7 +662,7 @@ where
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
-            let mut awoken_keys_buffer: BTreeSet<StateKey> = BTreeSet::new();
+            let mut awoken_keys_this_epoch_buffer: BTreeSet<StateKey> = BTreeSet::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
@@ -745,6 +745,11 @@ where
                             let mut kv_downstream_session =
                                 kv_downstream_handle.session(&output_cap);
 
+                            // Keep track of all keys that had logic
+                            // methods called so we know which to call
+                            // `notify_at` on.
+                            let mut awoken_keys_this_activation: BTreeSet<StateKey> = BTreeSet::new();
+
                             // First, call `on_batch` for all the input
                             // items.
                             if let Some(items) = inbuf.remove(&epoch) {
@@ -793,7 +798,7 @@ where
                                             sched_cache.remove(&key);
                                         }
 
-                                        awoken_keys_buffer.insert(key);
+                                        awoken_keys_this_activation.insert(key);
                                     }
 
                                     Ok(())
@@ -845,7 +850,7 @@ where
                                             sched_cache.remove(&key);
                                         }
 
-                                        awoken_keys_buffer.insert(key);
+                                        awoken_keys_this_activation.insert(key);
                                     }
 
                                     Ok(())
@@ -876,7 +881,7 @@ where
                                             discarded_keys.push(key.clone());
                                         }
 
-                                        awoken_keys_buffer.insert(key.clone());
+                                        awoken_keys_this_activation.insert(key.clone());
                                     }
 
                                     Ok(())
@@ -891,9 +896,9 @@ where
                             // Then go through all awoken keys and
                             // update the next scheduled notification
                             // times.
-                            if !awoken_keys_buffer.is_empty() {
+                            if !awoken_keys_this_activation.is_empty() {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for key in awoken_keys_buffer.iter() {
+                                    for key in awoken_keys_this_activation.iter() {
                                         // It's possible the logic was
                                         // discarded on a previous
                                         // activation but the epoch
@@ -916,6 +921,10 @@ where
 
                                     Ok(())
                                 }));
+
+                                // Now mark all these keys as aowken
+                                // in the epoch so snapshotting works.
+                                awoken_keys_this_epoch_buffer.extend(awoken_keys_this_activation);
                             }
 
                             // Snapshot and output state changes.
@@ -934,7 +943,7 @@ where
                                     // Finally drain
                                     // `awoken_keys_buffer` since the
                                     // epoch is over.
-                                    for key in std::mem::take(&mut awoken_keys_buffer) {
+                                    for key in std::mem::take(&mut awoken_keys_this_epoch_buffer) {
                                         let change = if let Some(logic) = logics.get(&key) {
                                             let state = with_timer!(
                                                 snapshot_histogram,

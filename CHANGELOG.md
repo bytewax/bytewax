@@ -9,6 +9,11 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes a performance issue where
+  {py:obj}`bytewax.operators.StatefulBatchLogic.notify_at` (and thus
+  many of the other stateful operators' `notify_at` derived from it)
+  was being called superfluously.
+
 ## v0.20.1
 
 - Fixes a bug when using
