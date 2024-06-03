@@ -32,6 +32,7 @@ some logic function or value supplied is not conforming to the
 contract the operator set. You'll need to read the exception and
 documentation of the operator carefully.
 
+(xref-visualize)=
 ## Visualizing Structure
 
 The Bytewax library includes a small helper script to visualize

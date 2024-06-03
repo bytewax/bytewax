@@ -1,8 +1,8 @@
 """Visualize dataflow structure.
 
-This is usually run as a script via `python -m bytewax.visualize`.
-
-See `python -m bytewax.visualize --help` for more info.
+This most easily used via running this module as a script. Run `python
+-m bytewax.visualize --help` or see <project:#xref-visualize> for more
+info.
 
 """
 
@@ -253,6 +253,10 @@ def _to_plantuml_step(
 def to_plantuml(flow: Dataflow, recursive: bool = False) -> str:
     """Generate a PlantUML diagram of a dataflow.
 
+    This most easily used via running this module as a script. Run
+    `python -m bytewax.visualize --help` or see
+    <project:#xref-visualize> for more info.
+
     See [the PlantUML website](https://plantuml.com/) for more
     info on PlantUML.
 
@@ -297,6 +301,10 @@ def _to_mermaid_step(
 
 def to_mermaid(flow: Dataflow) -> str:
     """Generate a Mermaid diagram of a dataflow.
+
+    This most easily used via running this module as a script. Run
+    `python -m bytewax.visualize --help` or see
+    <project:#xref-visualize> for more info.
 
     See [the Mermaid docs](https://mermaid.js.org/intro/) for more
     info on Mermaid.
