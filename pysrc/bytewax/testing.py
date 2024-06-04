@@ -78,7 +78,14 @@ def ffwd_iter(it: Iterator[Any], n: int) -> None:
 class _IterSourcePartition(StatefulSourcePartition[X, int]):
     def __init__(
         self,
-        ib: Iterable[Union[X, "TestingSource.EOF", "TestingSource.ABORT"]],
+        ib: Iterable[
+            Union[
+                X,
+                "TestingSource.EOF",
+                "TestingSource.ABORT",
+                "TestingSource.PAUSE",
+            ]
+        ],
         batch_size: int,
         resume_state: Optional[int],
     ):
@@ -192,7 +199,7 @@ class TestingSource(FixedPartitionedSource[X, int]):
 
         for_duration: timedelta
 
-    def __init__(self, ib: Iterable[Union[X, EOF, ABORT]], batch_size: int = 1):
+    def __init__(self, ib: Iterable[Union[X, EOF, ABORT, PAUSE]], batch_size: int = 1):
         """Init.
 
         :arg ib: Iterable for input.
