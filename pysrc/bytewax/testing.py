@@ -78,12 +78,20 @@ def ffwd_iter(it: Iterator[Any], n: int) -> None:
 class _IterSourcePartition(StatefulSourcePartition[X, int]):
     def __init__(
         self,
-        ib: Iterable[Union[X, "TestingSource.EOF", "TestingSource.ABORT"]],
+        ib: Iterable[
+            Union[
+                X,
+                "TestingSource.EOF",
+                "TestingSource.ABORT",
+                "TestingSource.PAUSE",
+            ]
+        ],
         batch_size: int,
         resume_state: Optional[int],
     ):
         self._start_idx = 0 if resume_state is None else resume_state
         self._batch_size = batch_size
+        self._next_awake: Optional[datetime] = None
         self._it = iter(ib)
         # Resume to one after the last completed read index.
         ffwd_iter(self._it, self._start_idx)
@@ -93,16 +101,12 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
     def next_batch(self) -> List[X]:
         if self._raise is not None:
             raise self._raise
+        if self._next_awake is not None:
+            self._next_awake = None
 
         batch = []
         for item in self._it:
-            if item is TestingSource.EOF:
-                msg = "`TestingSource.EOF` must be instantiated; use `()`"
-                raise ValueError(msg)
-            elif item is TestingSource.ABORT:
-                msg = "`TestingSource.ABORT` must be instantiated; use `()`"
-                raise ValueError(msg)
-            elif isinstance(item, TestingSource.EOF):
+            if isinstance(item, TestingSource.EOF):
                 self._raise = StopIteration()
                 # Skip over this on continuation.
                 self._start_idx += 1
@@ -115,6 +119,11 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
                     item._triggered = True
                     # Batch is done early.
                     break
+            elif isinstance(item, TestingSource.PAUSE):
+                now = datetime.now(tz=timezone.utc)
+                self._next_awake = now + item.for_duration
+                # Batch is done early.
+                break
             else:
                 batch.append(item)
                 if len(batch) >= self._batch_size:
@@ -122,11 +131,15 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
 
         # If the last item was a sentinel, then don't say EOF, let the
         # next batch raise the exception.
-        if len(batch) > 0 or self._raise is not None:
+        if len(batch) > 0 or self._raise is not None or self._next_awake is not None:
             self._start_idx += len(batch)
             return batch
         else:
             raise StopIteration()
+
+    @override
+    def next_awake(self) -> Optional[datetime]:
+        return self._next_awake
 
     @override
     def snapshot(self) -> int:
@@ -180,7 +193,13 @@ class TestingSource(FixedPartitionedSource[X, int]):
 
         _triggered: bool = False
 
-    def __init__(self, ib: Iterable[Union[X, EOF, ABORT]], batch_size: int = 1):
+    @dataclass
+    class PAUSE:
+        """Signal this input to not emit items for a duration."""
+
+        for_duration: timedelta
+
+    def __init__(self, ib: Iterable[Union[X, EOF, ABORT, PAUSE]], batch_size: int = 1):
         """Init.
 
         :arg ib: Iterable for input.
