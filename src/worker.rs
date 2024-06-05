@@ -373,7 +373,7 @@ where
                         let source = step.get_arg(py, "source")?.extract::<Source>(py)?;
 
                         if let Ok(source) = source.extract::<FixedPartitionedSource>(py) {
-                            let mut state = InputState::new(
+                            let mut state = InputState::init(
                                 py,
                                 step_id.clone(),
                                 local_state_store.clone(),
@@ -449,33 +449,39 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `merge` missing port")?;
                     }
-                    // "output" => {
-                    //     let sink = step.get_arg(py, "sink")?.extract::<Sink>(py)?;
+                    "output" => {
+                        let sink = step.get_arg(py, "sink")?.extract::<Sink>(py)?;
 
-                    //     let up = streams
-                    //         .get_upstream(py, &step, "up")
-                    //         .reraise("core operator `output` missing port")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `output` missing port")?;
 
-                    //     if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
-                    //         let mut state = OutputState::new(step_id.clone(), state_store.clone());
-                    //         state.hydrate(&sink)?;
-                    //         let (clock, snap) = up
-                    //             .partitioned_output(py, step_id, sink, state)
-                    //             .reraise("error building FixedPartitionedSink")?;
+                        if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
+                            let mut state = OutputState::init(
+                                py,
+                                step_id.clone(),
+                                local_state_store.clone(),
+                                state_store_cache.clone(),
+                                &sink,
+                                snapshot_mode,
+                            )?;
+                            let (clock, snap) = up
+                                .partitioned_output(py, step_id, sink, state)
+                                .reraise("error building FixedPartitionedSink")?;
 
-                    //         outputs.push(clock.clone());
-                    //         snaps.push(snap);
-                    //     } else if let Ok(sink) = sink.extract::<DynamicSink>(py) {
-                    //         let clock = up
-                    //             .dynamic_output(py, step_id, sink)
-                    //             .reraise("error building DynamicSink")?;
+                            outputs.push(clock.clone());
+                            snaps.push(snap);
+                        } else if let Ok(sink) = sink.extract::<DynamicSink>(py) {
+                            let clock = up
+                                .dynamic_output(py, step_id, sink)
+                                .reraise("error building DynamicSink")?;
 
-                    //         outputs.push(clock.clone());
-                    //     } else {
-                    //         let msg = "unknown sink type";
-                    //         return Err(tracked_err::<PyTypeError>(msg));
-                    //     }
-                    // }
+                            outputs.push(clock.clone());
+                        } else {
+                            let msg = "unknown sink type";
+                            return Err(tracked_err::<PyTypeError>(msg));
+                        }
+                    }
                     "redistribute" => {
                         let up = streams
                             .get_upstream(py, &step, "up")
@@ -518,7 +524,7 @@ where
             }
         }
 
-        if inputs.is_empty() {
+        if !is_input_present {
             let msg = "Dataflow needs to contain at least one input step; \
                 add with `bytewax.operators.input`";
             return Err(tracked_err::<PyValueError>(msg));

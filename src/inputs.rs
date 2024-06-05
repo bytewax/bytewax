@@ -3,11 +3,8 @@
 //! For a user-centric version of input, read the `bytewax.inputs`
 //! Python module docstring. Read that first.
 
-use std::cell::Ref;
 use std::cell::RefCell;
-use std::cell::RefMut;
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
@@ -26,7 +23,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::generic::OutputHandle;
 use timely::dataflow::operators::Capability;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
@@ -202,7 +198,7 @@ pub(crate) struct InputState {
 }
 
 impl InputState {
-    pub fn new(
+    pub fn init(
         py: Python,
         step_id: StepId,
         local_state_store: Rc<RefCell<Option<LocalStateStore>>>,

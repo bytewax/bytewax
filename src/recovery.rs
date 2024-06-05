@@ -3,9 +3,7 @@
 //! For a user-centric version of recovery, read the
 //! `bytewax.recovery` Python module docstring. Read that first.
 
-use std::cell::Ref;
 use std::cell::RefCell;
-use std::cell::RefMut;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt;
@@ -35,10 +33,6 @@ use timely::dataflow::Stream;
 
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
-use crate::inputs::StatefulSourcePartition;
-use crate::operators::StatefulBatchLogic;
-use crate::outputs::StatefulSinkPartition;
-use crate::pyo3_extensions::TdPyAny;
 use crate::timely::*;
 use crate::unwrap_any;
 
@@ -137,6 +131,10 @@ impl StateStoreCache {
             cache: HashMap::new(),
             // builders: HashMap::new(),
         }
+    }
+
+    pub fn contains_key(&self, step_id: &StepId, key: &StateKey) -> bool {
+        self.cache.get(step_id).unwrap().contains_key(key)
     }
 
     pub fn insert(&mut self, step_id: &StepId, key: StateKey, logic: PyObject) {
