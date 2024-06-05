@@ -115,24 +115,31 @@ where
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
 
-    let recovery_config = recovery_config
-        .map(|rc| Python::with_gil(|py| rc.extract(py)))
-        .transpose()?;
-
     let flow_id = Python::with_gil(|py| flow.flow_id(py).unwrap());
 
-    // TODO: Now, initialize the StateStore object.
+    // TODO: Now, initialize the LocalStateStore object.
     //       We need to decide if we can do a fast resume first.
     //       We CAN'T do a fast resume if:
     //       - The number of workers changed (state_store.worker_count vs current count)
     //       - Any of the workers can't access its own db (corrupted? volume gone?)
     //       If fast resume can be done, read the resume_from epoch from the state_store
     //       and start from there.
-    let mut state = StateStore::new(recovery_config, flow_id, worker_index, worker_count)?;
+    let snapshot_mode = recovery_config
+        .map(|rc| Python::with_gil(|py| rc.borrow(py).snapshot_mode))
+        .unwrap_or(SnapshotMode::Immediate);
+    let local_state_store = recovery_config
+        .map(|rc| {
+            let mut conn =
+                Python::with_gil(|py| rc.borrow(py).db_connection(&flow_id, worker_index))?;
+            LocalStateStore::new(conn, flow_id, worker_index, worker_count)
+        })
+        .transpose()?;
 
     // Now broadcast the worker's resume epoch to all other workers,
     // and get the max of them all to get the cluster's resume epoch.
-    let worker_resume_epoch = state.resume_from().1 .0;
+    let worker_resume_epoch = local_state_store
+        .map(|state| state.resume_from_epoch().0)
+        .unwrap_or_default();
     let cluster_resume_epoch = Rc::new(RefCell::new(worker_resume_epoch));
 
     let probe = build_resume_epoch_dataflow(
@@ -145,16 +152,25 @@ where
         worker.run(probe);
     });
 
-    state.update_resume_epoch(*cluster_resume_epoch.borrow());
+    let resume_epoch = ResumeEpoch(*cluster_resume_epoch.borrow());
 
-    let state = Rc::new(RefCell::new(state));
+    if let Some(state) = local_state_store {
+        state.update_resume_epoch(resume_epoch);
+    }
+
+    let state_store_cache = Rc::new(RefCell::new(StateStoreCache::new()));
+    let local_state_store = Rc::new(RefCell::new(local_state_store));
+
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
             worker.worker,
             flow,
             epoch_interval,
-            state,
+            state_store_cache,
+            local_state_store,
+            resume_epoch,
+            snapshot_mode,
             &worker.abort,
         )
         .reraise("error building production dataflow")
@@ -279,7 +295,10 @@ fn build_production_dataflow<A>(
     worker: &mut TimelyWorker<A>,
     flow: Dataflow,
     epoch_interval: EpochInterval,
-    state_store: Rc<RefCell<StateStore>>,
+    state_store_cache: Rc<RefCell<StateStoreCache>>,
+    local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+    resume_epoch: ResumeEpoch,
+    snapshot_mode: SnapshotMode,
     abort: &Arc<AtomicBool>,
 ) -> PyResult<ProbeHandle<u64>>
 where
@@ -292,12 +311,12 @@ where
     worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
 
-        let mut inputs = Vec::new();
+        let mut is_input_present = false;
         let mut outputs = Vec::new();
         let mut snaps = Vec::new();
 
-        let recovery_on = state_store.borrow().recovery_on();
-        let immediate_snapshot = state_store.borrow().immediate_snapshot();
+        // let recovery_on = state_store.borrow().recovery_on();
+        // let immediate_snapshot = state_store.borrow().immediate_snapshot();
 
         // This contains steps we still need to compile. Starts with
         // the top-level steps in the dataflow.
@@ -354,8 +373,14 @@ where
                         let source = step.get_arg(py, "source")?.extract::<Source>(py)?;
 
                         if let Ok(source) = source.extract::<FixedPartitionedSource>(py) {
-                            let mut state = InputState::new(step_id.clone(), state_store.clone());
-                            state.hydrate(&source)?;
+                            let mut state = InputState::new(
+                                py,
+                                step_id.clone(),
+                                local_state_store.clone(),
+                                state_store_cache.clone(),
+                                &source,
+                                snapshot_mode,
+                            )?;
                             let (down, snap) = source
                                 .partitioned_input(
                                     py,
@@ -364,13 +389,14 @@ where
                                     epoch_interval,
                                     &probe,
                                     abort,
+                                    &resume_epoch,
                                     state,
                                 )
                                 .reraise("error building FixedPartitionedSource")?;
 
-                            inputs.push(down.clone());
-                            snaps.push(snap);
+                            is_input_present = true;
 
+                            snaps.push(snap);
                             streams
                                 .insert_downstream(py, &step, "down", down)
                                 .reraise("core operator `input` missing port")?;
@@ -383,11 +409,11 @@ where
                                     epoch_interval,
                                     &probe,
                                     abort,
-                                    state_store.borrow().resume_from().1,
+                                    resume_epoch,
                                 )
                                 .reraise("error building DynamicSource")?;
 
-                            inputs.push(down.clone());
+                            is_input_present = true;
 
                             streams
                                 .insert_downstream(py, &step, "down", down)
@@ -423,33 +449,33 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `merge` missing port")?;
                     }
-                    "output" => {
-                        let sink = step.get_arg(py, "sink")?.extract::<Sink>(py)?;
+                    // "output" => {
+                    //     let sink = step.get_arg(py, "sink")?.extract::<Sink>(py)?;
 
-                        let up = streams
-                            .get_upstream(py, &step, "up")
-                            .reraise("core operator `output` missing port")?;
+                    //     let up = streams
+                    //         .get_upstream(py, &step, "up")
+                    //         .reraise("core operator `output` missing port")?;
 
-                        if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
-                            let mut state = OutputState::new(step_id.clone(), state_store.clone());
-                            state.hydrate(&sink)?;
-                            let (clock, snap) = up
-                                .partitioned_output(py, step_id, sink, state)
-                                .reraise("error building FixedPartitionedSink")?;
+                    //     if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
+                    //         let mut state = OutputState::new(step_id.clone(), state_store.clone());
+                    //         state.hydrate(&sink)?;
+                    //         let (clock, snap) = up
+                    //             .partitioned_output(py, step_id, sink, state)
+                    //             .reraise("error building FixedPartitionedSink")?;
 
-                            outputs.push(clock.clone());
-                            snaps.push(snap);
-                        } else if let Ok(sink) = sink.extract::<DynamicSink>(py) {
-                            let clock = up
-                                .dynamic_output(py, step_id, sink)
-                                .reraise("error building DynamicSink")?;
+                    //         outputs.push(clock.clone());
+                    //         snaps.push(snap);
+                    //     } else if let Ok(sink) = sink.extract::<DynamicSink>(py) {
+                    //         let clock = up
+                    //             .dynamic_output(py, step_id, sink)
+                    //             .reraise("error building DynamicSink")?;
 
-                            outputs.push(clock.clone());
-                        } else {
-                            let msg = "unknown sink type";
-                            return Err(tracked_err::<PyTypeError>(msg));
-                        }
-                    }
+                    //         outputs.push(clock.clone());
+                    //     } else {
+                    //         let msg = "unknown sink type";
+                    //         return Err(tracked_err::<PyTypeError>(msg));
+                    //     }
+                    // }
                     "redistribute" => {
                         let up = streams
                             .get_upstream(py, &step, "up")
@@ -461,25 +487,25 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `redistribute` missing port")?;
                     }
-                    "stateful_batch" => {
-                        let builder = step.get_arg(py, "builder")?.extract(py)?;
+                    // "stateful_batch" => {
+                    //     let builder = step.get_arg(py, "builder")?.extract(py)?;
 
-                        let mut state =
-                            StatefulBatchState::new(step_id.clone(), state_store.clone());
-                        state.hydrate(&builder)?;
+                    //     let mut state =
+                    //         StatefulBatchState::new(step_id.clone(), state_store.clone());
+                    //     state.hydrate(&builder)?;
 
-                        let up = streams
-                            .get_upstream(py, &step, "up")
-                            .reraise("core operator `stateful_batch` missing port")?;
+                    //     let up = streams
+                    //         .get_upstream(py, &step, "up")
+                    //         .reraise("core operator `stateful_batch` missing port")?;
 
-                        let (down, snap) = up.stateful_batch(py, step_id, builder, state)?;
+                    //     let (down, snap) = up.stateful_batch(py, step_id, builder, state)?;
 
-                        snaps.push(snap);
+                    //     snaps.push(snap);
 
-                        streams
-                            .insert_downstream(py, &step, "down", down)
-                            .reraise("core operator `stateful_batch` missing port")?;
-                    }
+                    //     streams
+                    //         .insert_downstream(py, &step, "down", down)
+                    //         .reraise("core operator `stateful_batch` missing port")?;
+                    // }
                     name => {
                         let msg = format!("Unknown core operator {name:?}");
                         return Err(tracked_err::<PyTypeError>(&msg));
@@ -504,34 +530,34 @@ where
         }
 
         // Attach the probe to the relevant final output.
-        if recovery_on {
-            let ssc = state_store.borrow();
-            scope
-                // Concatenate all snapshot streams
-                .concatenate(snaps)
-                // Compact all of the snapshots of each worker
-                // into a temporary, local (to each worker) sqlite
-                // file, and emit a stream of paths for the files.
-                .compact_snapshots(state_store.clone())
-                // Now save each segment from all workers into
-                // a durable backup storate.
-                .durable_backup(ssc.backup().unwrap(), immediate_snapshot)
-                // Now that the snapshot data is safe, we can
-                // update the cluster frontier.
-                // Broadcast the stream since we want all workers
-                // to write the cluster frontier info, even if they
-                // have no new snapshot to save.
-                .broadcast()
-                // Write the frontier into a temp segment
-                .compact_frontiers(state_store.clone())
-                // Upload the segment to the durable backup
-                .durable_backup(ssc.backup().unwrap(), immediate_snapshot)
-                // And finally save the cluster frontier locally.
-                .write_frontiers(state_store.clone())
-                .probe_with(&mut probe);
-        } else {
-            scope.concatenate(outputs).probe_with(&mut probe);
-        }
+        // if recovery_on {
+        //     let ssc = state_store.borrow();
+        //     scope
+        //         // Concatenate all snapshot streams
+        //         .concatenate(snaps)
+        //         // Compact all of the snapshots of each worker
+        //         // into a temporary, local (to each worker) sqlite
+        //         // file, and emit a stream of paths for the files.
+        //         .compact_snapshots(state_store.clone())
+        //         // Now save each segment from all workers into
+        //         // a durable backup storate.
+        //         .durable_backup(ssc.backup().unwrap(), immediate_snapshot)
+        //         // Now that the snapshot data is safe, we can
+        //         // update the cluster frontier.
+        //         // Broadcast the stream since we want all workers
+        //         // to write the cluster frontier info, even if they
+        //         // have no new snapshot to save.
+        //         .broadcast()
+        //         // Write the frontier into a temp segment
+        //         .compact_frontiers(state_store.clone())
+        //         // Upload the segment to the durable backup
+        //         .durable_backup(ssc.backup().unwrap(), immediate_snapshot)
+        //         // And finally save the cluster frontier locally.
+        //         .write_frontiers(state_store.clone())
+        //         .probe_with(&mut probe);
+        // } else {
+        scope.concatenate(outputs).probe_with(&mut probe);
+        // }
 
         Ok(probe)
     })

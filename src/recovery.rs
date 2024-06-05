@@ -90,74 +90,6 @@ impl Backup {
     }
 }
 
-/// Represents the possible types of state that the `StateStore` can hold.
-pub(crate) enum StatefulLogicKind {
-    Stateful(StatefulBatchLogic),
-    Source(StatefulSourcePartition),
-    Sink(StatefulSinkPartition),
-}
-
-impl From<StatefulBatchLogic> for StatefulLogicKind {
-    fn from(val: StatefulBatchLogic) -> Self {
-        StatefulLogicKind::Stateful(val)
-    }
-}
-
-impl From<StatefulSourcePartition> for StatefulLogicKind {
-    fn from(val: StatefulSourcePartition) -> Self {
-        StatefulLogicKind::Source(val)
-    }
-}
-
-impl From<StatefulSinkPartition> for StatefulLogicKind {
-    fn from(val: StatefulSinkPartition) -> Self {
-        StatefulLogicKind::Sink(val)
-    }
-}
-
-impl StatefulLogicKind {
-    pub(crate) fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
-        match self {
-            Self::Stateful(logic) => logic.snapshot(py),
-            Self::Source(logic) => logic.snapshot(py),
-            Self::Sink(logic) => logic.snapshot(py),
-        }
-    }
-    pub(crate) fn as_source(&self) -> &StatefulSourcePartition {
-        assert!(
-            matches!(self, Self::Source(_)),
-            "Trying to treat input state as a state for a different operator. \
-            This is a bug in Bytewax, aborting!"
-        );
-        match self {
-            Self::Source(logic) => logic,
-            _ => unreachable!(),
-        }
-    }
-    pub(crate) fn as_sink(&self) -> &StatefulSinkPartition {
-        assert!(
-            matches!(self, Self::Sink(_)),
-            "Trying to treat output state as a state for a different operator. \
-            This is a bug in Bytewax, aborting!"
-        );
-        match self {
-            Self::Sink(logic) => logic,
-            _ => unreachable!(),
-        }
-    }
-    pub(crate) fn as_stateful(&self) -> &StatefulBatchLogic {
-        assert!(
-            matches!(self, Self::Stateful(_)),
-            "Trying to treat stateful_batch state as a state for a different operator. \
-            This is a bug in Bytewax, aborting!"
-        );
-        match self {
-            Self::Stateful(logic) => logic,
-            _ => unreachable!(),
-        }
-    }
-}
-
 /// Module that holds all the queries used for recovery.
 mod queries {
     /// Get the meta data from the most recent execution number
@@ -192,68 +124,83 @@ mod queries {
         SET cluster_frontier = EXCLUDED.cluster_frontier";
 }
 
+pub(crate) type LogicBuilder = Box<dyn Fn(StateKey, Option<PyObject>) -> PyResult<PyObject>>;
+
+pub(crate) struct StateStoreCache {
+    cache: HashMap<StepId, BTreeMap<StateKey, PyObject>>,
+    // builders: HashMap<StepId, LogicBuilder>,
+}
+
+impl StateStoreCache {
+    pub fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+            // builders: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, step_id: &StepId, key: StateKey, logic: PyObject) {
+        self.cache.get_mut(step_id).unwrap().insert(key, logic);
+    }
+
+    pub fn get(&self, step_id: &StepId, key: &StateKey) -> Option<&PyObject> {
+        self.cache.get(step_id).unwrap().get(key)
+    }
+
+    pub fn keys(&self, step_id: &StepId) -> Vec<StateKey> {
+        self.cache.get(step_id).unwrap().keys().cloned().collect()
+    }
+
+    pub fn remove(&mut self, step_id: &StepId, key: &StateKey) -> Option<PyObject> {
+        self.cache.get_mut(step_id).unwrap().remove(key)
+    }
+}
+
 /// Stores that state for all the stateful operators.
 /// Offers an api to interact with the state of each step_id,
 /// to generate snapshot of each state and
 /// to manage the connection to the local db where the snapshots are saved.
-pub(crate) struct StateStore {
+pub(crate) struct LocalStateStore {
     flow_id: String,
     worker_index: usize,
     worker_count: usize,
-    recovery_config: Option<RecoveryConfig>,
     resume_from: ResumeFrom,
-
-    cache: HashMap<StepId, BTreeMap<StateKey, StatefulLogicKind>>,
-    conn: Option<Connection>,
-
-    // Used to keep track of segments in each epoch.
+    conn: Connection,
     seg_num: u64,
     prev_epoch: u64,
 }
 
-impl StateStore {
+impl LocalStateStore {
     pub fn new(
-        recovery_config: Option<RecoveryConfig>,
+        conn: Connection,
         flow_id: String,
         worker_index: usize,
         worker_count: usize,
     ) -> PyResult<Self> {
-        // Init or load the recovery db is recovery was configured.
-        let mut conn = recovery_config
-            .as_ref()
-            .map(|rc| rc.db_connection(&flow_id, worker_index))
-            .transpose()?;
-
         // Calculate resume_from.
         // If recovery is configured, read the latest execution number from the db,
         // otherwise start from the defaults.
-        let resume_from = conn
-            .as_mut()
-            .map(|conn| {
-                let res = conn
-                    .transaction()
-                    .unwrap()
-                    .query_row(queries::GET_META, (), |row| {
-                        let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
-                        let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
-                        Ok(ex_num
-                            .zip(resume_epoch)
-                            // Advance the execution number here.
-                            .map(|(en, re)| ResumeFrom(en.next(), re)))
-                    });
-                match res {
-                    // If no rows in the db, it was empty, so use the default.
-                    Err(rusqlite::Error::QueryReturnedNoRows) => ResumeFrom::default(),
-                    // Any other error was an error reading from the db, we should stop here.
-                    Err(err) => std::panic::panic_any(err),
-                    Ok(row) => row.unwrap_or_default(),
-                }
-            })
-            .unwrap_or_default();
+        let mut conn = conn;
+        let res = conn
+            .transaction()
+            .unwrap()
+            .query_row(queries::GET_META, (), |row| {
+                let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
+                let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
+                Ok(ex_num
+                    .zip(resume_epoch)
+                    // Advance the execution number here.
+                    .map(|(en, re)| ResumeFrom(en.next(), re)))
+            });
+        let resume_from = match res {
+            // If no rows in the db, it was empty, so use the default.
+            Err(rusqlite::Error::QueryReturnedNoRows) => ResumeFrom::default(),
+            // Any other error was an error reading from the db, we should stop here.
+            Err(err) => std::panic::panic_any(err),
+            Ok(row) => row.unwrap_or_default(),
+        };
 
         Ok(Self {
-            cache: HashMap::new(),
-            recovery_config,
             conn,
             flow_id,
             worker_index,
@@ -264,133 +211,66 @@ impl StateStore {
         })
     }
 
-    pub fn backup(&self) -> Option<Backup> {
-        self.recovery_config.as_ref().map(|rc| rc.backup())
+    pub fn resume_from_epoch(&self) -> ResumeEpoch {
+        self.resume_from.1
     }
 
-    pub fn resume_from(&self) -> ResumeFrom {
-        self.resume_from
-    }
-
-    pub fn recovery_on(&self) -> bool {
-        self.recovery_config.is_some()
-    }
-
-    pub fn immediate_snapshot(&self) -> bool {
-        self.recovery_config
-            .as_ref()
-            .is_some_and(|rc| !rc.batch_backup)
-    }
-
-    pub fn update_resume_epoch(&mut self, epoch: u64) {
-        self.resume_from.1 .0 = epoch;
-    }
-
-    // Api for managing the store.
-    // Always assume that the `step_id` is present, as we expect it to be added
-    // when the operator is instanced. If that's not the case, it's a bug
-    // on our side and we should abort.
-    // TODO: Here we can load/unload data between memory and the local state store
-    //       to allow handling larger than memory state.
-
-    pub fn get(&self, step_id: &StepId, key: &StateKey) -> Option<&StatefulLogicKind> {
-        self.cache.get(step_id).unwrap().get(key)
-    }
-
-    pub fn get_logics(&self, step_id: &StepId) -> &BTreeMap<StateKey, StatefulLogicKind> {
-        self.cache.get(step_id).unwrap()
-    }
-
-    pub fn contains_key(&self, step_id: &StepId, key: &StateKey) -> bool {
-        self.cache.get(step_id).unwrap().contains_key(key)
-    }
-
-    pub fn insert(&mut self, step_id: &StepId, key: StateKey, logic: StatefulLogicKind) {
-        self.cache.get_mut(step_id).unwrap().insert(key, logic);
-    }
-
-    pub fn remove(&mut self, step_id: &StepId, key: &StateKey) -> Option<StatefulLogicKind> {
-        self.cache.get_mut(step_id).unwrap().remove(key)
+    pub fn update_resume_epoch(&mut self, resume_epoch: ResumeEpoch) {
+        self.resume_from.1 = resume_epoch;
     }
 
     /// Hydrate the local cache with all the snapshots for a step_id.
     /// Pass a builder function that turns a `(state_key, state)` tuple
     /// into a `StatefulLogicKind`, and it will be called with data coming
     /// from each deserialized snapshot.
-    pub fn hydrate(
+    pub fn get_snaps(
         &mut self,
+        py: Python,
         step_id: &StepId,
-        builder: impl Fn(&StateKey, Option<PyObject>) -> StatefulLogicKind,
-    ) -> PyResult<()> {
-        // We never want to add a step twice, so panic if that's tried.
-        assert!(
-            !self.cache.contains_key(step_id),
-            "Trying to hydrate state twice, this is probably a bug"
-        );
-        self.cache.insert(step_id.clone(), Default::default());
-
-        // If no db connection is present, we don't need to do anything else.
-        if self.conn.is_none() {
-            return Ok(());
-        }
-
+        // builder: impl Fn(&StateKey, Option<PyObject>) -> StatefulLogicKind,
+    ) -> PyResult<Vec<(StateKey, Option<PyObject>)>> {
         // Get all the snapshots in the store for this specific step_id,
         // deserialize them, then call the builder function to make them
         // the right StatefulLogicKind variant.
-        let deserialized_snaps = Python::with_gil(|py| -> PyResult<Vec<_>> {
-            let pickle = py.import_bound("pickle")?;
-            self.conn
-                .as_ref()
-                // Unwrap here since we already checked conn is some.
-                .unwrap()
-                // Retrieve all the snapshots for the latest epoch saved
-                // in the recovery store that's <= than resume_from..
-                .prepare(queries::GET_SNAPSHOTS)
-                .reraise("Error preparing query for recovery db.")?
-                .query_map((&self.resume_from.1 .0, &step_id.0), |row| {
-                    Ok(SerializedSnapshot(
-                        StepId(row.get(0)?),
-                        StateKey(row.get(1)?),
-                        SnapshotEpoch(row.get(2)?),
-                        row.get(3)?,
-                    ))
-                })
-                .reraise("Error binding query parameters in recovery store")?
-                .map(|res| res.expect("Error unpacking SerializedSnapshot"))
-                .map(|SerializedSnapshot(_, key, _, ser_state)| {
-                    let state = ser_state.map_or_else(
-                        || Ok::<Option<PyObject>, PyErr>(None),
-                        |ser_state| {
-                            let state = pickle
-                                .call_method1(
-                                    intern!(py, "loads"),
-                                    (PyBytes::new_bound(py, &ser_state),),
-                                )?
-                                .unbind();
-                            Ok(Some(state))
-                        },
-                    )?;
-                    Ok((key, state))
-                })
-                .collect()
-        })?;
-
-        for (state_key, state) in deserialized_snaps {
-            self.insert(step_id, state_key.clone(), builder(&state_key, state));
-        }
-        Ok(())
+        let pickle = py.import_bound("pickle")?;
+        self.conn
+            // Retrieve all the snapshots for the latest epoch saved
+            // in the recovery store that's <= than resume_from..
+            .prepare(queries::GET_SNAPSHOTS)
+            .reraise("Error preparing query for recovery db.")?
+            .query_map((&self.resume_from.1 .0, &step_id.0), |row| {
+                Ok(SerializedSnapshot(
+                    StepId(row.get(0)?),
+                    StateKey(row.get(1)?),
+                    SnapshotEpoch(row.get(2)?),
+                    row.get(3)?,
+                ))
+            })
+            .reraise("Error binding query parameters in recovery store")?
+            .map(|res| res.expect("Error unpacking SerializedSnapshot"))
+            .map(|SerializedSnapshot(_, key, _, ser_state)| {
+                let state = ser_state.map_or_else(
+                    || Ok::<Option<PyObject>, PyErr>(None),
+                    |ser_state| {
+                        let state = pickle
+                            .call_method1(
+                                intern!(py, "loads"),
+                                (PyBytes::new_bound(py, &ser_state),),
+                            )?
+                            .unbind();
+                        Ok(Some(state))
+                    },
+                )?;
+                Ok((key, state))
+            })
+            .collect()
     }
 
     // Snapshots related api from here.
 
     /// Write a vec of serialized snapshots to the local db.
     pub(crate) fn write_snapshots(&mut self, snaps: Vec<SerializedSnapshot>) {
-        assert!(
-            self.conn.is_some(),
-            "Trying to snapshot state without an open db connection"
-        );
-        let conn = self.conn.as_mut().unwrap();
-        let txn = conn.transaction().unwrap();
+        let txn = self.conn.transaction().unwrap();
         for snap in snaps {
             tracing::trace!("Writing {snap:?}");
             let SerializedSnapshot(step_id, state_key, snap_epoch, ser_change) = snap;
@@ -403,80 +283,39 @@ impl StateStore {
         txn.commit().unwrap();
     }
 
-    /// Generate a fully serialized snapshot for a given key at the given epoch.
-    pub fn snap(
-        &self,
-        py: Python,
-        step_id: StepId,
-        key: StateKey,
-        epoch: u64,
-    ) -> PyResult<SerializedSnapshot> {
-        let ser_change = self
-            .get(&step_id, &key)
-            // It's ok if there's no logic, because it might have been discarded
-            // due to one of the `on_*` methods returning `IsComplete::Discard`.
-            .map(|logic| -> PyResult<Vec<u8>> {
-                let snap = PyObject::from(logic.snapshot(py).reraise_with(|| {
-                    format!("error calling `snapshot` in {step_id} for key {key}")
-                })?);
-                let pickle = py.import_bound(intern!(py, "pickle"))?;
-                let ser_snap = pickle
-                    .call_method1(intern!(py, "dumps"), (snap.bind(py),))
-                    .reraise("Error serializing snapshot")?
-                    .downcast::<PyBytes>()
-                    .unwrap()
-                    .as_bytes()
-                    .to_vec();
-                Ok(ser_snap)
-            })
-            .transpose()?;
-
-        Ok(SerializedSnapshot(
-            step_id,
-            key,
-            SnapshotEpoch(epoch),
-            ser_change,
-        ))
-    }
-
     /// Open a new db segment where to save partial data for an epoch.
     /// The segment number resets each time the epoch changes.
-    pub(crate) fn open_segment(&mut self, epoch: u64) -> PyResult<Segment> {
-        assert!(
-            self.recovery_config.is_some(),
-            "Trying to save durable state, but recovery is not configured"
-        );
-        if epoch != self.prev_epoch {
-            self.seg_num = 1;
-            self.prev_epoch = epoch;
-        } else {
-            self.seg_num += 1;
-        }
+    // pub(crate) fn open_segment(&mut self, epoch: u64) -> PyResult<Segment> {
+    //     // assert!(
+    //     //     self.recovery_config.is_some(),
+    //     //     "Trying to save durable state, but recovery is not configured"
+    //     // );
+    //     if epoch != self.prev_epoch {
+    //         self.seg_num = 1;
+    //         self.prev_epoch = epoch;
+    //     } else {
+    //         self.seg_num += 1;
+    //     }
 
-        let file_name = format!(
-            "ex-{}:epoch-{}:segment-{}:_:worker-{}.sqlite3",
-            self.resume_from.0, epoch, self.seg_num, self.worker_index
-        );
-        let mut path = self.recovery_config.as_ref().unwrap().db_dir.clone();
-        path.push(file_name);
+    //     let file_name = format!(
+    //         "ex-{}:epoch-{}:segment-{}:_:worker-{}.sqlite3",
+    //         self.resume_from.0, epoch, self.seg_num, self.worker_index
+    //     );
+    //     let mut path = self.recovery_config.as_ref().unwrap().db_dir.clone();
+    //     path.push(file_name);
 
-        Segment::new(
-            path,
-            self.flow_id.clone(),
-            self.resume_from.1 .0,
-            self.worker_index,
-            self.worker_count,
-        )
-    }
+    //     Segment::new(
+    //         path,
+    //         self.flow_id.clone(),
+    //         self.resume_from.1 .0,
+    //         self.worker_index,
+    //         self.worker_count,
+    //     )
+    // }
 
     //// Write the given epoch as frontier in the local db.
     pub fn write_frontier(&mut self, epoch: u64) -> PyResult<()> {
-        assert!(
-            self.conn.is_some(),
-            "Trying to snapshot state without an open db connection"
-        );
-        let conn = self.conn.as_mut().unwrap();
-        let txn = conn.transaction().unwrap();
+        let txn = self.conn.transaction().unwrap();
         tracing::trace!("Writing epoch {epoch:?}");
         txn.execute(
             queries::INSERT_META,
@@ -586,48 +425,48 @@ impl Segment {
 /// Trait to group common operations that are used in all stateful operators.
 /// It just needs to know how to borrow the StateStore and how to retrieve
 /// the step_id to manipulate state and local store.
-pub(crate) trait StateManager {
-    fn borrow_state(&self) -> Ref<StateStore>;
-    fn borrow_state_mut(&self) -> RefMut<StateStore>;
-    fn step_id(&self) -> &StepId;
+// pub(crate) trait StateManager {
+//     fn borrow_state(&self) -> Ref<LocalStateStore>;
+//     fn borrow_state_mut(&self) -> RefMut<LocalStateStore>;
+//     fn step_id(&self) -> &StepId;
 
-    fn snap(&self, py: Python, key: StateKey, epoch: u64) -> PyResult<SerializedSnapshot> {
-        self.borrow_state()
-            .snap(py, self.step_id().clone(), key, epoch)
-    }
-    fn write_snapshots(&self, snaps: Vec<SerializedSnapshot>) {
-        self.borrow_state_mut().write_snapshots(snaps);
-    }
-    fn recovery_on(&self) -> bool {
-        self.borrow_state().recovery_config.is_some()
-    }
-    fn start_at(&self) -> ResumeEpoch {
-        self.borrow_state().resume_from.1
-    }
-    fn immediate_snapshot(&self) -> bool {
-        self.borrow_state()
-            .recovery_config
-            .as_ref()
-            .is_some_and(|rc| !rc.batch_backup)
-    }
-    fn contains_key(&self, key: &StateKey) -> bool {
-        self.borrow_state().contains_key(self.step_id(), key)
-    }
-    fn insert(&self, key: StateKey, logic: impl Into<StatefulLogicKind>) {
-        self.borrow_state_mut()
-            .insert(self.step_id(), key, logic.into());
-    }
-    fn remove(&mut self, key: &StateKey) {
-        self.borrow_state_mut().remove(self.step_id(), key);
-    }
-    fn keys(&self) -> Vec<StateKey> {
-        self.borrow_state()
-            .get_logics(self.step_id())
-            .keys()
-            .cloned()
-            .collect()
-    }
-}
+//     fn snap(&self, py: Python, key: StateKey, epoch: u64) -> PyResult<SerializedSnapshot> {
+//         self.borrow_state()
+//             .snap(py, self.step_id().clone(), key, epoch)
+//     }
+//     fn write_snapshots(&self, snaps: Vec<SerializedSnapshot>) {
+//         self.borrow_state_mut().write_snapshots(snaps);
+//     }
+//     fn recovery_on(&self) -> bool {
+//         self.borrow_state().recovery_config.is_some()
+//     }
+//     fn start_at(&self) -> ResumeEpoch {
+//         self.borrow_state().resume_from.1
+//     }
+//     fn immediate_snapshot(&self) -> bool {
+//         self.borrow_state()
+//             .recovery_config
+//             .as_ref()
+//             .is_some_and(|rc| !rc.batch_backup)
+//     }
+//     fn contains_key(&self, key: &StateKey) -> bool {
+//         self.borrow_state().contains_key(self.step_id(), key)
+//     }
+//     fn insert(&self, key: StateKey, logic: impl Into<StatefulLogicKind>) {
+//         self.borrow_state_mut()
+//             .insert(self.step_id(), key, logic.into());
+//     }
+//     fn remove(&mut self, key: &StateKey) {
+//         self.borrow_state_mut().remove(self.step_id(), key);
+//     }
+//     fn keys(&self) -> Vec<StateKey> {
+//         self.borrow_state()
+//             .get_logics(self.step_id())
+//             .keys()
+//             .cloned()
+//             .collect()
+//     }
+// }
 
 /// Metadata about a recovery db.
 ///
@@ -781,9 +620,32 @@ struct SnapshotEpoch(u64);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 
+impl SerializedSnapshot {
+    pub fn new(step_id: StepId, state_key: StateKey, epoch: u64, state: Option<Vec<u8>>) -> Self {
+        Self(step_id, state_key, SnapshotEpoch(epoch), state)
+    }
+}
+
 impl fmt::Display for SerializedSnapshot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("{}: {}, epoch {}", self.0, self.1, self.2 .0))
+    }
+}
+
+#[pyclass(module = "bytewax.recovery")]
+#[derive(Clone, Debug)]
+pub enum SnapshotMode {
+    Immediate,
+    Batch,
+}
+
+impl SnapshotMode {
+    pub fn immediate(&self) -> bool {
+        matches!(self, Self::Immediate)
+    }
+
+    pub fn batch(&self) -> bool {
+        matches!(self, Self::Batch)
     }
 }
 
@@ -812,14 +674,18 @@ pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
     backup: Backup,
     #[pyo3(get)]
-    pub(crate) batch_backup: bool,
+    pub(crate) snapshot_mode: SnapshotMode,
 }
 
 #[pymethods]
 impl RecoveryConfig {
     #[new]
-    fn new(db_dir: PathBuf, backup: Option<Backup>, batch_backup: Option<bool>) -> PyResult<Self> {
-        let batch_backup = batch_backup.unwrap_or(false);
+    fn new(
+        db_dir: PathBuf,
+        backup: Option<Backup>,
+        snapshot_mode: Option<SnapshotMode>,
+    ) -> PyResult<Self> {
+        let snapshot_mode = snapshot_mode.unwrap_or(SnapshotMode::Immediate);
 
         // Manually unpack so we can propagate the error
         // if default initialization fails.
@@ -839,7 +705,7 @@ impl RecoveryConfig {
 
         Ok(Self {
             db_dir,
-            batch_backup,
+            snapshot_mode,
             backup,
         })
     }
@@ -928,14 +794,14 @@ pub(crate) trait WriteFrontiersOp<S>
 where
     S: Scope,
 {
-    fn write_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> ClockStream<S>;
+    fn write_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> ClockStream<S>;
 }
 
 impl<S> WriteFrontiersOp<S> for ClockStream<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn write_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> ClockStream<S> {
+    fn write_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> ClockStream<S> {
         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
         let (mut output, clock) = op_builder.new_output();
@@ -969,14 +835,14 @@ pub(crate) trait CompactFrontiersOp<S>
 where
     S: Scope,
 {
-    fn compact_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> Stream<S, PathBuf>;
+    fn compact_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
 }
 
 impl<S> CompactFrontiersOp<S> for ClockStream<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn compact_frontiers(&self, state_store: Rc<RefCell<StateStore>>) -> Stream<S, PathBuf> {
+    fn compact_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
         let (mut segments_output, segments) = op_builder.new_output();
@@ -1086,14 +952,14 @@ pub(crate) trait CompactorOp<S>
 where
     S: Scope,
 {
-    fn compact_snapshots(&self, state_store: Rc<RefCell<StateStore>>) -> Stream<S, PathBuf>;
+    fn compact_snapshots(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
 }
 
 impl<S> CompactorOp<S> for Stream<S, SerializedSnapshot>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn compact_snapshots(&self, state_store: Rc<RefCell<StateStore>>) -> Stream<S, PathBuf> {
+    fn compact_snapshots(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
         let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
 
