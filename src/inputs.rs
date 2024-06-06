@@ -275,7 +275,7 @@ impl InputState {
                     .reraise("Error serializing snapshot")?
                     .downcast::<PyBytes>()
                     .unwrap();
-                let ser_snap = unsafe { ser_snap.as_bytes().to_vec() };
+                let ser_snap = ser_snap.as_bytes().to_vec();
                 Ok(ser_snap)
             })
             .transpose()?;

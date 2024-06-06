@@ -1,8 +1,6 @@
 //! Code implementing Bytewax's core operators.
 
-use std::cell::Ref;
 use std::cell::RefCell;
-use std::cell::RefMut;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -15,6 +13,7 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Concatenate;
@@ -449,8 +448,8 @@ where
         &self,
         py: Python,
         step_id: StepId,
-        builder: TdPyCallable,
         state: StatefulBatchState,
+        resume_epoch: ResumeEpoch,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)>;
 }
 
@@ -551,59 +550,130 @@ impl StatefulBatchLogic {
 
 pub(crate) struct StatefulBatchState {
     step_id: StepId,
-    state_store: Rc<RefCell<StateStore>>,
-}
 
-impl StateManager for StatefulBatchState {
-    fn borrow_state(&self) -> Ref<StateStore> {
-        self.state_store.borrow()
-    }
+    // Shared references to LocalStateStore and StateStoreCache
+    local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+    state_store_cache: Rc<RefCell<StateStoreCache>>,
 
-    fn borrow_state_mut(&self) -> RefMut<StateStore> {
-        self.state_store.borrow_mut()
-    }
+    // Builder function used each time we need to insert a partition into the state_store_cache.
+    builder: Box<dyn Fn(Option<PyObject>) -> PyResult<StatefulBatchLogic>>,
 
-    fn step_id(&self) -> &StepId {
-        &self.step_id
-    }
+    // Contains the last known return value for
+    // `logic.notify_at` for each key (if any). We don't
+    // snapshot this because the logic itself should contain
+    // any notify times within.
+    sched_cache: BTreeMap<StateKey, DateTime<Utc>>,
+
+    // Snapshots
+    awoken: BTreeSet<StateKey>,
+    // snaps: Vec<StateKey>,
+    snapshot_mode: SnapshotMode,
 }
 
 impl StatefulBatchState {
-    pub(crate) fn new(step_id: StepId, state_store: Rc<RefCell<StateStore>>) -> Self {
-        Self {
+    pub(crate) fn init(
+        py: Python,
+        step_id: StepId,
+        local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+        state_store_cache: Rc<RefCell<StateStoreCache>>,
+        logic_builder: TdPyCallable,
+        snapshot_mode: SnapshotMode,
+    ) -> PyResult<Self> {
+        let logic_builder = logic_builder.bind(py);
+        let builder = |state| {
+            logic_builder
+                .call1((state,))?
+                .extract::<StatefulBatchLogic>()
+        };
+        let mut this = Self {
             step_id,
-            state_store,
+            local_state_store,
+            state_store_cache,
+            snapshot_mode,
+            // snaps: vec![],
+            sched_cache: BTreeMap::new(),
+            awoken: BTreeSet::new(),
+            builder: Box::new(builder),
+        };
+        if let Some(lss) = this.local_state_store.borrow_mut().as_ref() {
+            let snaps = lss.get_snaps(py, &this.step_id)?;
+            for (state_key, state) in snaps {
+                this.insert(py, state_key, state)
+            }
         }
+        Ok(this)
     }
 
-    pub(crate) fn hydrate(&mut self, builder: &TdPyCallable) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let builder = builder.bind(py);
-            let state_builder = |_state_key: &_, state| {
-                let part = builder
-                    .call1((state,))
-                    .unwrap()
-                    .extract::<StatefulBatchLogic>()
-                    .unwrap();
-                StatefulLogicKind::Stateful(part)
-            };
-            self.state_store
-                .borrow_mut()
-                .hydrate(&self.step_id, state_builder)
-        })
+    pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
+        let logic = (self.builder)(state).unwrap();
+        self.state_store_cache
+            .borrow_mut()
+            .insert(&self.step_id, state_key, logic.0);
+    }
+
+    pub fn awoken(&self) -> impl Iterator<Item = &StateKey> {
+        self.awoken.iter()
+    }
+
+    pub fn remove(&mut self, py: Python, key: &StateKey) {
+        let logic = self
+            .state_store_cache
+            .borrow_mut()
+            .remove(&self.step_id, key)
+            .unwrap();
+        self.sched_cache.remove(key);
+        logic.call_method0(py, "close").unwrap();
+    }
+
+    pub fn notify_keys(&self, now: DateTime<Utc>) -> Vec<&StateKey> {
+        self.sched_cache
+            .iter()
+            .filter(|(_, sched)| **sched <= now)
+            .map(|(key, sched)| key)
+            .collect()
+    }
+
+    pub fn schedule(&mut self, key: StateKey, time: DateTime<Utc>) {
+        self.sched_cache.insert(key, time);
+    }
+
+    pub fn activate_after(&self, now: DateTime<Utc>) -> Option<std::time::Duration> {
+        self.sched_cache
+            .values()
+            .map(|notify_at| {
+                (*notify_at - now)
+                    .to_std()
+                    .unwrap_or(std::time::Duration::ZERO)
+            })
+            .min()
+    }
+
+    pub fn contains_key(&self, key: &StateKey) -> bool {
+        self.state_store_cache
+            .borrow()
+            .contains_key(&self.step_id, key)
+    }
+
+    pub fn keys(&self) -> Vec<StateKey> {
+        self.state_store_cache.borrow().keys(&self.step_id)
     }
 
     fn on_batch(
-        &self,
+        &mut self,
         py: Python,
         key: &StateKey,
         values: Vec<PyObject>,
     ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
-        self.borrow_state()
+        let res = self
+            .state_store_cache
+            .borrow()
             .get(&self.step_id, key)
             .unwrap()
-            .as_stateful()
-            .on_batch(py, values)
+            .bind(py)
+            .call_method1(intern!(py, "on_batch"), (values,))?;
+        self.awoken.insert(key.clone());
+        StatefulBatchLogic::extract_ret(res)
+            .reraise("error extracting `(emit, is_complete)`")
             .reraise_with(|| {
                 format!(
                     "error calling `StatefulBatch.on_batch` in step {} for key {}",
@@ -617,12 +687,16 @@ impl StatefulBatchState {
         py: Python,
         key: &StateKey,
     ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
-        self.state_store
+        let res = self
+            .state_store_cache
             .borrow()
             .get(&self.step_id, key)
             .unwrap()
-            .as_stateful()
-            .on_notify(py)
+            .bind(py)
+            .call_method0(intern!(py, "on_notify"))?;
+        self.awoken.insert(key.clone());
+        StatefulBatchLogic::extract_ret(res)
+            .reraise("error extracting `(emit, is_complete)`")
             .reraise_with(|| {
                 format!(
                     "error calling `StatefulBatchLogic.on_notify` in {} for key {}",
@@ -632,11 +706,20 @@ impl StatefulBatchState {
     }
 
     fn notify_at(&self, py: Python, key: &StateKey) -> PyResult<Option<DateTime<Utc>>> {
-        if let Some(logic) = self.state_store.borrow().get(&self.step_id, key) {
-            logic.as_stateful().notify_at(py).reraise_with(|| {
+        if let Some(logic) = self.state_store_cache.borrow().get(&self.step_id, key) {
+            let res = logic
+                .bind(py)
+                .call_method0(intern!(py, "notify_at"))
+                .reraise_with(|| {
+                    format!(
+                        "error calling `StatefulBatchLogic.notify_at` in {} for key {}",
+                        self.step_id, key
+                    )
+                })?;
+            res.extract().reraise_with(|| {
                 format!(
-                    "error calling `StatefulBatchLogic.notify_at` in {} for key {}",
-                    self.step_id, key
+                    "did not return a `datetime`; got a `{}` instead",
+                    unwrap_any!(res.get_type().name())
                 )
             })
         } else {
@@ -649,18 +732,80 @@ impl StatefulBatchState {
         py: Python,
         key: &StateKey,
     ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
-        self.state_store
+        let res = self
+            .state_store_cache
             .borrow()
             .get(&self.step_id, key)
             .unwrap()
-            .as_stateful()
-            .on_eof(py)
+            .bind(py)
+            .call_method0("on_eof")
             .reraise_with(|| {
                 format!(
                     "error calling `StatefulBatchLogic.on_eof` in {} for key {}",
                     self.step_id, key
                 )
+            })?;
+        self.awoken.insert(key.clone());
+        StatefulBatchLogic::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
+    }
+
+    pub fn snap(&self, py: Python, key: StateKey, epoch: u64) -> PyResult<SerializedSnapshot> {
+        let ssc = self.state_store_cache.borrow();
+        let ser_change = ssc
+            .get(&self.step_id, &key)
+            // It's ok if there's no logic, because it might have been discarded
+            // due to one of the `on_*` methods returning `IsComplete::Discard`.
+            .map(|logic| -> PyResult<Vec<u8>> {
+                let snap = logic
+                    .call_method0(py, intern!(py, "snapshot"))
+                    .reraise_with(|| {
+                        format!(
+                            "error calling `snapshot` in {} for key {}",
+                            self.step_id, key
+                        )
+                    })?;
+                let snap = PyObject::from(snap).bind(py);
+
+                let pickle = py.import_bound(intern!(py, "pickle"))?;
+                let ser_snap = pickle
+                    .call_method1(intern!(py, "dumps"), (snap,))
+                    .reraise("Error serializing snapshot")?
+                    .downcast::<PyBytes>()
+                    .unwrap()
+                    .as_bytes()
+                    .to_vec();
+                Ok(ser_snap)
             })
+            .transpose()?;
+
+        Ok(SerializedSnapshot::new(
+            self.step_id.clone(),
+            key,
+            epoch,
+            ser_change,
+        ))
+    }
+
+    fn snapshots(
+        &mut self,
+        py: Python,
+        epoch: u64,
+        is_epoch_closed: bool,
+    ) -> Vec<SerializedSnapshot> {
+        let mut res = vec![];
+        if self.snapshot_mode.immediate() || is_epoch_closed {
+            while let Some(key) = self.awoken.pop_first() {
+                let snap = self
+                    .snap(py, key, epoch)
+                    .reraise("Error snapshotting PartitionedInput")
+                    .unwrap();
+                if let Some(lss) = self.local_state_store.borrow_mut().as_ref() {
+                    lss.write_snapshots(vec![snap.clone()]);
+                }
+                res.push(snap);
+            }
+        }
+        res
     }
 }
 
@@ -672,12 +817,10 @@ where
         &self,
         _py: Python,
         step_id: StepId,
-        builder: TdPyCallable,
-        mut state: StatefulBatchState,
+        state: StatefulBatchState,
+        resume_epoch: ResumeEpoch,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)> {
-        let recovery_on = state.recovery_on();
-        let immediate_snapshot = state.immediate_snapshot();
-        let resume_epoch = state.start_at();
+        // let resume_epoch = state.start_at();
         let this_worker = self.scope().w_index();
 
         // We have a "partition" per worker. List all workers.
@@ -747,27 +890,12 @@ where
             let mut snap_cap = init_caps.pop();
             let mut kv_downstream_cap = init_caps.pop();
 
-            // Contains the last known return value for
-            // `logic.notify_at` for each key (if any). We don't
-            // snapshot this because the logic itself should contain
-            // any notify times within.
-            let mut sched_cache: BTreeMap<StateKey, DateTime<Utc>> = BTreeMap::new();
-
             // Persistent across activations buffer keeping track of
             // out-of-order inputs. Push in here when Timely says we
             // have new data; pull out of here in epoch order to
             // process. This spans activations and will have epochs
             // removed from it as the input frontier progresses.
             let mut inbuf = InBuffer::new();
-
-            // Persistent across activations buffer of what keys were
-            // awoken during the most recent epoch. This is used to
-            // only snapshot state of keys that could have resulted in
-            // state modifications.
-            // Depending on the recovery config this is drained either
-            // all at once after each epoch is processed, or gradually
-            // while taking snapshots during the run.
-            let mut awoken_keys_buffer: BTreeSet<StateKey> = BTreeSet::new();
 
             move |input_frontiers| {
                 let _guard = tracing::debug_span!("operator", operator = op_name).entered();
@@ -862,18 +990,10 @@ where
 
                         // Ok, now let's actually run the logic code for each item!
                         unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                            // Only bind the builder once.
-                            let builder = builder.bind(py);
-
                             for (key, values) in keyed_items {
                                 // Build the logic if it wasn't in the state yet.
                                 if !state.contains_key(&key) {
-                                    let logic = builder
-                                        .call1((None::<PyObject>,))
-                                        .reraise("Error building logic for stateful_batch")?
-                                        .extract::<StatefulBatchLogic>()
-                                        .reraise("Error converting logic to StatefulBatchLogic")?;
-                                    state.insert(key.clone(), logic);
+                                    state.insert(py, key.clone(), None);
                                 }
 
                                 // Run the logic's on_batch function
@@ -893,12 +1013,8 @@ where
 
                                 // Now remove the state if needed.
                                 if let IsComplete::Discard = is_complete {
-                                    state.remove(&key);
-                                    sched_cache.remove(&key);
+                                    state.remove(py, &key);
                                 }
-
-                                // Finally keep track of the fact that this key was awoken.
-                                awoken_keys_buffer.insert(key);
                             }
 
                             Ok(())
@@ -906,22 +1022,14 @@ where
                     }
 
                     // Then call all logic that has a due notification.
-                    let notify_keys: Vec<_> = sched_cache
-                        .iter()
-                        .filter(|(_key, sched)| **sched <= now)
-                        .map(|(key, sched)| (key.clone(), *sched))
-                        .collect();
-
                     Python::with_gil(|py| {
-                        for (key, _sched) in notify_keys {
-                            // We should always have a logic for anything in
-                            // `sched_cache`. If not, we forgot to remove it when we
-                            // cleared the logic. on_notify will fail in that case.
+                        for key in state.notify_keys(now) {
                             let (output, is_complete) = with_timer!(
                                 on_notify_histogram,
                                 labels,
                                 unwrap_any!(state.on_notify(py, &key))
                             );
+
                             // Update metrics
                             item_out_count.add(output.len() as u64, &labels);
 
@@ -932,14 +1040,8 @@ where
 
                             // Clear the state if needed
                             if let IsComplete::Discard = is_complete {
-                                state.remove(&key);
+                                state.remove(py, &key);
                             }
-
-                            // Even if we don't discard the logic, the previous scheduled
-                            // notification only should fire once. The logic can
-                            // re-schedule it by still returning it in `notify_at`.
-                            sched_cache.remove(&key);
-                            awoken_keys_buffer.insert(key);
                         }
                     });
 
@@ -968,85 +1070,40 @@ where
                                 if let IsComplete::Discard = is_complete {
                                     discarded_keys.push(key.clone());
                                 }
+                            }
 
-                                awoken_keys_buffer.insert(key.clone());
+                            for key in discarded_keys {
+                                state.remove(py, &key);
                             }
                         });
-
-                        for key in discarded_keys {
-                            state.remove(&key);
-                            sched_cache.remove(&key);
-                        }
                     }
 
                     // Then go through all awoken keys and update the next scheduled
                     // notification times.
                     Python::with_gil(|py| {
-                        for key in awoken_keys_buffer.iter() {
+                        for key in state.awoken() {
                             if let Some(sched) = with_timer!(
                                 notify_at_histogram,
                                 labels,
                                 unwrap_any!(state.notify_at(py, key))
                             ) {
-                                sched_cache.insert(key.clone(), sched);
+                                state.schedule(key.clone(), sched);
                             }
+                        }
+
+                        // Snapshot and output state changes.
+                        let is_epoch_closed = input_frontiers.is_closed(&epoch);
+                        let mut snapshots = state.snapshots(py, epoch, is_epoch_closed);
+                        if !snapshots.is_empty() {
+                            let mut snaps_session = snaps_handle.session(&state_update_cap);
+                            snaps_session.give_vec(&mut snapshots);
                         }
                     });
-
-                    // Snapshot and output state changes.
-                    if !awoken_keys_buffer.is_empty() {
-                        // This is the `batch` approach, where we take the snapshots
-                        // only at the end of each epoch.
-                        if !immediate_snapshot && input_frontiers.is_closed(&epoch) {
-                            if recovery_on {
-                                with_timer!(snapshot_histogram, labels, {
-                                    // Go through all keys awoken in this epoch.
-                                    // This might involve keys from the previous activation.
-                                    let mut snaps_session = snaps_handle.session(&state_update_cap);
-                                    let mut snaps = unwrap_any!(Python::with_gil(|py| {
-                                        // Drain `awoken_keys_buffer` since the epoch is over.
-                                        std::mem::take(&mut awoken_keys_buffer)
-                                            .iter()
-                                            .map(|key| state.snap(py, key.clone(), epoch))
-                                            .collect::<PyResult<Vec<SerializedSnapshot>>>()
-                                    }));
-                                    state.write_snapshots(snaps.clone());
-                                    snaps_session.give_vec(&mut snaps);
-                                })
-                            } else {
-                                awoken_keys_buffer.clear();
-                            }
-                        }
-                        // This is the `immediate` approach, were we eagerly take snapshots
-                        // each time an item is awoken.
-                        if immediate_snapshot {
-                            with_timer!(snapshot_histogram, labels, {
-                                // Go through all keys awoken in this epoch. This might involve
-                                // keys from the previous activation.
-                                let mut snaps_session = snaps_handle.session(&state_update_cap);
-                                let mut snaps = unwrap_any!(Python::with_gil(|py| {
-                                    // Drain `awoken_keys_buffer` since we won't need this info
-                                    // at the end of the epoch given we are snapshotting
-                                    // at each change.
-                                    std::mem::take(&mut awoken_keys_buffer)
-                                        .iter()
-                                        .map(|key| state.snap(py, key.clone(), epoch))
-                                        .collect::<PyResult<Vec<SerializedSnapshot>>>()
-                                }));
-                                state.write_snapshots(snaps.clone());
-                                snaps_session.give_vec(&mut snaps);
-                            })
-                        }
-                    }
                 }
 
                 // Schedule operator activation at the soonest requested notify at for any key.
-                if let Some(next_notify_at) =
-                    sched_cache.values().map(|notify_at| *notify_at - now).min()
-                {
-                    activator.activate_after(
-                        next_notify_at.to_std().unwrap_or(std::time::Duration::ZERO),
-                    );
+                if let Some(activate_after) = state.activate_after(now) {
+                    activator.activate_after(activate_after);
                 }
 
                 if input_frontiers.is_eof() {

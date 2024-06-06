@@ -493,25 +493,30 @@ where
                             .insert_downstream(py, &step, "down", down)
                             .reraise("core operator `redistribute` missing port")?;
                     }
-                    // "stateful_batch" => {
-                    //     let builder = step.get_arg(py, "builder")?.extract(py)?;
+                    "stateful_batch" => {
+                        let builder = step.get_arg(py, "builder")?.extract(py)?;
 
-                    //     let mut state =
-                    //         StatefulBatchState::new(step_id.clone(), state_store.clone());
-                    //     state.hydrate(&builder)?;
+                        let mut state = StatefulBatchState::init(
+                            py,
+                            step_id.clone(),
+                            local_state_store.clone(),
+                            state_store_cache.clone(),
+                            builder,
+                            snapshot_mode,
+                        )?;
 
-                    //     let up = streams
-                    //         .get_upstream(py, &step, "up")
-                    //         .reraise("core operator `stateful_batch` missing port")?;
+                        let up = streams
+                            .get_upstream(py, &step, "up")
+                            .reraise("core operator `stateful_batch` missing port")?;
 
-                    //     let (down, snap) = up.stateful_batch(py, step_id, builder, state)?;
+                        let (down, snap) = up.stateful_batch(py, step_id, state, resume_epoch)?;
 
-                    //     snaps.push(snap);
+                        snaps.push(snap);
 
-                    //     streams
-                    //         .insert_downstream(py, &step, "down", down)
-                    //         .reraise("core operator `stateful_batch` missing port")?;
-                    // }
+                        streams
+                            .insert_downstream(py, &step, "down", down)
+                            .reraise("core operator `stateful_batch` missing port")?;
+                    }
                     name => {
                         let msg = format!("Unknown core operator {name:?}");
                         return Err(tracked_err::<PyTypeError>(&msg));
