@@ -137,32 +137,6 @@ impl<'py> FromPyObject<'py> for StatefulSinkPartition {
     }
 }
 
-impl StatefulSinkPartition {
-    pub(crate) fn write_batch(&self, py: Python, values: Vec<PyObject>) -> PyResult<()> {
-        let _ = self
-            .0
-            .call_method1(py, intern!(py, "write_batch"), (values,))?;
-        Ok(())
-    }
-
-    pub(crate) fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
-        Ok(self.0.call_method0(py, intern!(py, "snapshot"))?.into())
-    }
-
-    pub(crate) fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close")?;
-        Ok(())
-    }
-}
-
-impl Drop for StatefulSinkPartition {
-    fn drop(&mut self) {
-        unwrap_any!(
-            Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
-        );
-    }
-}
-
 /// This is a separate object than the bundle so we can use Python's
 /// RC to clone it into the exchange closure.
 struct PartitionAssigner(TdPyCallable);
@@ -194,11 +168,10 @@ pub(crate) struct OutputState {
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
     // Builder function used each time we need to insert a partition into the state_store_cache.
-    builder: Box<dyn Fn(&StateKey, Option<PyObject>) -> PyResult<StatefulSinkPartition>>,
+    builder: Box<dyn Fn(Python, StateKey, Option<PyObject>) -> PyResult<StatefulSinkPartition>>,
 
     // Snapshots
     awoken: BTreeSet<StateKey>,
-    snaps: Vec<StateKey>,
     snapshot_mode: SnapshotMode,
 }
 
@@ -208,26 +181,27 @@ impl OutputState {
         step_id: StepId,
         local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
-        sink: &FixedPartitionedSink,
+        sink: FixedPartitionedSink,
         snapshot_mode: SnapshotMode,
     ) -> PyResult<Self> {
-        let parts_list = unwrap_any!(sink.list_parts(py));
-
-        let builder = |state_key: &_, state| {
+        state_store_cache.borrow_mut().add_step(step_id.clone());
+        let s_id = step_id.clone();
+        let builder = move |py: Python<'_>, state_key, state| {
+            let parts_list = unwrap_any!(sink.list_parts(py));
             assert!(
-                parts_list.contains(state_key),
+                parts_list.contains(&state_key),
                 "State found for unknown key {} in the recovery store for {}. \
                     Known partitions: {}. \
                     Fixed partitions cannot change between executions, aborting.",
                 state_key,
-                &step_id,
+                &s_id,
                 parts_list
                     .iter()
                     .map(|sk| format!("\"{}\"", sk.0))
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            sink.build_part(py, step_id.clone(), state_key.clone(), state)
+            sink.build_part(py, s_id.clone(), state_key, state)
         };
 
         let mut this = Self {
@@ -235,22 +209,22 @@ impl OutputState {
             local_state_store,
             state_store_cache,
             snapshot_mode,
-            snaps: vec![],
             awoken: BTreeSet::new(),
             builder: Box::new(builder),
         };
 
-        if let Some(lss) = this.local_state_store.borrow_mut().as_ref() {
-            let snaps = lss.get_snaps(py, &this.step_id)?;
-            for (state_key, state) in snaps {
-                this.insert(py, state_key, state)
-            }
+        let mut snaps = vec![];
+        if let Some(lss) = this.local_state_store.borrow_mut().as_mut() {
+            snaps = lss.get_snaps(py, &this.step_id)?;
+        }
+        for (state_key, state) in snaps {
+            this.insert(py, state_key, state)
         }
         Ok(this)
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
-        let logic = (self.builder)(&state_key, state).unwrap();
+        let logic = (self.builder)(py, state_key.clone(), state).unwrap();
         self.state_store_cache
             .borrow_mut()
             .insert(&self.step_id, state_key, logic.0);
@@ -295,14 +269,12 @@ impl OutputState {
                             self.step_id, key
                         )
                     })?;
-                let snap = PyObject::from(snap).bind(py);
 
                 let pickle = py.import_bound(intern!(py, "pickle"))?;
                 let ser_snap = pickle
-                    .call_method1(intern!(py, "dumps"), (snap,))
-                    .reraise("Error serializing snapshot")?
-                    .downcast::<PyBytes>()
-                    .unwrap();
+                    .call_method1(intern!(py, "dumps"), (snap.bind(py),))
+                    .reraise("Error serializing snapshot")?;
+                let ser_snap = ser_snap.downcast::<PyBytes>().unwrap();
                 let ser_snap = ser_snap.as_bytes().to_vec();
                 Ok(ser_snap)
             })
@@ -326,7 +298,7 @@ impl OutputState {
                     .unwrap();
                 res.push(snap)
             }
-            if let Some(lss) = self.local_state_store.borrow_mut().as_ref() {
+            if let Some(lss) = self.local_state_store.borrow_mut().as_mut() {
                 lss.write_snapshots(res.clone());
             }
         }
@@ -342,7 +314,7 @@ impl OutputState {
                     .unwrap();
                 res.push(snap)
             }
-            if let Some(lss) = self.local_state_store.borrow_mut().as_ref() {
+            if let Some(lss) = self.local_state_store.borrow_mut().as_mut() {
                 lss.write_snapshots(res.clone());
             }
         }
@@ -507,10 +479,12 @@ where
                         let epoch = clock_cap.time();
 
                         clock_output.activate().session(clock_cap).give(());
-                        batch_snaps_output
-                            .activate()
-                            .session(snaps_cap)
-                            .give_vec(&mut state.batch_snapshots(py, *epoch));
+                        Python::with_gil(|py| {
+                            batch_snaps_output
+                                .activate()
+                                .session(snaps_cap)
+                                .give_vec(&mut state.batch_snapshots(py, *epoch));
+                        });
                     },
                 );
             }

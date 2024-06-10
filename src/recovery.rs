@@ -3,14 +3,12 @@
 //! For a user-centric version of recovery, read the
 //! `bytewax.recovery` Python module docstring. Read that first.
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::path::PathBuf;
-use std::rc::Rc;
 
 use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
@@ -25,16 +23,12 @@ use rusqlite_migration::Migrations;
 use rusqlite_migration::M;
 use serde::Deserialize;
 use serde::Serialize;
-use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Concatenate;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::timely::*;
-use crate::unwrap_any;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Backup(PyObject);
@@ -133,6 +127,10 @@ impl StateStoreCache {
         }
     }
 
+    pub fn add_step(&mut self, step_id: StepId) {
+        self.cache.insert(step_id, Default::default());
+    }
+
     pub fn contains_key(&self, step_id: &StepId, key: &StateKey) -> bool {
         self.cache.get(step_id).unwrap().contains_key(key)
     }
@@ -159,11 +157,12 @@ impl StateStoreCache {
 /// to generate snapshot of each state and
 /// to manage the connection to the local db where the snapshots are saved.
 pub(crate) struct LocalStateStore {
+    resume_from: ResumeFrom,
+    conn: Connection,
+
     flow_id: String,
     worker_index: usize,
     worker_count: usize,
-    resume_from: ResumeFrom,
-    conn: Connection,
     seg_num: u64,
     prev_epoch: u64,
 }
@@ -631,7 +630,7 @@ impl fmt::Display for SerializedSnapshot {
 }
 
 #[pyclass(module = "bytewax.recovery")]
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum SnapshotMode {
     Immediate,
     Batch,
@@ -670,7 +669,7 @@ pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
     db_dir: PathBuf,
     #[pyo3(get)]
-    backup: Backup,
+    pub(crate) backup: Backup,
     #[pyo3(get)]
     pub(crate) snapshot_mode: SnapshotMode,
 }
@@ -788,240 +787,334 @@ fn migrations_valid() -> rusqlite_migration::Result<()> {
     Python::with_gil(|py| get_migrations(py).validate())
 }
 
-pub(crate) trait WriteFrontiersOp<S>
+// pub(crate) trait WriteFrontiersOp<S>
+// where
+//     S: Scope,
+// {
+//     fn write_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> ClockStream<S>;
+// }
+
+// impl<S> WriteFrontiersOp<S> for ClockStream<S>
+// where
+//     S: Scope<Timestamp = u64>,
+// {
+//     fn write_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> ClockStream<S> {
+//         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
+//         let mut input = op_builder.new_input(self, Pipeline);
+//         let (mut output, clock) = op_builder.new_output();
+
+//         op_builder.build(move |init_caps| {
+//             let mut inbuffer = InBuffer::new();
+//             let mut ncater = EagerNotificator::new(init_caps, ());
+
+//             move |input_frontiers| {
+//                 input.buffer_notify(&mut inbuffer, &mut ncater);
+
+//                 ncater.for_each(
+//                     input_frontiers,
+//                     |_caps, ()| {},
+//                     |caps, ()| {
+//                         let cap = &caps[0];
+//                         let epoch = cap.time();
+//                         // Write cluster frontier
+//                         unwrap_any!(state_store.borrow_mut().write_frontier(*epoch));
+//                         // And finally allow the dataflow to advance its epoch.
+//                         output.activate().session(cap).give(());
+//                     },
+//                 )
+//             }
+//         });
+//         clock
+//     }
+// }
+
+// pub(crate) trait CompactFrontiersOp<S>
+// where
+//     S: Scope,
+// {
+//     fn compact_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
+// }
+
+// impl<S> CompactFrontiersOp<S> for ClockStream<S>
+// where
+//     S: Scope<Timestamp = u64>,
+// {
+//     fn compact_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
+//         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
+//         let mut input = op_builder.new_input(self, Pipeline);
+//         let (mut segments_output, segments) = op_builder.new_output();
+
+//         op_builder.build(move |init_caps| {
+//             let mut inbuffer = InBuffer::new();
+//             let mut ncater = EagerNotificator::new(init_caps, ());
+
+//             move |input_frontiers| {
+//                 input.buffer_notify(&mut inbuffer, &mut ncater);
+
+//                 ncater.for_each(
+//                     input_frontiers,
+//                     |_caps, ()| {},
+//                     |caps, ()| {
+//                         let clock_cap = &caps[0];
+
+//                         let mut handle = segments_output.activate();
+//                         let mut session = handle.session(clock_cap);
+
+//                         let epochs = inbuffer.epochs().collect::<Vec<_>>();
+//                         let mut state = state_store.borrow_mut();
+//                         for epoch in epochs {
+//                             let segment = unwrap_any!(state.open_segment(epoch));
+//                             let file_name = segment.file_name();
+//                             inbuffer.remove(&epoch);
+//                             segment.write_frontier(epoch).unwrap();
+//                             session.give(file_name);
+//                         }
+//                     },
+//                 )
+//             }
+//         });
+//         segments
+//     }
+// }
+
+// pub(crate) trait DurableBackupOp<S>
+// where
+//     S: Scope,
+// {
+//     fn durable_backup(&self, backup: Backup, immediate_backup: bool) -> ClockStream<S>;
+// }
+
+// impl<S> DurableBackupOp<S> for Stream<S, PathBuf>
+// where
+//     S: Scope<Timestamp = u64>,
+// {
+//     fn durable_backup(&self, backup: Backup, immediate_backup: bool) -> ClockStream<S> {
+//         let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
+//         let mut input = op_builder.new_input(self, Pipeline);
+//         let (mut output, clock) = op_builder.new_output();
+
+//         op_builder.build(move |init_caps| {
+//             // TODO: EagerNotificator is probably not the best tool here
+//             //       since the logic is the same, only the eager one is optional
+//             //       depending on a condition, so a slightly different notificator
+//             //       might avoid some code duplication and the Rc<RefCell<_>>
+//             let inbuffer = Rc::new(RefCell::new(InBuffer::<u64, PathBuf>::new()));
+//             let mut ncater = EagerNotificator::new(init_caps, ());
+
+//             // This logic is reused in both eager and closing logic, but only
+//             // if immediate snapshot is True in the eager one.
+//             // Takes the inbuffer, empties it and uploads all the paths in the stream.
+//             let upload = move |inbuffer: Rc<RefCell<InBuffer<u64, PathBuf>>>| {
+//                 Python::with_gil(|py| {
+//                     let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+//                     for epoch in epochs {
+//                         for path in inbuffer.borrow_mut().remove(&epoch).unwrap() {
+//                             backup
+//                                 .upload(
+//                                     py,
+//                                     path.clone(),
+//                                     path.file_name().unwrap().to_string_lossy().to_string(),
+//                                 )
+//                                 .unwrap();
+//                         }
+//                     }
+//                 });
+//             };
+
+//             move |input_frontiers| {
+//                 input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
+
+//                 ncater.for_each(
+//                     input_frontiers,
+//                     |_caps, ()| {
+//                         if immediate_backup {
+//                             upload(inbuffer.clone());
+//                         }
+//                     },
+//                     |caps, ()| {
+//                         // The inbuffer has been emptied already if immediate_snapshot
+//                         // is set to True, so we can upload unconditionally here.
+//                         let cap = &caps[0];
+//                         upload(inbuffer.clone());
+//                         output.activate().session(cap).give(());
+//                     },
+//                 )
+//             }
+//         });
+//         clock
+//     }
+// }
+
+pub(crate) trait BackupOp<S>
 where
     S: Scope,
 {
-    fn write_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> ClockStream<S>;
+    fn backup(&self, backup: Backup) -> ClockStream<S>;
 }
 
-impl<S> WriteFrontiersOp<S> for ClockStream<S>
+impl<S> BackupOp<S> for Stream<S, PathBuf>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn write_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> ClockStream<S> {
-        let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
-        let mut input = op_builder.new_input(self, Pipeline);
-        let (mut output, clock) = op_builder.new_output();
+    fn backup(&self, backup: Backup) -> ClockStream<S> {
+        todo!()
+        // let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
+        // let mut input = op_builder.new_input(self, Pipeline);
+        // let (mut output, clock) = op_builder.new_output();
 
-        op_builder.build(move |init_caps| {
-            let mut inbuffer = InBuffer::new();
-            let mut ncater = EagerNotificator::new(init_caps, ());
+        // op_builder.build(move |init_caps| {
+        //     // TODO: EagerNotificator is probably not the best tool here
+        //     //       since the logic is the same, only the eager one is optional
+        //     //       depending on a condition, so a slightly different notificator
+        //     //       might avoid some code duplication and the Rc<RefCell<_>>
+        //     let inbuffer = Rc::new(RefCell::new(InBuffer::<u64, PathBuf>::new()));
+        //     let mut ncater = EagerNotificator::new(init_caps, ());
 
-            move |input_frontiers| {
-                input.buffer_notify(&mut inbuffer, &mut ncater);
+        //     // This logic is reused in both eager and closing logic, but only
+        //     // if immediate snapshot is True in the eager one.
+        //     // Takes the inbuffer, empties it and uploads all the paths in the stream.
+        //     let upload = move |inbuffer: Rc<RefCell<InBuffer<u64, PathBuf>>>| {
+        //         Python::with_gil(|py| {
+        //             let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+        //             for epoch in epochs {
+        //                 for path in inbuffer.borrow_mut().remove(&epoch).unwrap() {
+        //                     backup
+        //                         .upload(
+        //                             py,
+        //                             path.clone(),
+        //                             path.file_name().unwrap().to_string_lossy().to_string(),
+        //                         )
+        //                         .unwrap();
+        //                 }
+        //             }
+        //         });
+        //     };
 
-                ncater.for_each(
-                    input_frontiers,
-                    |_caps, ()| {},
-                    |caps, ()| {
-                        let cap = &caps[0];
-                        let epoch = cap.time();
-                        // Write cluster frontier
-                        unwrap_any!(state_store.borrow_mut().write_frontier(*epoch));
-                        // And finally allow the dataflow to advance its epoch.
-                        output.activate().session(cap).give(());
-                    },
-                )
-            }
-        });
-        clock
+        //     move |input_frontiers| {
+        //         input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
+
+        //         ncater.for_each(
+        //             input_frontiers,
+        //             |_caps, ()| {
+        //                 if immediate_backup {
+        //                     upload(inbuffer.clone());
+        //                 }
+        //             },
+        //             |caps, ()| {
+        //                 // The inbuffer has been emptied already if immediate_snapshot
+        //                 // is set to True, so we can upload unconditionally here.
+        //                 let cap = &caps[0];
+        //                 upload(inbuffer.clone());
+        //                 output.activate().session(cap).give(());
+        //             },
+        //         )
+        //     }
+        // });
+        // clock
     }
 }
 
-pub(crate) trait CompactFrontiersOp<S>
+pub(crate) trait RealCompactorOp<S>
 where
     S: Scope,
 {
-    fn compact_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
+    fn compactor(&self) -> Stream<S, PathBuf>;
 }
 
-impl<S> CompactFrontiersOp<S> for ClockStream<S>
+impl<S> RealCompactorOp<S> for Stream<S, SerializedSnapshot>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn compact_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
-        let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
-        let mut input = op_builder.new_input(self, Pipeline);
-        let (mut segments_output, segments) = op_builder.new_output();
-
-        op_builder.build(move |init_caps| {
-            let mut inbuffer = InBuffer::new();
-            let mut ncater = EagerNotificator::new(init_caps, ());
-
-            move |input_frontiers| {
-                input.buffer_notify(&mut inbuffer, &mut ncater);
-
-                ncater.for_each(
-                    input_frontiers,
-                    |_caps, ()| {},
-                    |caps, ()| {
-                        let clock_cap = &caps[0];
-
-                        let mut handle = segments_output.activate();
-                        let mut session = handle.session(clock_cap);
-
-                        let epochs = inbuffer.epochs().collect::<Vec<_>>();
-                        let mut state = state_store.borrow_mut();
-                        for epoch in epochs {
-                            let segment = unwrap_any!(state.open_segment(epoch));
-                            let file_name = segment.file_name();
-                            inbuffer.remove(&epoch);
-                            segment.write_frontier(epoch).unwrap();
-                            session.give(file_name);
-                        }
-                    },
-                )
-            }
-        });
-        segments
+    fn compactor(&self) -> Stream<S, PathBuf> {
+        todo!()
     }
 }
 
-pub(crate) trait DurableBackupOp<S>
-where
-    S: Scope,
-{
-    fn durable_backup(&self, backup: Backup, immediate_backup: bool) -> ClockStream<S>;
-}
-
-impl<S> DurableBackupOp<S> for Stream<S, PathBuf>
+impl<S> RealCompactorOp<S> for ClockStream<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn durable_backup(&self, backup: Backup, immediate_backup: bool) -> ClockStream<S> {
-        let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
-        let mut input = op_builder.new_input(self, Pipeline);
-        let (mut output, clock) = op_builder.new_output();
-
-        op_builder.build(move |init_caps| {
-            // TODO: EagerNotificator is probably not the best tool here
-            //       since the logic is the same, only the eager one is optional
-            //       depending on a condition, so a slightly different notificator
-            //       might avoid some code duplication and the Rc<RefCell<_>>
-            let inbuffer = Rc::new(RefCell::new(InBuffer::<u64, PathBuf>::new()));
-            let mut ncater = EagerNotificator::new(init_caps, ());
-
-            // This logic is reused in both eager and closing logic, but only
-            // if immediate snapshot is True in the eager one.
-            // Takes the inbuffer, empties it and uploads all the paths in the stream.
-            let upload = move |inbuffer: Rc<RefCell<InBuffer<u64, PathBuf>>>| {
-                Python::with_gil(|py| {
-                    let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                    for epoch in epochs {
-                        for path in inbuffer.borrow_mut().remove(&epoch).unwrap() {
-                            backup
-                                .upload(
-                                    py,
-                                    path.clone(),
-                                    path.file_name().unwrap().to_string_lossy().to_string(),
-                                )
-                                .unwrap();
-                        }
-                    }
-                });
-            };
-
-            move |input_frontiers| {
-                input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
-
-                ncater.for_each(
-                    input_frontiers,
-                    |_caps, ()| {
-                        if immediate_backup {
-                            upload(inbuffer.clone());
-                        }
-                    },
-                    |caps, ()| {
-                        // The inbuffer has been emptied already if immediate_snapshot
-                        // is set to True, so we can upload unconditionally here.
-                        let cap = &caps[0];
-                        upload(inbuffer.clone());
-                        output.activate().session(cap).give(());
-                    },
-                )
-            }
-        });
-        clock
+    fn compactor(&self) -> Stream<S, PathBuf> {
+        todo!()
     }
 }
 
-pub(crate) trait CompactorOp<S>
-where
-    S: Scope,
-{
-    fn compact_snapshots(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
-}
+// pub(crate) trait CompactorOp<S>
+// where
+//     S: Scope,
+// {
+//     fn compact_snapshots(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
+// }
 
-impl<S> CompactorOp<S> for Stream<S, SerializedSnapshot>
-where
-    S: Scope<Timestamp = u64>,
-{
-    fn compact_snapshots(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
-        let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
-        let mut input = op_builder.new_input(self, Pipeline);
+// impl<S> CompactorOp<S> for Stream<S, SerializedSnapshot>
+// where
+//     S: Scope<Timestamp = u64>,
+// {
+//     fn compact_snapshots(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
+//         let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
+//         let mut input = op_builder.new_input(self, Pipeline);
 
-        let (mut immediate_segments_output, immediate_segments) = op_builder.new_output();
-        let (mut batch_segments_output, batch_segments) = op_builder.new_output();
-        let segments = immediate_segments.concatenate(vec![batch_segments]);
+//         let (mut immediate_segments_output, immediate_segments) = op_builder.new_output();
+//         let (mut batch_segments_output, batch_segments) = op_builder.new_output();
+//         let segments = immediate_segments.concatenate(vec![batch_segments]);
 
-        let immediate_snapshot = state_store.borrow().immediate_snapshot();
+//         let immediate_snapshot = state_store.borrow().immediate_snapshot();
 
-        op_builder.build(move |init_caps| {
-            // TODO: EagerNotificator is probably not the best tool here
-            //       since the logic is the same, only the eager one is optional
-            //       depending on a condition, so a slightly different notificator
-            //       might avoid some code duplication and the Rc<RefCell<_>>
-            let inbuffer = Rc::new(RefCell::new(InBuffer::new()));
-            let mut ncater = EagerNotificator::new(init_caps, ());
+//         op_builder.build(move |init_caps| {
+//             // TODO: EagerNotificator is probably not the best tool here
+//             //       since the logic is the same, only the eager one is optional
+//             //       depending on a condition, so a slightly different notificator
+//             //       might avoid some code duplication and the Rc<RefCell<_>>
+//             let inbuffer = Rc::new(RefCell::new(InBuffer::new()));
+//             let mut ncater = EagerNotificator::new(init_caps, ());
 
-            move |input_frontiers| {
-                input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
+//             move |input_frontiers| {
+//                 input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
 
-                ncater.for_each(
-                    input_frontiers,
-                    |caps, ()| {
-                        if immediate_snapshot {
-                            let cap = &caps[0];
+//                 ncater.for_each(
+//                     input_frontiers,
+//                     |caps, ()| {
+//                         if immediate_snapshot {
+//                             let cap = &caps[0];
 
-                            let mut handle = immediate_segments_output.activate();
-                            let mut session = handle.session(cap);
+//                             let mut handle = immediate_segments_output.activate();
+//                             let mut session = handle.session(cap);
 
-                            let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                            let mut state = state_store.borrow_mut();
+//                             let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+//                             let mut state = state_store.borrow_mut();
 
-                            for epoch in epochs {
-                                let segment = unwrap_any!(state.open_segment(epoch));
-                                let file_name = segment.file_name();
-                                let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
-                                segment.write_snapshots(snaps);
-                                session.give(file_name);
-                            }
-                        }
-                    },
-                    |caps, ()| {
-                        let cap = &caps[1];
+//                             for epoch in epochs {
+//                                 let segment = unwrap_any!(state.open_segment(epoch));
+//                                 let file_name = segment.file_name();
+//                                 let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
+//                                 segment.write_snapshots(snaps);
+//                                 session.give(file_name);
+//                             }
+//                         }
+//                     },
+//                     |caps, ()| {
+//                         let cap = &caps[1];
 
-                        let mut handle = batch_segments_output.activate();
-                        let mut session = handle.session(cap);
+//                         let mut handle = batch_segments_output.activate();
+//                         let mut session = handle.session(cap);
 
-                        let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                        let mut state = state_store.borrow_mut();
+//                         let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+//                         let mut state = state_store.borrow_mut();
 
-                        for epoch in epochs {
-                            let segment = unwrap_any!(state.open_segment(epoch));
-                            let file_name = segment.file_name();
-                            let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
-                            segment.write_snapshots(snaps);
-                            session.give(file_name);
-                        }
-                    },
-                )
-            }
-        });
-        segments
-    }
-}
+//                         for epoch in epochs {
+//                             let segment = unwrap_any!(state.open_segment(epoch));
+//                             let file_name = segment.file_name();
+//                             let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
+//                             segment.write_snapshots(snaps);
+//                             session.give(file_name);
+//                         }
+//                     },
+//                 )
+//             }
+//         });
+//         segments
+//     }
+// }
 
 pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RecoveryConfig>()?;

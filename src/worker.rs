@@ -125,12 +125,16 @@ where
     //       If fast resume can be done, read the resume_from epoch from the state_store
     //       and start from there.
     let snapshot_mode = recovery_config
+        .as_ref()
         .map(|rc| Python::with_gil(|py| rc.borrow(py).snapshot_mode))
         .unwrap_or(SnapshotMode::Immediate);
-    let local_state_store = recovery_config
+    let backup = recovery_config
+        .as_ref()
+        .map(|rc| Python::with_gil(|py| rc.borrow(py).backup.clone()));
+    let mut local_state_store = recovery_config
+        .as_ref()
         .map(|rc| {
-            let mut conn =
-                Python::with_gil(|py| rc.borrow(py).db_connection(&flow_id, worker_index))?;
+            let conn = Python::with_gil(|py| rc.borrow(py).db_connection(&flow_id, worker_index))?;
             LocalStateStore::new(conn, flow_id, worker_index, worker_count)
         })
         .transpose()?;
@@ -138,6 +142,7 @@ where
     // Now broadcast the worker's resume epoch to all other workers,
     // and get the max of them all to get the cluster's resume epoch.
     let worker_resume_epoch = local_state_store
+        .as_ref()
         .map(|state| state.resume_from_epoch().0)
         .unwrap_or_default();
     let cluster_resume_epoch = Rc::new(RefCell::new(worker_resume_epoch));
@@ -154,7 +159,7 @@ where
 
     let resume_epoch = ResumeEpoch(*cluster_resume_epoch.borrow());
 
-    if let Some(state) = local_state_store {
+    if let Some(state) = local_state_store.as_mut() {
         state.update_resume_epoch(resume_epoch);
     }
 
@@ -171,6 +176,7 @@ where
             local_state_store,
             resume_epoch,
             snapshot_mode,
+            backup,
             &worker.abort,
         )
         .reraise("error building production dataflow")
@@ -299,6 +305,7 @@ fn build_production_dataflow<A>(
     local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
     resume_epoch: ResumeEpoch,
     snapshot_mode: SnapshotMode,
+    backup: Option<Backup>,
     abort: &Arc<AtomicBool>,
 ) -> PyResult<ProbeHandle<u64>>
 where
@@ -373,12 +380,12 @@ where
                         let source = step.get_arg(py, "source")?.extract::<Source>(py)?;
 
                         if let Ok(source) = source.extract::<FixedPartitionedSource>(py) {
-                            let mut state = InputState::init(
+                            let state = InputState::init(
                                 py,
                                 step_id.clone(),
                                 local_state_store.clone(),
                                 state_store_cache.clone(),
-                                &source,
+                                source.clone(),
                                 snapshot_mode,
                             )?;
                             let (down, snap) = source
@@ -457,12 +464,13 @@ where
                             .reraise("core operator `output` missing port")?;
 
                         if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
-                            let mut state = OutputState::init(
+                            let state = OutputState::init(
                                 py,
                                 step_id.clone(),
                                 local_state_store.clone(),
                                 state_store_cache.clone(),
-                                &sink,
+                                // TODO: Avoid passing sink to partitioned_output
+                                sink.clone(),
                                 snapshot_mode,
                             )?;
                             let (clock, snap) = up
@@ -542,29 +550,28 @@ where
 
         // Attach the probe to the relevant final output.
         // if recovery_on {
-        //     let ssc = state_store.borrow();
+        // let ssc = state_store.borrow();
+        // if let Some(backup) = backup {
         //     scope
         //         // Concatenate all snapshot streams
         //         .concatenate(snaps)
-        //         // Compact all of the snapshots of each worker
-        //         // into a temporary, local (to each worker) sqlite
-        //         // file, and emit a stream of paths for the files.
-        //         .compact_snapshots(state_store.clone())
-        //         // Now save each segment from all workers into
-        //         // a durable backup storate.
-        //         .durable_backup(ssc.backup().unwrap(), immediate_snapshot)
-        //         // Now that the snapshot data is safe, we can
-        //         // update the cluster frontier.
-        //         // Broadcast the stream since we want all workers
-        //         // to write the cluster frontier info, even if they
-        //         // have no new snapshot to save.
+        //         // SnapshotSegmentCompactor: Compact all of the snapshots of each
+        //         // worker into a temporary, local (to each worker) sqlite file, and
+        //         // emit a stream of paths for the files.
+        //         .compactor()
+        //         // Now save each segment from all workers into a durable backup storage.
+        //         .backup(backup)
+        //         // Now that the snapshot data is safe, we can update the cluster
+        //         // frontier. Broadcast the stream since we want all workers to write
+        //         // the cluster frontier info, even if they have no new snapshot
+        //         // to save.
         //         .broadcast()
-        //         // Write the frontier into a temp segment
-        //         .compact_frontiers(state_store.clone())
-        //         // Upload the segment to the durable backup
-        //         .durable_backup(ssc.backup().unwrap(), immediate_snapshot)
-        //         // And finally save the cluster frontier locally.
-        //         .write_frontiers(state_store.clone())
+        //         // LocalStoreCompactor: Write the frontier into a temp segment
+        //         .compactor()
+        //         // Upload the segments to the durable backup
+        //         .backup(backup)
+        //         // FrontierSegmentCompactor: finally save the cluster frontier locally.
+        //         .compactor()
         //         .probe_with(&mut probe);
         // } else {
         scope.concatenate(outputs).probe_with(&mut probe);

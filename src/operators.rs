@@ -556,7 +556,7 @@ pub(crate) struct StatefulBatchState {
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
     // Builder function used each time we need to insert a partition into the state_store_cache.
-    builder: Box<dyn Fn(Option<PyObject>) -> PyResult<StatefulBatchLogic>>,
+    builder: Box<dyn Fn(Python, Option<PyObject>) -> PyResult<StatefulBatchLogic>>,
 
     // Contains the last known return value for
     // `logic.notify_at` for each key (if any). We don't
@@ -579,9 +579,10 @@ impl StatefulBatchState {
         logic_builder: TdPyCallable,
         snapshot_mode: SnapshotMode,
     ) -> PyResult<Self> {
-        let logic_builder = logic_builder.bind(py);
-        let builder = |state| {
+        state_store_cache.borrow_mut().add_step(step_id.clone());
+        let builder = move |py: Python<'_>, state| {
             logic_builder
+                .bind(py)
                 .call1((state,))?
                 .extract::<StatefulBatchLogic>()
         };
@@ -595,24 +596,25 @@ impl StatefulBatchState {
             awoken: BTreeSet::new(),
             builder: Box::new(builder),
         };
-        if let Some(lss) = this.local_state_store.borrow_mut().as_ref() {
-            let snaps = lss.get_snaps(py, &this.step_id)?;
-            for (state_key, state) in snaps {
-                this.insert(py, state_key, state)
-            }
+        let mut snaps = vec![];
+        if let Some(lss) = this.local_state_store.borrow_mut().as_mut() {
+            snaps = lss.get_snaps(py, &this.step_id)?;
+        }
+        for (state_key, state) in snaps {
+            this.insert(py, state_key, state)
         }
         Ok(this)
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
-        let logic = (self.builder)(state).unwrap();
+        let logic = (self.builder)(py, state).unwrap();
         self.state_store_cache
             .borrow_mut()
             .insert(&self.step_id, state_key, logic.0);
     }
 
-    pub fn awoken(&self) -> impl Iterator<Item = &StateKey> {
-        self.awoken.iter()
+    pub fn awoken(&self) -> Vec<StateKey> {
+        self.awoken.iter().cloned().collect()
     }
 
     pub fn remove(&mut self, py: Python, key: &StateKey) {
@@ -625,11 +627,11 @@ impl StatefulBatchState {
         logic.call_method0(py, "close").unwrap();
     }
 
-    pub fn notify_keys(&self, now: DateTime<Utc>) -> Vec<&StateKey> {
+    pub fn notify_keys(&self, now: DateTime<Utc>) -> Vec<StateKey> {
         self.sched_cache
             .iter()
-            .filter(|(_, sched)| **sched <= now)
-            .map(|(key, sched)| key)
+            .filter(|(_key, sched)| **sched <= now)
+            .map(|(key, _sched)| key.clone())
             .collect()
     }
 
@@ -683,7 +685,7 @@ impl StatefulBatchState {
     }
 
     fn on_notify(
-        &self,
+        &mut self,
         py: Python,
         key: &StateKey,
     ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
@@ -728,7 +730,7 @@ impl StatefulBatchState {
     }
 
     fn on_eof(
-        &self,
+        &mut self,
         py: Python,
         key: &StateKey,
     ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
@@ -764,11 +766,10 @@ impl StatefulBatchState {
                             self.step_id, key
                         )
                     })?;
-                let snap = PyObject::from(snap).bind(py);
 
                 let pickle = py.import_bound(intern!(py, "pickle"))?;
                 let ser_snap = pickle
-                    .call_method1(intern!(py, "dumps"), (snap,))
+                    .call_method1(intern!(py, "dumps"), (snap.bind(py),))
                     .reraise("Error serializing snapshot")?
                     .downcast::<PyBytes>()
                     .unwrap()
@@ -799,7 +800,7 @@ impl StatefulBatchState {
                     .snap(py, key, epoch)
                     .reraise("Error snapshotting PartitionedInput")
                     .unwrap();
-                if let Some(lss) = self.local_state_store.borrow_mut().as_ref() {
+                if let Some(lss) = self.local_state_store.borrow_mut().as_mut() {
                     lss.write_snapshots(vec![snap.clone()]);
                 }
                 res.push(snap);
@@ -817,7 +818,7 @@ where
         &self,
         _py: Python,
         step_id: StepId,
-        state: StatefulBatchState,
+        mut state: StatefulBatchState,
         resume_epoch: ResumeEpoch,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)> {
         // let resume_epoch = state.start_at();
@@ -1085,7 +1086,7 @@ where
                             if let Some(sched) = with_timer!(
                                 notify_at_histogram,
                                 labels,
-                                unwrap_any!(state.notify_at(py, key))
+                                unwrap_any!(state.notify_at(py, &key))
                             ) {
                                 state.schedule(key.clone(), sched);
                             }

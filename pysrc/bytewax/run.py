@@ -29,7 +29,7 @@ __all__ = [
 ]
 
 
-def _locate_subclass(module_name: str, object_name: str, superclass: Type[X]) -> X:
+def _locate_subclass(module_name: str, object_name: str, superclass):
     """Import a module and try to find a Dataflow within it.
 
     Check if the given string is a variable name or a function.
@@ -345,7 +345,7 @@ if __name__ == "__main__":
         kwargs["recovery_config"] = RecoveryConfig(
             recovery_directory,
             backup=backup,
-            batch_backup=snapshot_mode == "batch",
+            # snapshot_mode=snapshot_mode,
         )
     else:
         # Default epoch interval if there is no recovery setup. Since

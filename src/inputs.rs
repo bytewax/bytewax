@@ -190,7 +190,7 @@ pub(crate) struct InputState {
 
     // Builder function used each time we need to insert a partition
     // into the state_store_cache.
-    builder: Box<dyn Fn(&StateKey, Option<PyObject>) -> PyResult<StatefulSourcePartition>>,
+    builder: Box<dyn Fn(Python, StateKey, Option<PyObject>) -> PyResult<StatefulSourcePartition>>,
 
     // Snapshots
     snaps: Vec<StateKey>,
@@ -203,27 +203,30 @@ impl InputState {
         step_id: StepId,
         local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
-        source: &FixedPartitionedSource,
+        source: FixedPartitionedSource,
         snapshot_mode: SnapshotMode,
     ) -> PyResult<Self> {
-        let parts_list = source.list_parts(py)?;
-        let builder = move |state_key: &_, state| -> PyResult<StatefulSourcePartition> {
-            assert!(
-                parts_list.contains(&state_key),
-                "State found for unknown key {} in the recovery store for {}. \
+        state_store_cache.borrow_mut().add_step(step_id.clone());
+        let s_id = step_id.clone();
+        let builder =
+            move |py: Python<'_>, state_key, state| -> PyResult<StatefulSourcePartition> {
+                let parts_list = source.list_parts(py)?;
+                assert!(
+                    parts_list.contains(&state_key),
+                    "State found for unknown key {} in the recovery store for {}. \
                 Known partitions: {}. \
                 Fixed partitions cannot change between executions, aborting.",
-                state_key,
-                step_id,
-                parts_list
-                    .iter()
-                    .map(|sk| format!("\"{}\"", sk.0))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
+                    state_key,
+                    s_id,
+                    parts_list
+                        .iter()
+                        .map(|sk| format!("\"{}\"", sk.0))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
 
-            source.build_part(py, &step_id, &state_key, state)
-        };
+                source.build_part(py, &s_id, &state_key, state)
+            };
 
         // Initialize and hydrate the state if a local_state_store is present.
         let mut this = Self {
@@ -238,11 +241,12 @@ impl InputState {
             eofd_parts_buffer: vec![],
         };
 
-        if let Some(lss) = this.local_state_store.borrow_mut().as_ref() {
-            let snaps = lss.get_snaps(py, &this.step_id)?;
-            for (state_key, state) in snaps {
-                this.insert(py, state_key, state)
-            }
+        let mut snaps = vec![];
+        if let Some(lss) = this.local_state_store.borrow_mut().as_mut() {
+            snaps = lss.get_snaps(py, &this.step_id)?;
+        };
+        for (state_key, state) in snaps {
+            this.insert(py, state_key, state)
         }
 
         Ok(this)
@@ -267,14 +271,12 @@ impl InputState {
                             self.step_id, key
                         )
                     })?;
-                let snap = PyObject::from(snap).bind(py);
 
                 let pickle = py.import_bound(intern!(py, "pickle"))?;
                 let ser_snap = pickle
-                    .call_method1(intern!(py, "dumps"), (snap,))
-                    .reraise("Error serializing snapshot")?
-                    .downcast::<PyBytes>()
-                    .unwrap();
+                    .call_method1(intern!(py, "dumps"), (snap.bind(py),))
+                    .reraise("Error serializing snapshot")?;
+                let ser_snap = ser_snap.downcast::<PyBytes>()?;
                 let ser_snap = ser_snap.as_bytes().to_vec();
                 Ok(ser_snap)
             })
@@ -290,16 +292,17 @@ impl InputState {
 
     pub fn snapshots(&mut self, py: Python) -> Vec<(Capability<u64>, SerializedSnapshot)> {
         let mut res = vec![];
-        for key in self.snaps.drain(..) {
+        let snaps: Vec<_> = self.snaps.drain(..).collect();
+        for key in snaps {
             let epoch = self.epoch_for(&key);
             let snap = self
-                .snap(py, key, epoch)
+                .snap(py, key.clone(), epoch)
                 .reraise("Error snapshotting PartitionedInput")
                 .unwrap();
-            if let Some(lss) = self.local_state_store.borrow_mut().as_ref() {
+            if let Some(lss) = self.local_state_store.borrow_mut().as_mut() {
                 lss.write_snapshots(vec![snap.clone()]);
             }
-            let cap = self.parts.get(&key).unwrap().snap_cap;
+            let cap = self.parts.get(&key).unwrap().snap_cap.clone();
             res.push((cap, snap));
         }
         res
@@ -363,8 +366,8 @@ impl InputState {
         for key in self.keys() {
             let next_awake = self.next_awake(py, &key).unwrap();
             let part_state = PartitionedPartState {
-                downstream_cap,
-                snap_cap,
+                downstream_cap: downstream_cap.clone(),
+                snap_cap: snap_cap.clone(),
                 epoch_started: self.current_time,
                 next_awake,
             };
@@ -376,14 +379,23 @@ impl InputState {
         self.state_store_cache.borrow().keys(&self.step_id)
     }
 
+    pub fn contains_key(&self, key: &StateKey) -> bool {
+        self.state_store_cache
+            .borrow()
+            .contains_key(&self.step_id, key)
+    }
+
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
-        let logic = (self.builder)(&state_key, state).unwrap();
+        let logic = (self.builder)(py, state_key.clone(), state).unwrap();
+        if self.snapshot_mode.immediate() {
+            self.snaps.push(state_key.clone())
+        }
         self.state_store_cache
             .borrow_mut()
             .insert(&self.step_id, state_key, logic.0);
     }
 
-    pub fn next_batch(&self, py: Python, key: &StateKey) -> PyResult<BatchResult> {
+    pub fn next_batch(&mut self, py: Python, key: &StateKey) -> PyResult<BatchResult> {
         let batch = self
             .state_store_cache
             .borrow()
@@ -420,10 +432,10 @@ impl InputState {
         };
 
         match res {
-            Ok(BatchResult::Batch(batch)) => {
+            Ok(BatchResult::Batch(ref batch)) => {
                 let batch_len = batch.len();
-                let next_awake_res = self.next_awake(py, &key)?;
-                self.update_part_next_awake(&key, next_awake_res, batch_len, self.current_time)
+                let next_awake_res = self.next_awake(py, key)?;
+                self.update_part_next_awake(key, next_awake_res, batch_len, self.current_time)
             }
             Ok(BatchResult::Eof) => {
                 self.eofd_parts_buffer.push(key.clone());
@@ -435,7 +447,8 @@ impl InputState {
     }
 
     pub fn clear_eofd_parts(&mut self, py: Python) {
-        for part in self.eofd_parts_buffer.drain(..) {
+        let parts: Vec<_> = self.eofd_parts_buffer.drain(..).collect();
+        for part in parts {
             self.remove(py, &part)
         }
     }
@@ -449,7 +462,7 @@ impl InputState {
     }
 
     pub fn epoch_ended(&self, key: &StateKey, epoch_interval: EpochInterval) -> bool {
-        self.current_time - self.epoch_started(&key) >= epoch_interval.0
+        self.current_time - self.epoch_started(key) >= epoch_interval.0
     }
 
     pub fn update_part_next_awake(
@@ -459,7 +472,8 @@ impl InputState {
         batch_len: usize,
         now: DateTime<Utc>,
     ) {
-        self.parts.get(key).unwrap().next_awake = default_next_awake(next_awake, batch_len, now);
+        self.parts.get_mut(key).unwrap().next_awake =
+            default_next_awake(next_awake, batch_len, now);
     }
 
     pub fn next_awake(&self, py: Python, key: &StateKey) -> PyResult<Option<DateTime<Utc>>> {
@@ -590,24 +604,22 @@ impl FixedPartitionedSource {
 
                 // Once that's done, populate state and move forward with the dataflow.
                 if let Some((downstream_cap, snap_cap)) = init_caps.take() {
-                    let epoch = downstream_cap.time();
-
                     let closed_epochs = inbuf
                         .epochs()
                         .filter(|e| frontier.is_closed(e))
                         .collect::<Vec<_>>();
 
-                    for epoch in closed_epochs {
-                        if let Some(parts) = inbuf.remove(&epoch) {
-                            for (part_key, worker) in parts {
-                                if worker == this_worker {
-                                    state.insert(py, part_key, None);
+                    Python::with_gil(|py| {
+                        for epoch in closed_epochs {
+                            if let Some(parts) = inbuf.remove(&epoch) {
+                                for (part_key, worker) in parts {
+                                    if worker == this_worker && !state.contains_key(&part_key) {
+                                        state.insert(py, part_key, None);
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    Python::with_gil(|py| {
                         state.populate_parts(py, downstream_cap, snap_cap);
                     });
                 }
@@ -681,10 +693,10 @@ impl FixedPartitionedSource {
                         let mut snaps_session = snaps_handle.session(&snap_cap);
                         snaps_session.give(snap);
                     }
-                });
 
-                // Clear state from parts that have EOFd
-                state.clear_eofd_parts(py);
+                    // Clear state from parts that have EOFd
+                    state.clear_eofd_parts(py);
+                });
 
                 if let Some(awake_after) = state.awake_after() {
                     activator.activate_after(awake_after);
@@ -726,14 +738,6 @@ impl StatefulSourcePartition {
     pub(crate) fn close(&self, py: Python) -> PyResult<()> {
         let _ = self.0.call_method0(py, "close");
         Ok(())
-    }
-}
-
-impl Drop for StatefulSourcePartition {
-    fn drop(&mut self) {
-        unwrap_any!(Python::with_gil(|py| self
-            .close(py)
-            .reraise("error closing StatefulSourcePartition")));
     }
 }
 
