@@ -862,8 +862,9 @@ def count_final(
 ) -> KeyedStream[int]:
     """Count the number of occurrences of items in the entire stream.
 
-    This will only return counts once the upstream is EOF. You'll need
-    to use {py:obj}`bytewax.operators.windowing.count_window` on infinite
+    This only works on finite data streams and only return counts once
+    the upstream is EOF. You'll need to use
+    {py:obj}`bytewax.operators.windowing.count_window` on infinite
     data.
 
     :arg step_id: Unique ID.
@@ -874,7 +875,8 @@ def count_final(
         counting machinery does not compare the items directly,
         instead it groups by this string key.
 
-    :returns: A stream of `(key, count)` once the upstream is EOF.
+    :returns: A stream of `(key, count)`. _Only once the upstream is
+        EOF._
 
     """
     down: KeyedStream[int] = map("init_count", up, lambda x: (key(x), 1))
@@ -1402,6 +1404,11 @@ def fold_final(
 ) -> KeyedStream[S]:
     """Build an empty accumulator, then combine values into it.
 
+    This only works on finite data streams and only returns a result
+    once the upstream is EOF. You'll need to use
+    {py:obj}`bytewax.operators.windowing.fold_window` or
+    {py:obj}`bytewax.operators.stateful_flat_map` on infinite data.
+
     It is like {py:obj}`reduce_final` but uses a function to build the
     initial value.
 
@@ -1555,8 +1562,12 @@ JoinEmitMode: TypeAlias = Literal["complete", "final", "running"]
 - *Complete*: Emit once a value has been seen from each side. Then
    discard the state.
 
-- *Final*: Emit when the upstream ends or the window closes. Then
+- *Final*: Emit when the upstream is EOF or the window closes. Then
    discard the state.
+
+   This mode only works on finite data streams and only returns a
+   result once the upstream is EOF. You'll need to use a different
+   mode on infinite data.
 
 - *Running*: Emit every time a new value is seen on any side. Retain
    the state forever.
@@ -1949,6 +1960,10 @@ def max_final(
 ) -> KeyedStream:
     """Find the maximum value for each key.
 
+    This only works on finite data streams and only returns a result
+    once the upstream is EOF. You'll need to use
+    {py:obj}`bytewax.operators.windowing.max_window` on infinite data.
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
@@ -1984,7 +1999,11 @@ def min_final(
     up: KeyedStream[V],
     by=_identity,
 ) -> KeyedStream:
-    """Find the minumum value for each key.
+    """Find the minimum value for each key.
+
+    This only works on finite data streams and only returns a result
+    once the upstream is EOF. You'll need to use
+    {py:obj}`bytewax.operators.windowing.min_window` on infinite data.
 
     :arg step_id: Unique ID.
 
@@ -2045,6 +2064,11 @@ def reduce_final(
     reducer: Callable[[V, V], V],
 ) -> KeyedStream[V]:
     """Distill all values for a key down into a single value.
+
+    This only works on finite data streams and only returns a result
+    once the upstream is EOF. You'll need to use
+    {py:obj}`bytewax.operators.windowing.reduce_window` or
+    {py:obj}`bytewax.operators.stateful_flat_map` on infinite data.
 
     It is like {py:obj}`fold_final` but the first value is the initial
     accumulator.
