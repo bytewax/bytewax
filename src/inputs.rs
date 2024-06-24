@@ -180,7 +180,7 @@ pub(crate) struct InputState {
     step_id: StepId,
 
     // References to LocalStateStore and StateStoreCache
-    local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+    local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
     // Internal state
@@ -201,7 +201,7 @@ impl InputState {
     pub fn init(
         py: Python,
         step_id: StepId,
-        local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+        local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         source: FixedPartitionedSource,
         snapshot_mode: SnapshotMode,
@@ -241,12 +241,11 @@ impl InputState {
             eofd_parts_buffer: vec![],
         };
 
-        let mut snaps = vec![];
-        if let Some(lss) = this.local_state_store.borrow_mut().as_mut() {
-            snaps = lss.get_snaps(py, &this.step_id)?;
-        };
-        for (state_key, state) in snaps {
-            this.insert(py, state_key, state)
+        if let Some(lss) = this.local_state_store.as_ref() {
+            let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
+            for (state_key, state) in snaps {
+                this.insert(py, state_key, state)
+            }
         }
 
         Ok(this)
@@ -254,6 +253,14 @@ impl InputState {
 
     pub fn init_step(&mut self) {
         self.current_time = Utc::now();
+    }
+
+    pub fn start_at(&self) -> ResumeEpoch {
+        if let Some(lss) = self.local_state_store.as_ref() {
+            lss.borrow().resume_from_epoch()
+        } else {
+            ResumeFrom::default().epoch()
+        }
     }
 
     pub fn snap(&self, py: Python, key: StateKey, epoch: u64) -> PyResult<SerializedSnapshot> {
@@ -299,8 +306,8 @@ impl InputState {
                 .snap(py, key.clone(), epoch)
                 .reraise("Error snapshotting PartitionedInput")
                 .unwrap();
-            if let Some(lss) = self.local_state_store.borrow_mut().as_mut() {
-                lss.write_snapshots(vec![snap.clone()]);
+            if let Some(lss) = self.local_state_store.as_ref() {
+                lss.borrow_mut().write_snapshots(vec![snap.clone()]);
             }
             let cap = self.parts.get(&key).unwrap().snap_cap.clone();
             res.push((cap, snap));
@@ -316,9 +323,7 @@ impl InputState {
         // We snapshot on EOF so that we capture the offsets for this partition to
         // resume from; we produce the same behavior as if this partition would have
         // lived to the next epoch interval.
-        if self.snapshot_mode.batch() {
-            self.snaps.push(key.clone())
-        }
+        self.snaps.push(key.clone())
     }
 
     pub fn awake_after(&self) -> Option<std::time::Duration> {
@@ -387,9 +392,7 @@ impl InputState {
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
         let logic = (self.builder)(py, state_key.clone(), state).unwrap();
-        if self.snapshot_mode.immediate() {
-            self.snaps.push(state_key.clone())
-        }
+        self.snaps.push(state_key.clone());
         self.state_store_cache
             .borrow_mut()
             .insert(&self.step_id, state_key, logic.0);
@@ -530,7 +533,6 @@ impl FixedPartitionedSource {
         epoch_interval: EpochInterval,
         probe: &ProbeHandle<u64>,
         abort: &Arc<AtomicBool>,
-        start_at: &ResumeEpoch,
         mut state: InputState,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)>
     where
@@ -580,7 +582,7 @@ impl FixedPartitionedSource {
         ];
 
         op_builder.build(move |mut init_caps| {
-            init_caps.downgrade_all(&start_at.0);
+            init_caps.downgrade_all(&state.start_at().0);
             let init_snap_cap = init_caps.pop().unwrap();
             let init_downstream_cap = init_caps.pop().unwrap();
             let mut init_caps = Some((init_downstream_cap, init_snap_cap));
@@ -689,10 +691,12 @@ impl FixedPartitionedSource {
 
                 // Now send the generated snapshots to the snapshots stream.
                 Python::with_gil(|py| {
-                    for (snap_cap, snap) in state.snapshots(py) {
-                        let mut snaps_session = snaps_handle.session(&snap_cap);
-                        snaps_session.give(snap);
-                    }
+                    with_timer!(snapshot_histogram, labels, {
+                        for (snap_cap, snap) in state.snapshots(py) {
+                            let mut snaps_session = snaps_handle.session(&snap_cap);
+                            snaps_session.give(snap);
+                        }
+                    });
 
                     // Clear state from parts that have EOFd
                     state.clear_eofd_parts(py);

@@ -62,6 +62,49 @@ class RecoveryConfig:
     def snapshot_mode(self):
         ...
 
+class SnapshotMode:
+    ...
+
+    Batch: object
+
+    Immediate: object
+
+    def __eq__(self, value, /):
+        """Return self==value."""
+        ...
+
+    def __ge__(self, value, /):
+        """Return self>=value."""
+        ...
+
+    def __gt__(self, value, /):
+        """Return self>value."""
+        ...
+
+    def __int__(self, /):
+        """int(self)"""
+        ...
+
+    def __le__(self, value, /):
+        """Return self<=value."""
+        ...
+
+    def __lt__(self, value, /):
+        """Return self<value."""
+        ...
+
+    def __ne__(self, value, /):
+        """Return self!=value."""
+        ...
+
+    def __new__(cls, *args, **kwargs):
+        """Create and return a new object.  See help(type) for accurate signature."""
+        ...
+
+    def __repr__(self, /):
+        """Return repr(self)."""
+        ...
+
 class TracingConfig:
     """Base class for tracing/logging configuration.
 

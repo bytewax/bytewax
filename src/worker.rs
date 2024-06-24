@@ -1,7 +1,9 @@
 //! Definition of a Bytewax worker.
 
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
@@ -24,6 +26,7 @@ use timely::dataflow::Stream;
 use timely::progress::Timestamp;
 use timely::worker::Worker as TimelyWorker;
 use tracing::instrument;
+use tracing::Instrument;
 
 use crate::dataflow::Dataflow;
 use crate::dataflow::Operator;
@@ -35,6 +38,7 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+use crate::timely::AsWorkerExt;
 use crate::timely::FrontierEx;
 
 /// Bytewax worker.
@@ -115,68 +119,61 @@ where
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
 
-    let flow_id = Python::with_gil(|py| flow.flow_id(py).unwrap());
+    // Init default values for recovery related fields
+    let mut snapshot_mode = SnapshotMode::Immediate;
+    let mut local_state_store = None;
 
-    // TODO: Now, initialize the LocalStateStore object.
-    //       We need to decide if we can do a fast resume first.
+    // Now, if recovery is configured, initialize everything we need.
+
+    // TODO: We need to decide if we can do a fast resume first.
     //       We CAN'T do a fast resume if:
     //       - The number of workers changed (state_store.worker_count vs current count)
     //       - Any of the workers can't access its own db (corrupted? volume gone?)
-    //       If fast resume can be done, read the resume_from epoch from the state_store
-    //       and start from there.
-    let snapshot_mode = recovery_config
-        .as_ref()
-        .map(|rc| Python::with_gil(|py| rc.borrow(py).snapshot_mode))
-        .unwrap_or(SnapshotMode::Immediate);
-    let backup = recovery_config
-        .as_ref()
-        .map(|rc| Python::with_gil(|py| rc.borrow(py).backup.clone()));
-    let mut local_state_store = recovery_config
-        .as_ref()
-        .map(|rc| {
-            let conn = Python::with_gil(|py| rc.borrow(py).db_connection(&flow_id, worker_index))?;
-            LocalStateStore::new(conn, flow_id, worker_index, worker_count)
+    // Even if a fast_resume is possible, we still need to read frontier info from
+    // the durable store, as we want a single source of truth, and we never write
+    // frontier info to the local store.
+    if let Some(rc) = recovery_config {
+        let mut lss = Python::with_gil(|py| {
+            let flow_id = flow.flow_id(py).unwrap();
+            LocalStateStore::new(flow_id, worker_index, worker_count, rc.bind(py)).unwrap()
+        });
+
+        // Broadcast the worker's resume epoch to all other workers,
+        // and get the max of them all to get the cluster's resume epoch.
+        let worker_resume_epoch = lss.resume_from_epoch().0;
+        let cluster_resume_epoch = Rc::new(RefCell::new(worker_resume_epoch));
+
+        let probe = build_resume_epoch_dataflow(
+            worker.worker,
+            worker_resume_epoch,
+            cluster_resume_epoch.clone(),
+        );
+
+        tracing::info_span!("resume_from exchange dataflow").in_scope(|| {
+            worker.run(probe);
+        });
+
+        lss.update_resume_epoch(ResumeEpoch(*cluster_resume_epoch.borrow()));
+
+        Python::with_gil(|py| {
+            // Set the variables for the production dataflow.
+            snapshot_mode = rc.borrow(py).snapshot_mode;
+            local_state_store = Some(lss)
         })
-        .transpose()?;
-
-    // Now broadcast the worker's resume epoch to all other workers,
-    // and get the max of them all to get the cluster's resume epoch.
-    let worker_resume_epoch = local_state_store
-        .as_ref()
-        .map(|state| state.resume_from_epoch().0)
-        .unwrap_or_default();
-    let cluster_resume_epoch = Rc::new(RefCell::new(worker_resume_epoch));
-
-    let probe = build_resume_epoch_dataflow(
-        worker.worker,
-        worker_resume_epoch,
-        cluster_resume_epoch.clone(),
-    );
-
-    tracing::info_span!("resume_from exchange dataflow").in_scope(|| {
-        worker.run(probe);
-    });
-
-    let resume_epoch = ResumeEpoch(*cluster_resume_epoch.borrow());
-
-    if let Some(state) = local_state_store.as_mut() {
-        state.update_resume_epoch(resume_epoch);
     }
 
     let state_store_cache = Rc::new(RefCell::new(StateStoreCache::new()));
-    let local_state_store = Rc::new(RefCell::new(local_state_store));
+    let local_state_store = local_state_store.map(|lss| Rc::new(RefCell::new(lss)));
 
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
             worker.worker,
             flow,
-            epoch_interval,
             state_store_cache,
             local_state_store,
-            resume_epoch,
+            epoch_interval,
             snapshot_mode,
-            backup,
             &worker.abort,
         )
         .reraise("error building production dataflow")
@@ -300,12 +297,10 @@ fn build_production_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
     flow: Dataflow,
-    epoch_interval: EpochInterval,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
-    local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
-    resume_epoch: ResumeEpoch,
+    local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
+    epoch_interval: EpochInterval,
     snapshot_mode: SnapshotMode,
-    backup: Option<Backup>,
     abort: &Arc<AtomicBool>,
 ) -> PyResult<ProbeHandle<u64>>
 where
@@ -396,7 +391,6 @@ where
                                     epoch_interval,
                                     &probe,
                                     abort,
-                                    &resume_epoch,
                                     state,
                                 )
                                 .reraise("error building FixedPartitionedSource")?;
@@ -416,7 +410,10 @@ where
                                     epoch_interval,
                                     &probe,
                                     abort,
-                                    resume_epoch,
+                                    local_state_store
+                                        .as_ref()
+                                        .map(|lss| lss.borrow().resume_from_epoch())
+                                        .unwrap_or_else(|| ResumeFrom::default().epoch()),
                                 )
                                 .reraise("error building DynamicSource")?;
 
@@ -504,7 +501,7 @@ where
                     "stateful_batch" => {
                         let builder = step.get_arg(py, "builder")?.extract(py)?;
 
-                        let mut state = StatefulBatchState::init(
+                        let state = StatefulBatchState::init(
                             py,
                             step_id.clone(),
                             local_state_store.clone(),
@@ -517,7 +514,7 @@ where
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `stateful_batch` missing port")?;
 
-                        let (down, snap) = up.stateful_batch(py, step_id, state, resume_epoch)?;
+                        let (down, snap) = up.stateful_batch(py, step_id, state)?;
 
                         snaps.push(snap);
 
@@ -549,33 +546,34 @@ where
         }
 
         // Attach the probe to the relevant final output.
-        // if recovery_on {
-        // let ssc = state_store.borrow();
-        // if let Some(backup) = backup {
-        //     scope
-        //         // Concatenate all snapshot streams
-        //         .concatenate(snaps)
-        //         // SnapshotSegmentCompactor: Compact all of the snapshots of each
-        //         // worker into a temporary, local (to each worker) sqlite file, and
-        //         // emit a stream of paths for the files.
-        //         .compactor()
-        //         // Now save each segment from all workers into a durable backup storage.
-        //         .backup(backup)
-        //         // Now that the snapshot data is safe, we can update the cluster
-        //         // frontier. Broadcast the stream since we want all workers to write
-        //         // the cluster frontier info, even if they have no new snapshot
-        //         // to save.
-        //         .broadcast()
-        //         // LocalStoreCompactor: Write the frontier into a temp segment
-        //         .compactor()
-        //         // Upload the segments to the durable backup
-        //         .backup(backup)
-        //         // FrontierSegmentCompactor: finally save the cluster frontier locally.
-        //         .compactor()
-        //         .probe_with(&mut probe);
-        // } else {
-        scope.concatenate(outputs).probe_with(&mut probe);
-        // }
+        if let Some(local_state_store) = local_state_store.as_ref() {
+            scope
+                // Concatenate all snapshot streams
+                .concatenate(snaps)
+                // SnapshotSegmentCompactor: Compact all of the snapshots of each
+                // worker into a temporary, local (to each worker) sqlite file, and
+                // emit a stream of paths for the files.
+                .compactor(local_state_store.clone())
+                // Now save each segment from all workers into a durable backup storage.
+                .backup(local_state_store.borrow().backup())
+                // Now that the snapshot data is safe, we can update the cluster
+                // frontier. Broadcast the stream since we want all workers to write
+                // the cluster frontier info, even if they have no new snapshot
+                // to save.
+                .broadcast()
+                // LocalStoreCompactor: Write the frontier into a temp segment
+                .compactor(local_state_store.clone())
+                // Upload the segments to the durable backup
+                .backup(local_state_store.borrow().backup())
+                // NOT ANYMORE! We want a single source of truth here, so avoid
+                // writing into the local store. On resume, always get this info
+                // from the durable store.
+                // // FrontierSegmentCompactor: finally save the cluster frontier locally.
+                // .compactor(local_state_store.clone(), CompactorMode::Local)
+                .probe_with(&mut probe);
+        } else {
+            scope.concatenate(outputs).probe_with(&mut probe);
+        }
 
         Ok(probe)
     })

@@ -302,7 +302,9 @@ pub(crate) fn cluster_main(
             timely::WorkerConfig::default(),
             move |worker| {
                 let flow = Python::with_gil(|py| flow.clone_ref(py));
-                let recovery_config = recovery_config.clone();
+                let recovery_config = recovery_config
+                    .as_ref()
+                    .map(|rc| Python::with_gil(|py| rc.clone_ref(py)));
 
                 unwrap_any!(worker_main(
                     worker,

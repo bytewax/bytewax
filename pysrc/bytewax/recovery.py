@@ -3,10 +3,11 @@
 import argparse
 from pathlib import Path
 
-from bytewax._bytewax import RecoveryConfig
+from bytewax._bytewax import RecoveryConfig, SnapshotMode
 
 __all__ = [
     "RecoveryConfig",
+    "SnapshotMode",
 ]
 
 

@@ -22,7 +22,7 @@ from typing import Tuple
 from bytewax._bytewax import cli_main
 from bytewax.backup import Backup
 from bytewax.dataflow import Dataflow
-from bytewax.recovery import RecoveryConfig
+from bytewax.recovery import RecoveryConfig, SnapshotMode
 
 __all__ = [
     "cli_main",
@@ -333,6 +333,13 @@ if __name__ == "__main__":
     recovery_directory = kwargs.pop("recovery_directory")
     backup_import_str = kwargs.pop("backup")
     snapshot_mode = kwargs.pop("snapshot_mode")
+    if snapshot_mode == "immediate":
+        snapshot_mode = SnapshotMode.Immediate
+    elif snapshot_mode == "batch":
+        snapshot_mode = SnapshotMode.Batch
+    else:
+        msg = f"Invalid snapshot mode passed: {snapshot_mode}"
+        raise ValueError(msg)
 
     # Recovery config
     kwargs["recovery_config"] = None
@@ -345,7 +352,7 @@ if __name__ == "__main__":
         kwargs["recovery_config"] = RecoveryConfig(
             recovery_directory,
             backup=backup,
-            # snapshot_mode=snapshot_mode,
+            snapshot_mode=snapshot_mode,
         )
     else:
         # Default epoch interval if there is no recovery setup. Since

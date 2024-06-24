@@ -449,7 +449,6 @@ where
         py: Python,
         step_id: StepId,
         state: StatefulBatchState,
-        resume_epoch: ResumeEpoch,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)>;
 }
 
@@ -552,7 +551,7 @@ pub(crate) struct StatefulBatchState {
     step_id: StepId,
 
     // Shared references to LocalStateStore and StateStoreCache
-    local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+    local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
     // Builder function used each time we need to insert a partition into the state_store_cache.
@@ -574,7 +573,7 @@ impl StatefulBatchState {
     pub(crate) fn init(
         py: Python,
         step_id: StepId,
-        local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+        local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         logic_builder: TdPyCallable,
         snapshot_mode: SnapshotMode,
@@ -596,14 +595,21 @@ impl StatefulBatchState {
             awoken: BTreeSet::new(),
             builder: Box::new(builder),
         };
-        let mut snaps = vec![];
-        if let Some(lss) = this.local_state_store.borrow_mut().as_mut() {
-            snaps = lss.get_snaps(py, &this.step_id)?;
-        }
-        for (state_key, state) in snaps {
-            this.insert(py, state_key, state)
+        if let Some(lss) = this.local_state_store.as_ref() {
+            let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
+            for (state_key, state) in snaps {
+                this.insert(py, state_key, state)
+            }
         }
         Ok(this)
+    }
+
+    pub fn start_at(&self) -> ResumeEpoch {
+        if let Some(lss) = self.local_state_store.as_ref() {
+            lss.borrow().resume_from_epoch()
+        } else {
+            ResumeFrom::default().epoch()
+        }
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
@@ -800,8 +806,8 @@ impl StatefulBatchState {
                     .snap(py, key, epoch)
                     .reraise("Error snapshotting PartitionedInput")
                     .unwrap();
-                if let Some(lss) = self.local_state_store.borrow_mut().as_mut() {
-                    lss.write_snapshots(vec![snap.clone()]);
+                if let Some(lss) = self.local_state_store.as_ref() {
+                    lss.borrow_mut().write_snapshots(vec![snap.clone()]);
                 }
                 res.push(snap);
             }
@@ -819,7 +825,6 @@ where
         _py: Python,
         step_id: StepId,
         mut state: StatefulBatchState,
-        resume_epoch: ResumeEpoch,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)> {
         // let resume_epoch = state.start_at();
         let this_worker = self.scope().w_index();
@@ -955,7 +960,7 @@ where
                 // Except... eagerly execute the current frontier (even though it's not
                 // closed) as long as it could actually get data. All inputs will have a
                 // flash of their frontier being 0 before the resume epoch.
-                if frontier_epoch >= resume_epoch.0 {
+                if frontier_epoch >= state.start_at().0 {
                     process_epochs.insert(frontier_epoch);
                 }
 

@@ -164,7 +164,7 @@ pub(crate) struct OutputState {
     step_id: StepId,
 
     // Shared references to LocalStateStore and StateStoreCache
-    local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+    local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
     // Builder function used each time we need to insert a partition into the state_store_cache.
@@ -179,7 +179,7 @@ impl OutputState {
     pub fn init(
         py: Python,
         step_id: StepId,
-        local_state_store: Rc<RefCell<Option<LocalStateStore>>>,
+        local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         sink: FixedPartitionedSink,
         snapshot_mode: SnapshotMode,
@@ -213,12 +213,11 @@ impl OutputState {
             builder: Box::new(builder),
         };
 
-        let mut snaps = vec![];
-        if let Some(lss) = this.local_state_store.borrow_mut().as_mut() {
-            snaps = lss.get_snaps(py, &this.step_id)?;
-        }
-        for (state_key, state) in snaps {
-            this.insert(py, state_key, state)
+        if let Some(lss) = this.local_state_store.as_ref() {
+            let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
+            for (state_key, state) in snaps {
+                this.insert(py, state_key, state)
+            }
         }
         Ok(this)
     }
@@ -298,8 +297,8 @@ impl OutputState {
                     .unwrap();
                 res.push(snap)
             }
-            if let Some(lss) = self.local_state_store.borrow_mut().as_mut() {
-                lss.write_snapshots(res.clone());
+            if let Some(lss) = self.local_state_store.as_ref() {
+                lss.borrow_mut().write_snapshots(res.clone());
             }
         }
         res
@@ -314,8 +313,8 @@ impl OutputState {
                     .unwrap();
                 res.push(snap)
             }
-            if let Some(lss) = self.local_state_store.borrow_mut().as_mut() {
-                lss.write_snapshots(res.clone());
+            if let Some(lss) = self.local_state_store.as_ref() {
+                lss.borrow_mut().write_snapshots(res.clone());
             }
         }
         res
@@ -354,9 +353,6 @@ where
         state: OutputState,
     ) -> PyResult<(ClockStream<S>, Stream<S, SerializedSnapshot>)> {
         let this_worker = self.scope().w_index();
-        // let recovery_on = state.recovery_on();
-        // let immediate_snapshot = state.immediate_snapshot();
-
         let local_parts = sink.list_parts(py).reraise("error listing partitions")?;
         let all_parts = local_parts.into_broadcast(&self.scope(), S::Timestamp::minimum());
         let primary_updates = all_parts.assign_primaries(format!("{step_id}.assign_primaries"));
