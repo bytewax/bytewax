@@ -6,7 +6,7 @@ This sets up our fixtures and logging.
 
 from datetime import datetime, timezone
 
-from bytewax.recovery import RecoveryConfig
+from bytewax.recovery import RecoveryConfig, SnapshotMode
 from bytewax.testing import cluster_main, run_main
 from bytewax.tracing import setup_tracing
 from pytest import fixture
@@ -53,13 +53,23 @@ def entry_point(entry_point_name):
 
 
 @fixture
-def recovery_config(tmp_path):
+def recovery_config_batch(tmp_path):
     """Generate a recovery config.
 
     It will point to a single partition recovery store.
 
     """
-    yield RecoveryConfig(str(tmp_path), batch_backup=True)
+    yield RecoveryConfig(str(tmp_path), snapshot_mode=SnapshotMode.Batch)
+
+
+@fixture
+def recovery_config_immediate(tmp_path):
+    """Generate a recovery config.
+
+    It will point to a single partition recovery store.
+
+    """
+    yield RecoveryConfig(str(tmp_path), snapshot_mode=SnapshotMode.Immediate)
 
 
 @fixture

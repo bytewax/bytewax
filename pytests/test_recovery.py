@@ -9,7 +9,7 @@ ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
 
 
-def test_abort_no_snapshots(tmp_path):
+def test_abort_no_snapshots(recovery_config_batch):
     inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
     out = []
 
@@ -17,19 +17,18 @@ def test_abort_no_snapshots(tmp_path):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
-    # Setting batch_backup to True and epoch interval to 5 sec
+    # Setting snapshot mode to batch and epoch interval to 5 sec
     # means we shouldn't have a snapshot when the abort happens.
-    recovery_config = RecoveryConfig(str(tmp_path), batch_backup=True)
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [0, 1, 2]
 
     # So resume should re-play all input.
     out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [0, 1, 2, 3, 4]
 
 
-def test_abort_with_snapshots(tmp_path):
+def test_abort_with_snapshots(recovery_config_immediate):
     inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
     out = []
 
@@ -38,17 +37,16 @@ def test_abort_with_snapshots(tmp_path):
     op.output("out", s, TestingSink(out))
 
     # Setting batch_backup to False means we will have a snapshot after each item.
-    recovery_config = RecoveryConfig(str(tmp_path), batch_backup=False)
-    run_main(flow, recovery_config=recovery_config)
+    run_main(flow, recovery_config=recovery_config_immediate)
     assert out == [0, 1, 2]
 
     # We should resume as if it was an EOF.
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
     assert out == [3, 4]
 
 
-def test_continuation(tmp_path):
+def test_continuation(recovery_config_batch):
     inp = [0, 1, 2, TestingSource.EOF(), 3, 4]
     out = []
 
@@ -56,23 +54,22 @@ def test_continuation(tmp_path):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
-    # Setting batch_backup to True and epoch interval to 5 sec means we should only
-    # snapshot on EOF.
-    recovery_config = RecoveryConfig(str(tmp_path), batch_backup=True)
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    # Setting snapshot_mode to batch and epoch interval to 5 sec
+    # means we should only snapshot on EOF.
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [0, 1, 2]
 
     # Each continuation should resume at the last snapshot.
     out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [3, 4]
 
     out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == []
 
     out.clear()
-    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == []
 
 

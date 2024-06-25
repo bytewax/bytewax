@@ -527,8 +527,9 @@ pub(crate) struct StatefulBatchState {
     // any notify times within.
     sched_cache: BTreeMap<StateKey, DateTime<Utc>>,
 
-    // Snapshots
-    awoken: BTreeSet<StateKey>,
+    // Awoken keys in this activation
+    awoken_keys_this_activation: BTreeSet<StateKey>,
+    awoken_keys_this_epoch_buffer: BTreeSet<StateKey>,
     // snaps: Vec<StateKey>,
     snapshot_mode: SnapshotMode,
 }
@@ -554,9 +555,9 @@ impl StatefulBatchState {
             local_state_store,
             state_store_cache,
             snapshot_mode,
-            // snaps: vec![],
             sched_cache: BTreeMap::new(),
-            awoken: BTreeSet::new(),
+            awoken_keys_this_activation: BTreeSet::new(),
+            awoken_keys_this_epoch_buffer: BTreeSet::new(),
             builder: Box::new(builder),
         };
         if let Some(lss) = this.local_state_store.as_ref() {
@@ -576,6 +577,15 @@ impl StatefulBatchState {
         }
     }
 
+    pub fn clear_awoken(&mut self) {
+        self.awoken_keys_this_activation.clear();
+    }
+
+    pub fn fill_awoken_this_epoch_buffer(&mut self) {
+        self.awoken_keys_this_epoch_buffer
+            .extend(std::mem::take(&mut self.awoken_keys_this_activation));
+    }
+
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
         let logic = (self.builder)(py, state).unwrap();
         self.state_store_cache
@@ -584,17 +594,15 @@ impl StatefulBatchState {
     }
 
     pub fn awoken(&self) -> Vec<StateKey> {
-        self.awoken.iter().cloned().collect()
+        self.awoken_keys_this_activation.iter().cloned().collect()
     }
 
-    pub fn remove(&mut self, py: Python, key: &StateKey) {
-        let logic = self
-            .state_store_cache
+    pub fn remove(&mut self, key: &StateKey) {
+        self.state_store_cache
             .borrow_mut()
             .remove(&self.step_id, key)
             .unwrap();
         self.sched_cache.remove(key);
-        logic.call_method0(py, "close").unwrap();
     }
 
     pub fn notify_keys(&self, now: DateTime<Utc>) -> Vec<StateKey> {
@@ -607,6 +615,10 @@ impl StatefulBatchState {
 
     pub fn schedule(&mut self, key: StateKey, time: DateTime<Utc>) {
         self.sched_cache.insert(key, time);
+    }
+
+    pub fn unschedule(&mut self, key: &StateKey) {
+        self.sched_cache.remove(key);
     }
 
     pub fn activate_after(&self, now: DateTime<Utc>) -> Option<std::time::Duration> {
@@ -643,7 +655,7 @@ impl StatefulBatchState {
             .unwrap()
             .bind(py)
             .call_method1(intern!(py, "on_batch"), (values,))?;
-        self.awoken.insert(key.clone());
+        self.awoken_keys_this_activation.insert(key.clone());
         StatefulBatchLogic::extract_ret(res)
             .reraise("error extracting `(emit, is_complete)`")
             .reraise_with(|| {
@@ -666,7 +678,7 @@ impl StatefulBatchState {
             .unwrap()
             .bind(py)
             .call_method0(intern!(py, "on_notify"))?;
-        self.awoken.insert(key.clone());
+        self.awoken_keys_this_activation.insert(key.clone());
         StatefulBatchLogic::extract_ret(res)
             .reraise("error extracting `(emit, is_complete)`")
             .reraise_with(|| {
@@ -717,7 +729,7 @@ impl StatefulBatchState {
                     self.step_id, key
                 )
             })?;
-        self.awoken.insert(key.clone());
+        self.awoken_keys_this_activation.insert(key.clone());
         StatefulBatchLogic::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
@@ -765,7 +777,7 @@ impl StatefulBatchState {
     ) -> Vec<SerializedSnapshot> {
         let mut res = vec![];
         if self.snapshot_mode.immediate() || is_epoch_closed {
-            while let Some(key) = self.awoken.pop_first() {
+            for key in std::mem::take(&mut self.awoken_keys_this_epoch_buffer) {
                 let snap = self
                     .snap(py, key, epoch)
                     .reraise("Error snapshotting PartitionedInput")
@@ -943,6 +955,9 @@ where
 
                     let mut kv_downstream_session = kv_downstream_handle.session(&output_cap);
 
+                    // Clear awoken keys
+                    state.clear_awoken();
+
                     // First, call `on_batch` for all the input items.
                     if let Some(items) = inbuf.remove(&epoch) {
                         item_inp_count.add(items.len() as u64, &labels);
@@ -983,7 +998,7 @@ where
 
                                 // Now remove the state if needed.
                                 if let IsComplete::Discard = is_complete {
-                                    state.remove(py, &key);
+                                    state.remove(&key);
                                 }
                             }
 
@@ -1010,7 +1025,13 @@ where
 
                             // Clear the state if needed
                             if let IsComplete::Discard = is_complete {
-                                state.remove(py, &key);
+                                state.remove(&key);
+                            } else {
+                                // Even if we don't discard the logic, the previous
+                                // scheduled notification only should fire once. The
+                                // logic can re-schedule it by still returning it
+                                // in `notify_at`.
+                                state.unschedule(&key);
                             }
                         }
                     });
@@ -1043,7 +1064,7 @@ where
                             }
 
                             for key in discarded_keys {
-                                state.remove(py, &key);
+                                state.remove(&key);
                             }
                         });
                     }
@@ -1060,6 +1081,8 @@ where
                                 state.schedule(key.clone(), sched);
                             }
                         }
+
+                        state.fill_awoken_this_epoch_buffer();
 
                         // Snapshot and output state changes.
                         let is_epoch_closed = input_frontiers.is_closed(&epoch);

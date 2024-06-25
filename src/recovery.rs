@@ -668,11 +668,11 @@ impl SnapshotMode {
 ///
 /// :type backup: typing.Optional[bytewax.backup.Backup]
 ///
-/// :arg batch_backup: Whether to take state snapshots at the end
-///     of the epoch, rather than at every state change. Defaults
-///     to False.
+/// :arg snapshot_mode: Whether to take state snapshots at the end
+///     of the epoch, or as soon as a change happens. Defaults
+///     to take SnapshotMode.Immediate.
 ///
-/// :type batch_backup: bool
+/// :type snapshot_mode: SnapshotMode
 #[pyclass(module = "bytewax.recovery")]
 #[derive(Clone, Debug)]
 pub(crate) struct RecoveryConfig {
