@@ -4,7 +4,6 @@
 //! `bytewax.recovery` Python module docstring. Read that first.
 
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt;
@@ -15,7 +14,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use opentelemetry::trace::FutureExt;
 use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
@@ -85,15 +83,6 @@ impl Backup {
         self.0.call_method1(py, intern!(py, "delete"), (key,))?;
         Ok(())
     }
-}
-
-/// Module that holds all the queries used for recovery.
-mod queries {
-    /// Get the meta data from the most recent execution number
-    pub(crate) const GET_META: &str = "\
-        SELECT ex_num, cluster_frontier, worker_count, worker_index \
-        FROM meta \
-        WHERE (ex_num, flow_id) IN (SELECT MAX(ex_num), flow_id FROM meta)";
 }
 
 pub(crate) struct StateStoreCache {
@@ -169,24 +158,29 @@ impl LocalStateStore {
                 db_dir
             )));
         }
-        let file_name = format!("flow_{flow_id}_worker_{worker_index}.sqlite3");
-        let conn = setup_conn(db_dir.join(file_name))?;
-
         // Calculate resume_from.
         // First we need to retrieve the latest frontier segment from
         // the durable store, as we never store frontier info in the
-        // local store, so we have a single source of truth.
+        // local store.
         // Start with the default value, then if the durable store
         // does have a frontier segment, update it with the fetched value.
         let mut resume_from = ResumeFrom::default();
+
         let backup = recovery_config.borrow().backup.clone();
+        // `keys` is the list of files in the durable store
         let keys = Python::with_gil(|py| backup.list_keys(py).unwrap());
         let mut frontier_segments: Vec<(u64, u64, String)> = keys
             .into_iter()
+            // We are only interested in frontier segments, the convention is
+            // that the name of those starts with `frontier:`
             .filter(|key| key.starts_with("frontier:"))
             .filter_map(|key| {
+                // The filename is composed this way:
+                // "frontier:ex-{ex_num}:epoch-{epoch}:_:worker-{worker_index}.sqlite3"
+                // So strip the extension first:
                 let split: Vec<&str> = key.strip_suffix(".sqlite3").unwrap().split(':').collect();
-                // First only filter current worker's segments
+
+                // Filter current worker's segments
                 let worker = split[4]
                     .strip_prefix("worker-")
                     .unwrap()
@@ -195,7 +189,8 @@ impl LocalStateStore {
                 if worker != worker_index {
                     return None;
                 }
-                // Then extract execution_number and epoch
+
+                // Extract execution_number and epoch
                 let ex_num = split[1]
                     .strip_prefix("ex-")
                     .unwrap()
@@ -209,15 +204,7 @@ impl LocalStateStore {
                 Some((ex_num, epoch, key))
             })
             .collect();
-        frontier_segments.sort_by(|a, b| {
-            // If execution_number if different, order based on that
-            let ex_cmp = a.0.cmp(&b.0);
-            if ex_cmp != Ordering::Equal {
-                return ex_cmp;
-            }
-            // Otherwise order based on epoch
-            a.1.cmp(&b.1)
-        });
+        frontier_segments.sort_by_key(|&(ex_num, epoch, _)| (ex_num, epoch));
 
         if let Some((_, _, frontier_segment)) = frontier_segments.last() {
             let segment_file = db_dir.join(frontier_segment);
@@ -227,23 +214,39 @@ impl LocalStateStore {
                     .unwrap()
             });
             let conn = setup_conn(segment_file)?;
-            let res = conn.query_row(queries::GET_META, (), |row| {
-                let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
-                let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
-                Ok(ex_num
-                    .zip(resume_epoch)
-                    // Advance the execution number here.
-                    .map(|(en, re)| ResumeFrom::new(en.next(), re)))
-            });
-            resume_from = match res {
+            let res = conn.query_row(
+                "SELECT ex_num, cluster_frontier, worker_count, worker_index \
+                FROM meta \
+                WHERE (ex_num, flow_id) IN (SELECT MAX(ex_num), flow_id FROM meta)",
+                (),
+                |row| {
+                    let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
+                    let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
+                    let worker_count = row.get::<_, Option<usize>>(2)?.map(WorkerCount);
+                    Ok((
+                        ex_num
+                            .zip(resume_epoch)
+                            // Advance the execution number here.
+                            .map(|(en, re)| ResumeFrom::new(en.next(), re)),
+                        worker_count,
+                    ))
+                },
+            );
+            match res {
                 // If no rows in the db, it was empty, so use the default.
-                Err(rusqlite::Error::QueryReturnedNoRows) => ResumeFrom::default(),
+                Err(rusqlite::Error::QueryReturnedNoRows) => resume_from = ResumeFrom::default(),
                 // Any other error was an error reading from the db, we should stop here.
                 Err(err) => std::panic::panic_any(err),
-                Ok(row) => row.unwrap_or_default(),
+                Ok((resume, w_count)) => {
+                    resume_from = resume.unwrap_or_default();
+                    // TODO!
+                    if w_count.unwrap().0 != worker_count {
+                        panic!("Rescaling not supported yet!");
+                    }
+                }
             };
-            println!(
-                "Resuming from ex: {}, epoch {}",
+            tracing::info!(
+                "Resuming from execution: {}, epoch {}",
                 resume_from.execution(),
                 resume_from.epoch()
             );
@@ -255,6 +258,9 @@ impl LocalStateStore {
             worker_index,
             worker_count,
         );
+
+        let file_name = format!("flow_{flow_id}_worker_{worker_index}.sqlite3");
+        let conn = setup_conn(db_dir.join(file_name))?;
 
         Ok(Self {
             conn,
@@ -766,164 +772,6 @@ fn migrations_valid() -> rusqlite_migration::Result<()> {
     Python::with_gil(|py| get_migrations(py).validate())
 }
 
-// pub(crate) trait WriteFrontiersOp<S>
-// where
-//     S: Scope,
-// {
-//     fn write_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> ClockStream<S>;
-// }
-
-// impl<S> WriteFrontiersOp<S> for ClockStream<S>
-// where
-//     S: Scope<Timestamp = u64>,
-// {
-//     fn write_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> ClockStream<S> {
-//         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
-//         let mut input = op_builder.new_input(self, Pipeline);
-//         let (mut output, clock) = op_builder.new_output();
-
-//         op_builder.build(move |init_caps| {
-//             let mut inbuffer = InBuffer::new();
-//             let mut ncater = EagerNotificator::new(init_caps, ());
-
-//             move |input_frontiers| {
-//                 input.buffer_notify(&mut inbuffer, &mut ncater);
-
-//                 ncater.for_each(
-//                     input_frontiers,
-//                     |_caps, ()| {},
-//                     |caps, ()| {
-//                         let cap = &caps[0];
-//                         let epoch = cap.time();
-//                         // Write cluster frontier
-//                         unwrap_any!(state_store.borrow_mut().write_frontier(*epoch));
-//                         // And finally allow the dataflow to advance its epoch.
-//                         output.activate().session(cap).give(());
-//                     },
-//                 )
-//             }
-//         });
-//         clock
-//     }
-// }
-
-// pub(crate) trait CompactFrontiersOp<S>
-// where
-//     S: Scope,
-// {
-//     fn compact_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
-// }
-
-// impl<S> CompactFrontiersOp<S> for ClockStream<S>
-// where
-//     S: Scope<Timestamp = u64>,
-// {
-//     fn compact_frontiers(&self, state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
-//         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
-//         let mut input = op_builder.new_input(self, Pipeline);
-//         let (mut segments_output, segments) = op_builder.new_output();
-
-//         op_builder.build(move |init_caps| {
-//             let mut inbuffer = InBuffer::new();
-//             let mut ncater = EagerNotificator::new(init_caps, ());
-
-//             move |input_frontiers| {
-//                 input.buffer_notify(&mut inbuffer, &mut ncater);
-
-//                 ncater.for_each(
-//                     input_frontiers,
-//                     |_caps, ()| {},
-//                     |caps, ()| {
-//                         let clock_cap = &caps[0];
-
-//                         let mut handle = segments_output.activate();
-//                         let mut session = handle.session(clock_cap);
-
-//                         let epochs = inbuffer.epochs().collect::<Vec<_>>();
-//                         let mut state = state_store.borrow_mut();
-//                         for epoch in epochs {
-//                             let segment = unwrap_any!(state.open_segment(epoch));
-//                             let file_name = segment.file_name();
-//                             inbuffer.remove(&epoch);
-//                             segment.write_frontier(epoch).unwrap();
-//                             session.give(file_name);
-//                         }
-//                     },
-//                 )
-//             }
-//         });
-//         segments
-//     }
-// }
-
-// pub(crate) trait DurableBackupOp<S>
-// where
-//     S: Scope,
-// {
-//     fn durable_backup(&self, backup: Backup, immediate_backup: bool) -> ClockStream<S>;
-// }
-
-// impl<S> DurableBackupOp<S> for Stream<S, PathBuf>
-// where
-//     S: Scope<Timestamp = u64>,
-// {
-//     fn durable_backup(&self, backup: Backup, immediate_backup: bool) -> ClockStream<S> {
-//         let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
-//         let mut input = op_builder.new_input(self, Pipeline);
-//         let (mut output, clock) = op_builder.new_output();
-
-//         op_builder.build(move |init_caps| {
-//             // TODO: EagerNotificator is probably not the best tool here
-//             //       since the logic is the same, only the eager one is optional
-//             //       depending on a condition, so a slightly different notificator
-//             //       might avoid some code duplication and the Rc<RefCell<_>>
-//             let inbuffer = Rc::new(RefCell::new(InBuffer::<u64, PathBuf>::new()));
-//             let mut ncater = EagerNotificator::new(init_caps, ());
-
-//             // This logic is reused in both eager and closing logic, but only
-//             // if immediate snapshot is True in the eager one.
-//             // Takes the inbuffer, empties it and uploads all the paths in the stream.
-//             let upload = move |inbuffer: Rc<RefCell<InBuffer<u64, PathBuf>>>| {
-//                 Python::with_gil(|py| {
-//                     let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-//                     for epoch in epochs {
-//                         for path in inbuffer.borrow_mut().remove(&epoch).unwrap() {
-//                             backup
-//                                 .upload(
-//                                     py,
-//                                     path.clone(),
-//                                     path.file_name().unwrap().to_string_lossy().to_string(),
-//                                 )
-//                                 .unwrap();
-//                         }
-//                     }
-//                 });
-//             };
-
-//             move |input_frontiers| {
-//                 input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
-
-//                 ncater.for_each(
-//                     input_frontiers,
-//                     |_caps, ()| {
-//                         if immediate_backup {
-//                             upload(inbuffer.clone());
-//                         }
-//                     },
-//                     |caps, ()| {
-//                         // The inbuffer has been emptied already if immediate_snapshot
-//                         // is set to True, so we can upload unconditionally here.
-//                         let cap = &caps[0];
-//                         upload(inbuffer.clone());
-//                         output.activate().session(cap).give(());
-//                     },
-//                 )
-//             }
-//         });
-//         clock
-//     }
-// }
-
 pub(crate) trait BackupOp<S>
 where
     S: Scope,
@@ -941,15 +789,10 @@ where
         let (mut output, clock) = op_builder.new_output();
 
         op_builder.build(move |init_caps| {
-            // TODO: EagerNotificator is probably not the best tool here
-            //       since the logic is the same, only the eager one is optional
-            //       depending on a condition, so a slightly different notificator
-            //       might avoid some code duplication and the Rc<RefCell<_>>
             let inbuffer = Rc::new(RefCell::new(InBuffer::<u64, PathBuf>::new()));
             let mut ncater = EagerNotificator::new(init_caps, ());
 
-            // This logic is reused in both eager and closing logic, but only
-            // if immediate snapshot is True in the eager one.
+            // This logic is reused in both eager and closing logic.
             // Takes the inbuffer, empties it and uploads all the paths in the stream.
             let upload = move |inbuffer: Rc<RefCell<InBuffer<u64, PathBuf>>>| {
                 Python::with_gil(|py| {
@@ -977,8 +820,6 @@ where
                         upload(inbuffer.clone());
                     },
                     |caps, ()| {
-                        // The inbuffer has been emptied already if immediate_snapshot
-                        // is set to True, so we can upload unconditionally here.
                         let cap = &caps[0];
                         upload(inbuffer.clone());
                         output.activate().session(cap).give(());
@@ -1010,10 +851,6 @@ where
         let segments = immediate_segments.concatenate(vec![batch_segments]);
 
         op_builder.build(move |init_caps| {
-            // TODO: EagerNotificator is probably not the best tool here
-            //       since the logic is the same, only the eager one is optional
-            //       depending on a condition, so a slightly different notificator
-            //       might avoid some code duplication and the Rc<RefCell<_>>
             let inbuffer = Rc::new(RefCell::new(InBuffer::new()));
             let mut ncater = EagerNotificator::new(init_caps, ());
 

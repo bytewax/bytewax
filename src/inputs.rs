@@ -214,8 +214,8 @@ impl InputState {
                 assert!(
                     parts_list.contains(&state_key),
                     "State found for unknown key {} in the recovery store for {}. \
-                Known partitions: {}. \
-                Fixed partitions cannot change between executions, aborting.",
+                    Known partitions: {}. \
+                    Fixed partitions cannot change between executions, aborting.",
                     state_key,
                     s_id,
                     parts_list
@@ -736,13 +736,6 @@ pub(crate) enum BatchResult {
     Eof,
     Abort,
     Batch(Vec<PyObject>),
-}
-
-impl StatefulSourcePartition {
-    pub(crate) fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close");
-        Ok(())
-    }
 }
 
 /// Represents a `bytewax.inputs.DynamicInput` from Python.

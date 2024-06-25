@@ -1,9 +1,7 @@
 //! Definition of a Bytewax worker.
 
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
@@ -14,10 +12,9 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use timely::communication::Allocate;
-use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::Broadcast;
-use timely::dataflow::operators::Capability;
 use timely::dataflow::operators::Concatenate;
+use timely::dataflow::operators::Map;
 use timely::dataflow::operators::Probe;
 use timely::dataflow::operators::ToStream;
 use timely::dataflow::ProbeHandle;
@@ -26,7 +23,6 @@ use timely::dataflow::Stream;
 use timely::progress::Timestamp;
 use timely::worker::Worker as TimelyWorker;
 use tracing::instrument;
-use tracing::Instrument;
 
 use crate::dataflow::Dataflow;
 use crate::dataflow::Operator;
@@ -38,8 +34,6 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
-use crate::timely::AsWorkerExt;
-use crate::timely::FrontierEx;
 
 /// Bytewax worker.
 ///
@@ -124,12 +118,11 @@ where
     let mut local_state_store = None;
 
     // Now, if recovery is configured, initialize everything we need.
-
     // TODO: We need to decide if we can do a fast resume first.
     //       We CAN'T do a fast resume if:
     //       - The number of workers changed (state_store.worker_count vs current count)
     //       - Any of the workers can't access its own db (corrupted? volume gone?)
-    // Even if a fast_resume is possible, we still need to read frontier info from
+    // Even if a fast_resume is possible, we still need to read execution/frontier info from
     // the durable store, as we want a single source of truth, and we never write
     // frontier info to the local store.
     if let Some(rc) = recovery_config {
@@ -142,7 +135,6 @@ where
         // and get the max of them all to get the cluster's resume epoch.
         let worker_resume_epoch = lss.resume_from_epoch().0;
         let cluster_resume_epoch = Rc::new(RefCell::new(worker_resume_epoch));
-
         let probe = build_resume_epoch_dataflow(
             worker.worker,
             worker_resume_epoch,
@@ -155,11 +147,11 @@ where
 
         lss.update_resume_epoch(ResumeEpoch(*cluster_resume_epoch.borrow()));
 
+        // Set the variables for the production dataflow.
         Python::with_gil(|py| {
-            // Set the variables for the production dataflow.
             snapshot_mode = rc.borrow(py).snapshot_mode;
-            local_state_store = Some(lss)
-        })
+        });
+        local_state_store = Some(lss);
     }
 
     let state_store_cache = Rc::new(RefCell::new(StateStoreCache::new()));
@@ -188,6 +180,32 @@ where
     Ok(())
 }
 
+fn build_resume_epoch_dataflow<A>(
+    worker: &mut TimelyWorker<A>,
+    worker_resume_epoch: u64,
+    cluster_resume_epoch: Rc<RefCell<u64>>,
+) -> ProbeHandle<u64>
+where
+    A: Allocate,
+{
+    worker.dataflow(|scope| {
+        // Turn this worker's resume_epoch into an input stream.
+        vec![worker_resume_epoch]
+            .to_stream(scope)
+            // Broadcast it to all other workers.
+            .broadcast()
+            // Then change the max epoch in `cluster_resume_epoch` if needed.
+            .map(move |val| {
+                let current = *cluster_resume_epoch.borrow();
+                let max = val.max(current);
+                if max > current {
+                    *cluster_resume_epoch.borrow_mut() = max;
+                }
+                max
+            })
+            .probe()
+    })
+}
 struct StreamCache<S>(HashMap<StreamId, Stream<S, TdPyAny>>)
 where
     S: Scope;
@@ -246,50 +264,6 @@ where
             Ok(())
         }
     }
-}
-
-fn build_resume_epoch_dataflow<A>(
-    worker: &mut TimelyWorker<A>,
-    worker_resume_epoch: u64,
-    cluster_resume_epoch: Rc<RefCell<u64>>,
-) -> ProbeHandle<u64>
-where
-    A: Allocate,
-{
-    worker.dataflow(|scope| {
-        use timely::dataflow::operators::Operator;
-
-        // Turn this worker's resume_epoch into an input stream.
-        vec![worker_resume_epoch]
-            .to_stream(scope)
-            // And broadcast it to all other workers
-            .broadcast()
-            // Once each worker receives all the data, set `cluster_resume_epoch` to the max.
-            // TODO: This doesn't really need an output, but using `sink` I can't
-            //       probe the dataflow externally, so it would probably need its own
-            //       custom operator.
-            .unary_frontier(Pipeline, "get_max_epoch", |cap: Capability<u64>, _info| {
-                let mut maximum: u64 = 0;
-                let mut cap = Some(cap);
-                move |input, output| {
-                    input.for_each(|_cap, data| {
-                        if let Some(val) = data.iter().max() {
-                            if val > &maximum {
-                                maximum = *val;
-                            }
-                        }
-                    });
-                    if input.frontier().is_eof() {
-                        if let Some(cap) = cap.take() {
-                            let mut session = output.session(&cap);
-                            session.give(maximum);
-                            *cluster_resume_epoch.borrow_mut() = maximum;
-                        }
-                    }
-                }
-            })
-            .probe()
-    })
 }
 
 /// Turn a Bytewax dataflow into a Timely dataflow.
@@ -466,7 +440,6 @@ where
                                 step_id.clone(),
                                 local_state_store.clone(),
                                 state_store_cache.clone(),
-                                // TODO: Avoid passing sink to partitioned_output
                                 sink.clone(),
                                 snapshot_mode,
                             )?;

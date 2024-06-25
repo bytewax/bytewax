@@ -1,7 +1,7 @@
 """Helper tools for testing dataflows."""
 
 import asyncio
-import glob
+import os
 import shutil
 import sys
 from dataclasses import dataclass
@@ -243,17 +243,19 @@ class TestingSink(DynamicSink[X]):
         return _ListSinkPartition(self._ls)
 
 
-class TestingBackup(Backup):
-    """Backup class that can be used for testing purposes.
+class FileSystemBackup(Backup):
+    """Default Backup class, mainly intended for local execution and testing purposes.
 
-    It moves files to and from a local directory.
+    It moves files to and from the specified directories.
     """
 
     def __init__(self, path: Union[str, Path]):
         """Init and check that the directory exists."""
         if isinstance(path, str):
             self.path = Path(path)
-        assert self.path.exists(), f"Local backup directory {self.path} doesn't exists!"
+        else:
+            self.path = path
+        assert self.path.exists(), f"Local state directory {self.path} doesn't exists!"
 
     @override
     def list_keys(self) -> List[str]:
@@ -263,11 +265,17 @@ class TestingBackup(Backup):
     def upload(self, from_local: Union[str, Path], to_key: str):
         if isinstance(from_local, str):
             from_local = Path(from_local)
+        assert from_local.exists(), f"Trying to upload non existing file: {from_local}!"
         dest = self.path / to_key
         shutil.move(from_local, dest)
 
     @override
     def download(self, from_key: str, to_local: Union[str, Path]):
+        if isinstance(to_local, str):
+            to_local = Path(to_local)
+        assert (
+            to_local.parent.exists()
+        ), f"Trying to download to a non existing directory: {to_local}!"
         source = self.path / from_key
         shutil.move(source, to_local)
 
@@ -276,9 +284,11 @@ class TestingBackup(Backup):
         shutil.rmtree(self.path / key)
 
 
-def testing_backup(path="/tmp/bytewax/durable"):
+def testing_backup(path=None):
     """Return an instanced TestingBackup object."""
-    return TestingBackup(path)
+    if path is None:
+        path = Path(os.getcwd()) / "backup"
+    return FileSystemBackup(path)
 
 
 def poll_next_batch(part, timeout=timedelta(seconds=5)):

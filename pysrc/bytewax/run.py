@@ -214,10 +214,11 @@ def _create_arg_parser():
         "Recovery", """See the `bytewax.recovery` module docstring for more info."""
     )
     recovery.add_argument(
-        "-r",
-        "--recovery-directory",
+        "-d",
+        "--local-state-dir",
         type=Path,
-        help="""Local file system directory to use to save recovery partitions""",
+        help="""Local file system directory to use to save recovery data.
+        Defaults to the same dir where the execution script is launched from.""",
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_DIRECTORY",
     )
@@ -316,7 +317,7 @@ def _parse_args():
 
     # If recovery is configured, make sure that the snapshot_interval and
     # backup_interval are set.
-    if args.recovery_directory is not None and args.snapshot_interval is None:
+    if args.local_state_dir is not None and args.snapshot_interval is None:
         arg_parser.error(
             "when running with recovery, the `-s/--snapshot_interval` "
             "value must be set. For more information please see "
@@ -330,7 +331,7 @@ if __name__ == "__main__":
     kwargs = vars(_parse_args())
 
     snapshot_interval = kwargs.pop("snapshot_interval")
-    recovery_directory = kwargs.pop("recovery_directory")
+    local_state_dir = kwargs.pop("local_state_dir")
     backup_import_str = kwargs.pop("backup")
     snapshot_mode = kwargs.pop("snapshot_mode")
     if snapshot_mode == "immediate":
@@ -343,14 +344,14 @@ if __name__ == "__main__":
 
     # Recovery config
     kwargs["recovery_config"] = None
-    if recovery_directory is not None:
+    if local_state_dir is not None:
         backup = None
         if backup_import_str is not None:
             mod_str, attrs_str = _prepare_import(backup_import_str, "backup")
             backup = _locate_subclass(mod_str, attrs_str, Backup)
         kwargs["epoch_interval"] = snapshot_interval
         kwargs["recovery_config"] = RecoveryConfig(
-            recovery_directory,
+            local_state_dir,
             backup=backup,
             snapshot_mode=snapshot_mode,
         )

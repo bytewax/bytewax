@@ -191,8 +191,8 @@ impl OutputState {
             assert!(
                 parts_list.contains(&state_key),
                 "State found for unknown key {} in the recovery store for {}. \
-                    Known partitions: {}. \
-                    Fixed partitions cannot change between executions, aborting.",
+                Known partitions: {}. \
+                Fixed partitions cannot change between executions, aborting.",
                 state_key,
                 &s_id,
                 parts_list
@@ -462,10 +462,15 @@ where
                                     );
                                 }
 
+                                let mut snaps = with_timer!(
+                                    snapshot_histogram,
+                                    labels,
+                                    state.immediate_snapshots(py, *epoch)
+                                );
                                 immediate_snaps_output
                                     .activate()
                                     .session(snaps_cap)
-                                    .give_vec(&mut state.immediate_snapshots(py, *epoch));
+                                    .give_vec(&mut snaps);
                             });
                         };
                     },
@@ -475,12 +480,17 @@ where
                         let epoch = clock_cap.time();
 
                         clock_output.activate().session(clock_cap).give(());
-                        Python::with_gil(|py| {
-                            batch_snaps_output
-                                .activate()
-                                .session(snaps_cap)
-                                .give_vec(&mut state.batch_snapshots(py, *epoch));
+                        let mut snaps = Python::with_gil(|py| {
+                            with_timer!(
+                                snapshot_histogram,
+                                labels,
+                                state.batch_snapshots(py, *epoch)
+                            )
                         });
+                        batch_snaps_output
+                            .activate()
+                            .session(snaps_cap)
+                            .give_vec(&mut snaps);
                     },
                 );
             }

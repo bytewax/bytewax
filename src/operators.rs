@@ -509,42 +509,6 @@ impl StatefulBatchLogic {
 
         Ok((emit, is_complete))
     }
-
-    fn on_batch<'py>(
-        &'py self,
-        py: Python<'py>,
-        items: Vec<PyObject>,
-    ) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self
-            .0
-            .bind(py)
-            .call_method1(intern!(py, "on_batch"), (items,))?;
-        Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
-    }
-
-    fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self.0.bind(py).call_method0(intern!(py, "on_notify"))?;
-        Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
-    }
-
-    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let res = self.0.bind(py).call_method0("on_eof")?;
-        Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
-    }
-
-    fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
-        let res = self.0.bind(py).call_method0(intern!(py, "notify_at"))?;
-        res.extract().reraise_with(|| {
-            format!(
-                "did not return a `datetime`; got a `{}` instead",
-                unwrap_any!(res.get_type().name())
-            )
-        })
-    }
-
-    pub(crate) fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
-        Ok(self.0.call_method0(py, intern!(py, "snapshot"))?.into())
-    }
 }
 
 pub(crate) struct StatefulBatchState {
@@ -1099,7 +1063,11 @@ where
 
                         // Snapshot and output state changes.
                         let is_epoch_closed = input_frontiers.is_closed(&epoch);
-                        let mut snapshots = state.snapshots(py, epoch, is_epoch_closed);
+                        let mut snapshots = with_timer!(
+                            snapshot_histogram,
+                            labels,
+                            state.snapshots(py, epoch, is_epoch_closed)
+                        );
                         if !snapshots.is_empty() {
                             let mut snaps_session = snaps_handle.session(&state_update_cap);
                             snaps_session.give_vec(&mut snapshots);
