@@ -29,6 +29,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
+use timely::dataflow::operators::Concat;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -68,6 +69,7 @@ impl Backup {
     }
 
     pub(crate) fn upload(&self, py: Python, from_local: PathBuf, to_key: String) -> PyResult<()> {
+        // println!("Uploading {from_local:?} to {to_key}");
         self.0
             .call_method_bound(py, intern!(py, "upload"), (from_local, to_key), None)?;
         Ok(())
@@ -246,6 +248,7 @@ impl LocalStateStore {
                 }
             };
             tracing::info!(
+                // println!(
                 "Resuming from execution: {}, epoch {}",
                 resume_from.execution(),
                 resume_from.epoch()
@@ -297,6 +300,10 @@ impl LocalStateStore {
         py: Python,
         step_id: &StepId,
     ) -> PyResult<Vec<(StateKey, Option<PyObject>)>> {
+        // println!(
+        //     "Getting snapshots for epoch <= {} for {}",
+        //     self.resume_from.1 .0, step_id.0
+        // );
         // Get all the snapshots in the store for this specific step_id,
         // and deserialize them.
         let pickle = py.import_bound("pickle")?;
@@ -363,6 +370,7 @@ impl LocalStateStore {
     }
 
     pub(crate) fn write_frontier_segment(&mut self, epoch: u64) -> PyResult<PathBuf> {
+        // println!("Writing frontier for epoch {epoch}");
         let file_name = format!(
             "frontier:ex-{}:epoch-{}:_:worker-{}.sqlite3",
             self.resume_from.execution(),
@@ -666,7 +674,7 @@ impl SnapshotMode {
 /// :arg backup: Class to use to save recovery files to a durable
 ///     storage like amazon's S3.
 ///
-/// :type backup: typing.Optional[bytewax.backup.Backup]
+/// :type backup: bytewax.backup.Backup
 ///
 /// :arg snapshot_mode: Whether to take state snapshots at the end
 ///     of the epoch, or as soon as a change happens. Defaults
@@ -687,29 +695,8 @@ pub(crate) struct RecoveryConfig {
 #[pymethods]
 impl RecoveryConfig {
     #[new]
-    fn new(
-        db_dir: PathBuf,
-        backup: Option<Backup>,
-        snapshot_mode: Option<SnapshotMode>,
-    ) -> PyResult<Self> {
+    fn new(db_dir: PathBuf, backup: Backup, snapshot_mode: Option<SnapshotMode>) -> PyResult<Self> {
         let snapshot_mode = snapshot_mode.unwrap_or(SnapshotMode::Immediate);
-
-        // Manually unpack so we can propagate the error
-        // if default initialization fails.
-        let backup = if let Some(backup) = backup {
-            backup
-        } else {
-            Python::with_gil(|py| {
-                py.import_bound("bytewax.backup")
-                    .reraise("Can't find backup module")?
-                    .getattr("NoopBackup")
-                    .reraise("Can't find NoopBackup")?
-                    .call0()
-                    .reraise("Error initializing NoopBackup")?
-                    .extract()
-            })?
-        };
-
         Ok(Self {
             db_dir,
             snapshot_mode,
@@ -817,9 +804,11 @@ where
                 ncater.for_each(
                     input_frontiers,
                     |_caps, ()| {
+                        // println!("Early uploading backup");
                         upload(inbuffer.clone());
                     },
                     |caps, ()| {
+                        // println!("Closing uploading backup");
                         let cap = &caps[0];
                         upload(inbuffer.clone());
                         output.activate().session(cap).give(());
@@ -831,14 +820,14 @@ where
     }
 }
 
-pub(crate) trait RealCompactorOp<S>
+pub(crate) trait CompactorOp<S>
 where
     S: Scope,
 {
     fn compactor(&self, local_state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
 }
 
-impl<S> RealCompactorOp<S> for Stream<S, SerializedSnapshot>
+impl<S> CompactorOp<S> for Stream<S, SerializedSnapshot>
 where
     S: Scope<Timestamp = u64>,
 {
@@ -867,6 +856,7 @@ where
 
                         let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
 
+                        // println!("Snapshot compactor early epochs: {epochs:?}");
                         for epoch in epochs {
                             let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
                             let path = local_state_store
@@ -884,6 +874,7 @@ where
 
                         let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
 
+                        // println!("Snapshot compactor closing epochs: {epochs:?}");
                         for epoch in epochs {
                             let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
                             let path = local_state_store
@@ -900,34 +891,53 @@ where
     }
 }
 
-impl<S> RealCompactorOp<S> for ClockStream<S>
+impl<S> CompactorOp<S> for ClockStream<S>
 where
     S: Scope<Timestamp = u64>,
 {
     fn compactor(&self, local_state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
-        let (mut segments_output, segments) = op_builder.new_output();
+        let (mut early_segments_output, early_segments) = op_builder.new_output();
+        let (mut closing_segments_output, closing_segments) = op_builder.new_output();
+        let segments = early_segments.concatenate(vec![closing_segments]);
 
         op_builder.build(move |init_caps| {
-            let mut inbuffer = InBuffer::new();
+            let inbuffer = Rc::new(RefCell::new(InBuffer::new()));
             let mut ncater = EagerNotificator::new(init_caps, ());
 
             move |input_frontiers| {
-                input.buffer_notify(&mut inbuffer, &mut ncater);
+                input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
 
                 ncater.for_each(
                     input_frontiers,
-                    |_caps, ()| {},
                     |caps, ()| {
                         let clock_cap = &caps[0];
 
-                        let mut handle = segments_output.activate();
+                        let mut handle = early_segments_output.activate();
                         let mut session = handle.session(clock_cap);
 
-                        let epochs = inbuffer.epochs().collect::<Vec<_>>();
+                        let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+                        // println!("Frontier compactor epochs: {epochs:?}");
                         for epoch in epochs {
-                            inbuffer.remove(&epoch);
+                            inbuffer.borrow_mut().remove(&epoch);
+                            let path = local_state_store
+                                .borrow_mut()
+                                .write_frontier_segment(epoch)
+                                .unwrap();
+                            session.give(path);
+                        }
+                    },
+                    |caps, ()| {
+                        let clock_cap = &caps[1];
+
+                        let mut handle = closing_segments_output.activate();
+                        let mut session = handle.session(clock_cap);
+
+                        let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
+                        // println!("Frontier compactor epochs: {epochs:?}");
+                        for epoch in epochs {
+                            inbuffer.borrow_mut().remove(&epoch);
                             let path = local_state_store
                                 .borrow_mut()
                                 .write_frontier_segment(epoch)

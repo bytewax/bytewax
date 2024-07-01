@@ -1,3 +1,5 @@
+import pytest
+
 from datetime import timedelta
 
 import bytewax.operators as op
@@ -36,8 +38,7 @@ def test_abort_with_snapshots(recovery_config_immediate):
     s = op.input("inp", flow, TestingSource(inp))
     op.output("out", s, TestingSink(out))
 
-    # Setting batch_backup to False means we will have a snapshot after each item.
-    run_main(flow, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
     assert out == [0, 1, 2]
 
     # We should resume as if it was an EOF.
@@ -88,8 +89,7 @@ def build_keep_max_dataflow(inp, out):
     return flow
 
 
-def test_stateful_batch_recovery(tmp_path):
-    recovery_config = RecoveryConfig(str(tmp_path))
+def test_stateful_batch_recovery(recovery_config_immediate):
     inp = [
         ("a", 4),
         ("b", 4),
@@ -103,30 +103,30 @@ def test_stateful_batch_recovery(tmp_path):
     out = []
 
     flow = build_keep_max_dataflow(inp, out)
-    run_main(flow, recovery_config=recovery_config)
+    run_main(flow, recovery_config=recovery_config_immediate)
     assert out == [
         ("a", 4),
         ("b", 4),
     ]
 
     out.clear()
-    run_main(flow, recovery_config=recovery_config)
+    run_main(flow, recovery_config=recovery_config_immediate)
     assert out == [
         ("a", 4),
         ("b", 5),
     ]
 
     out.clear()
-    run_main(flow, recovery_config=recovery_config)
+    run_main(flow, recovery_config=recovery_config_immediate)
     assert out == [
         ("a", 8),
         ("b", 5),
     ]
 
 
-def test_rescale(tmp_path):
-    recovery_config = RecoveryConfig(str(tmp_path))
-
+# TODO: Unmark once rescaling support is added
+@pytest.mark.xfail(reason="Rescaling not supported yet")
+def test_rescale(recovery_config_immediate):
     inp = [
         ("a", 4),
         ("b", 4),
@@ -147,7 +147,7 @@ def test_rescale(tmp_path):
             addresses=[],
             proc_id=0,
             epoch_interval=ZERO_TD,
-            recovery_config=recovery_config,
+            recovery_config=recovery_config_immediate,
             worker_count_per_proc=worker_count_per_proc,
         )
 

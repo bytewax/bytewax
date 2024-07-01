@@ -244,7 +244,13 @@ impl InputState {
         if let Some(lss) = this.local_state_store.as_ref() {
             let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
             for (state_key, state) in snaps {
-                this.insert(py, state_key, state)
+                if state.is_some() {
+                    let s = state.as_ref().unwrap().call_method0(py, "__str__").unwrap();
+                    // println!("Init: read state for {state_key}: {s}");
+                    this.insert(py, state_key, state);
+                } else {
+                    // println!("Init: read state for {state_key}: None");
+                }
             }
         }
 
@@ -278,6 +284,8 @@ impl InputState {
                             self.step_id, key
                         )
                     })?;
+                let s = snap.call_method0(py, "__str__").unwrap();
+                // println!("input serializing: {s}");
 
                 let pickle = py.import_bound(intern!(py, "pickle"))?;
                 let ser_snap = pickle
@@ -306,16 +314,19 @@ impl InputState {
                 .snap(py, key.clone(), epoch)
                 .reraise("Error snapshotting PartitionedInput")
                 .unwrap();
-            if let Some(lss) = self.local_state_store.as_ref() {
-                lss.borrow_mut().write_snapshots(vec![snap.clone()]);
-            }
+            // println!("Saving snapshot: {snap:?}");
             let cap = self.parts.get(&key).unwrap().snap_cap.clone();
             res.push((cap, snap));
+        }
+        if let Some(lss) = self.local_state_store.as_ref() {
+            lss.borrow_mut()
+                .write_snapshots(res.iter().cloned().map(|(_, snap)| snap).collect());
         }
         res
     }
 
     pub fn advance_epoch(&mut self, key: &StateKey, next_epoch: u64) {
+        // println!("Advance to epoch {next_epoch}");
         let part = self.parts.get_mut(key).unwrap();
         part.downstream_cap.downgrade(&next_epoch);
         part.snap_cap.downgrade(&next_epoch);
@@ -354,12 +365,13 @@ impl InputState {
     }
 
     pub fn awake_due(&mut self, key: &StateKey) -> bool {
-        let res = self.parts.get(key).unwrap().awake_due(self.current_time);
-        // TODO: Explain why we do this here
-        if self.snapshot_mode.immediate() {
+        self.parts.get(key).unwrap().awake_due(self.current_time)
+    }
+
+    pub fn snapshot_if_necessary(&mut self, key: StateKey, current_epoch: u64, is_eof: bool) {
+        if self.snapshot_mode.immediate() | is_eof | (self.epoch_for(&key) > current_epoch) {
             self.snaps.push(key.clone())
         }
-        res
     }
 
     pub fn populate_parts(
@@ -392,7 +404,6 @@ impl InputState {
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
         let logic = (self.builder)(py, state_key.clone(), state).unwrap();
-        self.snaps.push(state_key.clone());
         self.state_store_cache
             .borrow_mut()
             .insert(&self.step_id, state_key, logic.0);
@@ -659,12 +670,23 @@ impl FixedPartitionedSource {
                                         let mut downstream_session =
                                             downstream_handle.session(downstream_cap);
                                         item_out_count.add(batch_len as u64, &labels);
-                                        let mut batch =
+                                        let mut batch: Vec<_> =
                                             batch.into_iter().map(TdPyAny::from).collect();
+                                        let s = batch
+                                            .iter()
+                                            .map(|item| {
+                                                item.bind(py)
+                                                    .call_method0("__str__")
+                                                    .unwrap()
+                                                    .to_string()
+                                            })
+                                            .collect::<Vec<_>>();
+                                        // println!("Received for {key}: {s:?}");
                                         downstream_session.give_vec(&mut batch);
                                     }
                                     BatchResult::Eof => {
                                         eof = true;
+                                        // println!("EOF");
                                         tracing::debug!("EOFd");
                                     }
                                     BatchResult::Abort => {
@@ -686,6 +708,7 @@ impl FixedPartitionedSource {
                             state.advance_epoch(&key, next_epoch);
                             tracing::debug!("Advanced to epoch {next_epoch}");
                         }
+                        state.snapshot_if_necessary(key, epoch, eof);
                     }
                 }
 

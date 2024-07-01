@@ -32,7 +32,7 @@ class RecoveryConfig:
     :arg backup: Class to use to save recovery files to a durable
         storage like amazon's S3.
 
-    :type backup: typing.Optional[bytewax.backup.Backup]
+    :type backup: bytewax.backup.Backup
 
     :arg snapshot_mode: Whether to take state snapshots at the end
         of the epoch, or as soon as a change happens. Defaults
@@ -43,7 +43,7 @@ class RecoveryConfig:
     """
     ...
 
-    def __init__(self, db_dir, backup=None, snapshot_mode=None):
+    def __init__(self, db_dir, backup, snapshot_mode=None):
         ...
 
     def __new__(cls, *args, **kwargs):

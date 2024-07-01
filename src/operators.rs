@@ -563,7 +563,17 @@ impl StatefulBatchState {
         if let Some(lss) = this.local_state_store.as_ref() {
             let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
             for (state_key, state) in snaps {
-                this.insert(py, state_key, state)
+                if state.is_some() {
+                    let s = state.as_ref().unwrap().call_method0(py, "__str__").unwrap();
+                    // println!("Init: read state for {state_key}: {s}");
+                    this.insert(py, state_key.clone(), state);
+                    if let Some(notify_at) = this.notify_at(py, &state_key)? {
+                        this.schedule(state_key, notify_at);
+                    }
+                } else {
+                    // println!("Init: read state for {state_key}: None");
+                    // this.remove(&state_key);
+                }
             }
         }
         Ok(this)
@@ -748,6 +758,8 @@ impl StatefulBatchState {
                             self.step_id, key
                         )
                     })?;
+                let s = snap.call_method0(py, "__str__").unwrap();
+                // println!("stateful_batch snapshotting: {s}");
 
                 let pickle = py.import_bound(intern!(py, "pickle"))?;
                 let ser_snap = pickle
@@ -782,10 +794,11 @@ impl StatefulBatchState {
                     .snap(py, key, epoch)
                     .reraise("Error snapshotting PartitionedInput")
                     .unwrap();
-                if let Some(lss) = self.local_state_store.as_ref() {
-                    lss.borrow_mut().write_snapshots(vec![snap.clone()]);
-                }
+                // println!("Saving snapshot: {snap:?}");
                 res.push(snap);
+            }
+            if let Some(lss) = self.local_state_store.as_ref() {
+                lss.borrow_mut().write_snapshots(res.clone());
             }
         }
         res
@@ -1038,8 +1051,6 @@ where
 
                     // Then if EOF, call all logic that still exists.
                     if input_frontiers.is_eof() {
-                        let mut discarded_keys = Vec::new();
-
                         Python::with_gil(|py| {
                             for key in state.keys() {
                                 let (output, is_complete) = with_timer!(
@@ -1056,15 +1067,11 @@ where
                                     kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
                                 }
 
-                                // Keep track of the fact we need to discard this.
-                                // We'll do this later on for all the keys at once.
+                                // Discard and unschedule if needed.
                                 if let IsComplete::Discard = is_complete {
-                                    discarded_keys.push(key.clone());
+                                    // println!("EOF: discarding key {key}");
+                                    state.remove(&key);
                                 }
-                            }
-
-                            for key in discarded_keys {
-                                state.remove(&key);
                             }
                         });
                     }
@@ -1111,6 +1118,7 @@ where
         });
 
         let downstream = kv_downstream.wrap_key();
+
         Ok((downstream, snaps))
     }
 }

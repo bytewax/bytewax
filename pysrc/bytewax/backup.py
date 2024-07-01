@@ -15,9 +15,11 @@ Bytewax makes some assumptions about the behavior of this storage:
 """
 
 import logging
+import os
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List
+from typing import List, Union
 
 from typing_extensions import override
 
@@ -51,24 +53,54 @@ class Backup(ABC):
         ...
 
 
-class NoopBackup(Backup):
-    """NoopBackup.
+class FileSystemBackup(Backup):
+    """Default Backup class, mainly intended for local execution and testing purposes.
 
-    This class is here just to be used as a default.
+    It moves files to and from the specified directories.
     """
+
+    def __init__(self, path: Union[str, Path]):
+        """Init and check that the directory exists."""
+        if isinstance(path, str):
+            self.path = Path(path)
+        else:
+            self.path = path
+        assert self.path.exists(), f"Local state directory {self.path} doesn't exists!"
 
     @override
     def list_keys(self) -> List[str]:
-        return []
+        return [path.name for path in self.path.iterdir()]
 
     @override
-    def upload(self, from_local: Path, to_key: str) -> None:
-        pass
+    def upload(self, from_local: Union[str, Path], to_key: str) -> None:
+        if isinstance(from_local, str):
+            from_local = Path(from_local)
+        assert from_local.exists(), f"Trying to upload non existing file: {from_local}!"
+        dest = self.path / to_key
+        shutil.move(from_local, dest)
 
     @override
-    def download(self, from_key: str, to_local: Path) -> None:
-        pass
+    def download(self, from_key: str, to_local: Union[str, Path]) -> None:
+        if isinstance(to_local, str):
+            to_local = Path(to_local)
+        assert (
+            to_local.parent.exists()
+        ), f"Trying to download to a non existing directory: {to_local}!"
+        source = self.path / from_key
+        shutil.move(source, to_local)
 
     @override
     def delete(self, key: str) -> None:
-        pass
+        shutil.rmtree(self.path / key)
+
+
+def file_system_backup(path: Union[str, Path, None] = None) -> FileSystemBackup:
+    """Return an instanced FileSystemBackup object.
+
+    Defaults to use a directory named `backup` in the same
+    directory where the script is executed from ('os.getcwd()').
+    The default directory still needs to be manually created.
+    """
+    if path is None:
+        path = Path(os.getcwd()) / "backup"
+    return FileSystemBackup(path)

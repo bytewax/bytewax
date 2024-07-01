@@ -216,10 +216,23 @@ impl OutputState {
         if let Some(lss) = this.local_state_store.as_ref() {
             let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
             for (state_key, state) in snaps {
-                this.insert(py, state_key, state)
+                if state.is_some() {
+                    this.insert(py, state_key, state)
+                } else {
+                    this.remove(py, &state_key);
+                }
             }
         }
         Ok(this)
+    }
+
+    pub fn remove(&mut self, py: Python, key: &StateKey) {
+        let logic = self
+            .state_store_cache
+            .borrow_mut()
+            .remove(&self.step_id, key)
+            .unwrap();
+        logic.call_method0(py, "close").unwrap();
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {

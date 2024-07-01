@@ -538,11 +538,6 @@ where
                 .compactor(local_state_store.clone())
                 // Upload the segments to the durable backup
                 .backup(local_state_store.borrow().backup())
-                // NOT ANYMORE! We want a single source of truth here, so avoid
-                // writing into the local store. On resume, always get this info
-                // from the durable store.
-                // // FrontierSegmentCompactor: finally save the cluster frontier locally.
-                // .compactor(local_state_store.clone(), CompactorMode::Local)
                 .probe_with(&mut probe);
         } else {
             scope.concatenate(outputs).probe_with(&mut probe);

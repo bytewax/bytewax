@@ -234,10 +234,12 @@ def _create_arg_parser():
     recovery.add_argument(
         "--backup",
         type=str,
-        help="Backup import string in the format "
-        "<module_name>[:<backup_variable_or_factory>] "
-        "Example: src.dataflow or src.dataflow:backup_object or "
-        "src.dataflow:get_backup('string_argument')",
+        help="""
+        Backup import string in the format
+        <module_name>[:<backup_variable_or_factory>]
+        Example: src.dataflow or src.dataflow:backup_object or
+        "bytewax.backup.file_system_backup('/tmp/bytewax/backup')"
+        """,
     )
     recovery.add_argument(
         "-s",
