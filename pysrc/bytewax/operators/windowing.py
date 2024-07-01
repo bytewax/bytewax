@@ -1207,8 +1207,8 @@ class WindowOut(Generic[V, W_co]):
 
     Emitted once when that window closes. Not emitted for original
     windows that are merged into another window. The target window's
-    {py:obj}{py:obj}`~bytewax.operators.windowing.WindowMetadata` will
-    have the original window IDs in
+    {py:obj}`~bytewax.operators.windowing.WindowMetadata` will have
+    the original window IDs in
     {py:obj}`~bytewax.operators.windowing.WindowMetadata.merged_ids`.
 
     Sub-keyed by window ID.
