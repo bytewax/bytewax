@@ -17,7 +17,7 @@ This tutorial will teach you how to use Bytewax to detect and calculate the Clic
 
 ## Introduction and Problem Statement
 
-One of the most critical metrics in evaluating the effectiveness of online platforms, particularly search engines, is the Click-Through Rate (CTR). The CTR is a measure of how frequently users engage with search results or advertisements, making it an indispensable metric for digital marketers, web developers, and data analysts.
+A simple, but useful metric in evaluating the effectiveness of online platforms, particularly search engines, is **click-through rate (CTR)**. The CTR is the number of clicks on a search result or advertisement, divided by the total number of searches or views. This gives you a rough sense of the effectiveness of your search results.
 
 This relevance of CTR extends to any enterprise aiming to understand user behavior, refine content relevancy, and ultimately, increase the profitability of online activities. As such, efficiently calculating and analyzing CTR is not only essential for enhancing user experience but also for driving strategic business decisions. The challenge, however, lies in accurately aggregating and processing streaming data to generate timely and actionable insights.
 
@@ -32,9 +32,6 @@ Our focus on developing a dataflow using Bytewax—an open-source Python framewo
 - Product Managers: Who oversee digital platforms and are responsible for increasing user engagement and retention through data-driven methodologies.
 
 ## Strategy and Assumptions
-
-In this tutorial, we will demonstrate how to build a dataflow using Bytewax to process streaming data from a hypothetical search engine. The dataflow will be designed to calculate the Click-Through Rate (CTR) for each search session, providing a comprehensive overview of user engagement with search results.
-
 The key steps involved in this process include:
 
 - Defining a data model/schema for incoming events.
@@ -49,7 +46,7 @@ The key steps involved in this process include:
 - Searches are per-user, so we need to divvy up events by user.
 - Searches don't span user sessions, so we should calculate user sessions first.
 - Sessions without a search shouldn't contribute.
-- Calculate one metric: **click through rate** (or **CTR**), if a user clicked on any result in a search.
+- Calculate one metric: CTR, if a user clicked on any result in a search.
 ## Imports and Setup
 
 Before we begin, let's import the necessary modules and set up the environment for building the dataflow.
@@ -58,12 +55,15 @@ Complete installation - we recommend using a virtual environment to manage your 
 
 ```{code-block} console
 :substitutions:
-$ pip install bytewax==|version|
+$ python -m venv venv
+$ ./venv/bin/activate
+(venv) $ pip install bytewax==|version|
 ```
 
 Now, let's import the required modules and set up the environment for building the dataflow.
 
 ```{literalinclude} dataflow.py
+:caption: dataflow.py
 :language: python
 :start-after: start-imports
 :end-before: end-imports
@@ -72,7 +72,7 @@ Now, let's import the required modules and set up the environment for building t
 
 ## Creating our Dataflow
 
-A dataflow is the unit of work in Bytewax. Dataflows are data-parallel directed acyclic graphs that are made up of processing steps. Each step in the dataflow is an operator that processes data in some way. In this example, we will create a dataflow to process the incoming event stream and calculate the Click-Through Rate (CTR) for each search session.
+A dataflow is the deployable unit in Bytewax. Dataflows are data-parallel directed acyclic graphs that are made up of processing steps. Each step in the dataflow is an operator that processes data in some way.
 
 We can initialize the dataflow as follows:
 
@@ -84,10 +84,6 @@ We can initialize the dataflow as follows:
 ```
 
 ## Data Model
-
-In this example, we will define a data model for the incoming events, generate input data to simulate user interactions, and implement logic functions to calculate the Click-Through Rate (CTR) for each search session. We will then create a dataflow to process the incoming event stream and execute it to generate actionable insights.
-
-
 Let's start by defining a data model/schema for our incoming events. We'll make model classes for all the relevant events we'd want to monitor.
 
 ```{literalinclude} dataflow.py
@@ -99,7 +95,7 @@ Let's start by defining a data model/schema for our incoming events. We'll make 
 
 In a production system, these might come from external schema or be auto generated.
 
-Once the data model is defined, we can move on to generating input data to simulate user interactions. This will allow us to test our dataflow and logic functions before deploying them in a live environment. Let's create 2 users and simulate their click activity as follows:
+Once the data model is defined, we can move on to generating input data to simulate user interactions. This will allow us to test our dataflow and logic functions before deploying them in a live environment. Let's create two users and simulate their click activity as follows:
 
 ```{literalinclude} dataflow.py
 :language: python
@@ -146,7 +142,7 @@ All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which 
 
 We will now turn our attention to windowing the data. In a dataflow pipeline, the role of collecting windowed data, particularly after mapping user events, is crucial for segmenting the continuous stream of events into manageable, discrete chunks based on time or event characteristics. This step enables the aggregation and analysis of events within specific time frames or sessions, which is essential for understanding patterns, behaviors, and trends over time.
 
-After user events are mapped, typically transforming each event into a tuple of (user_id, event_data), the next step is to group these events into windows. In this example, we will use a {py:obj}`~bytewax.operators.windowing.SessionWindower` to group events by user sessions. We will also use an {py:obj}`~bytewax.operators.windowing.EventClock` to manage the timing and order of events as they are processed through the dataflow.
+After user events are mapped, typically transforming each event into a tuple of `(user_id, event_data)`, the next step is to group these events into windows. In this example, we will use a {py:obj}`~bytewax.operators.windowing.SessionWindower` to group events by user sessions. We will also use an {py:obj}`~bytewax.operators.windowing.EventClock` to manage the timing and order of events as they are processed through the dataflow.
 
 
 
