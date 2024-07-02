@@ -13,7 +13,6 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Concatenate;
@@ -733,42 +732,6 @@ impl StatefulBatchState {
         StatefulBatchLogic::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    pub fn snap(&self, py: Python, key: StateKey, epoch: u64) -> PyResult<SerializedSnapshot> {
-        let ssc = self.state_store_cache.borrow();
-        let ser_change = ssc
-            .get(&self.step_id, &key)
-            // It's ok if there's no logic, because it might have been discarded
-            // due to one of the `on_*` methods returning `IsComplete::Discard`.
-            .map(|logic| -> PyResult<Vec<u8>> {
-                let snap = logic
-                    .call_method0(py, intern!(py, "snapshot"))
-                    .reraise_with(|| {
-                        format!(
-                            "error calling `snapshot` in {} for key {}",
-                            self.step_id, key
-                        )
-                    })?;
-
-                let pickle = py.import_bound(intern!(py, "pickle"))?;
-                let ser_snap = pickle
-                    .call_method1(intern!(py, "dumps"), (snap.bind(py),))
-                    .reraise("Error serializing snapshot")?
-                    .downcast::<PyBytes>()
-                    .unwrap()
-                    .as_bytes()
-                    .to_vec();
-                Ok(ser_snap)
-            })
-            .transpose()?;
-
-        Ok(SerializedSnapshot::new(
-            self.step_id.clone(),
-            key,
-            epoch,
-            ser_change,
-        ))
-    }
-
     fn snapshots(
         &mut self,
         py: Python,
@@ -780,7 +743,9 @@ impl StatefulBatchState {
             if lss.borrow().snapshot_mode().immediate() || is_epoch_closed {
                 for key in std::mem::take(&mut self.awoken_keys_this_epoch_buffer) {
                     let snap = self
-                        .snap(py, key, epoch)
+                        .state_store_cache
+                        .borrow()
+                        .snap(py, self.step_id.clone(), key, epoch)
                         .reraise("Error snapshotting PartitionedInput")
                         .unwrap();
                     res.push(snap);
@@ -1055,7 +1020,6 @@ where
 
                                 // Discard and unschedule if needed.
                                 if let IsComplete::Discard = is_complete {
-                                    // println!("EOF: discarding key {key}");
                                     state.remove(&key);
                                 }
                             }

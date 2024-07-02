@@ -12,7 +12,6 @@ use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Concatenate;
@@ -263,64 +262,22 @@ impl OutputState {
         Ok(())
     }
 
-    pub fn snap(&self, py: Python, key: StateKey, epoch: u64) -> PyResult<SerializedSnapshot> {
-        let ssc = self.state_store_cache.borrow();
-        let ser_change = ssc
-            .get(&self.step_id, &key)
-            // It's ok if there's no logic, because it might have been discarded
-            // due to one of the `on_*` methods returning `IsComplete::Discard`.
-            .map(|logic| -> PyResult<Vec<u8>> {
-                let snap = logic
-                    .call_method0(py, intern!(py, "snapshot"))
-                    .reraise_with(|| {
-                        format!(
-                            "error calling `snapshot` in {} for key {}",
-                            self.step_id, key
-                        )
-                    })?;
-
-                let pickle = py.import_bound(intern!(py, "pickle"))?;
-                let ser_snap = pickle
-                    .call_method1(intern!(py, "dumps"), (snap.bind(py),))
-                    .reraise("Error serializing snapshot")?;
-                let ser_snap = ser_snap.downcast::<PyBytes>().unwrap();
-                let ser_snap = ser_snap.as_bytes().to_vec();
-                Ok(ser_snap)
-            })
-            .transpose()?;
-
-        Ok(SerializedSnapshot::new(
-            self.step_id.clone(),
-            key,
-            epoch,
-            ser_change,
-        ))
-    }
-
-    fn immediate_snapshots(&mut self, py: Python, epoch: u64) -> Vec<SerializedSnapshot> {
+    fn snapshots(
+        &mut self,
+        py: Python,
+        epoch: u64,
+        is_closing_logic: bool,
+    ) -> Vec<SerializedSnapshot> {
         let mut res = vec![];
         if let Some(lss) = self.local_state_store.as_ref() {
-            if lss.borrow().snapshot_mode().immediate() {
-                while let Some(key) = self.awoken.pop_first() {
+            // We always snapshot if snapshot_mode is immediate,
+            // otherwise we only snapshot in the closing logic.
+            if lss.borrow().snapshot_mode().immediate() || is_closing_logic {
+                for key in std::mem::take(&mut self.awoken) {
                     let snap = self
-                        .snap(py, key, epoch)
-                        .reraise("Error snapshotting FixedPartitionedSink")
-                        .unwrap();
-                    res.push(snap)
-                }
-                lss.borrow_mut().write_snapshots(res.clone());
-            }
-        }
-        res
-    }
-
-    fn batch_snapshots(&mut self, py: Python, epoch: u64) -> Vec<SerializedSnapshot> {
-        let mut res = vec![];
-        if let Some(lss) = self.local_state_store.as_ref() {
-            if lss.borrow().snapshot_mode().batch() {
-                while let Some(key) = self.awoken.pop_first() {
-                    let snap = self
-                        .snap(py, key, epoch)
+                        .state_store_cache
+                        .borrow()
+                        .snap(py, self.step_id.clone(), key, epoch)
                         .reraise("Error snapshotting FixedPartitionedSink")
                         .unwrap();
                     res.push(snap)
@@ -476,7 +433,7 @@ where
                                 let mut snaps = with_timer!(
                                     snapshot_histogram,
                                     labels,
-                                    state.immediate_snapshots(py, *epoch)
+                                    state.snapshots(py, *epoch, false)
                                 );
                                 immediate_snaps_output
                                     .activate()
@@ -495,7 +452,7 @@ where
                             with_timer!(
                                 snapshot_histogram,
                                 labels,
-                                state.batch_snapshots(py, *epoch)
+                                state.snapshots(py, *epoch, true)
                             )
                         });
                         batch_snaps_output

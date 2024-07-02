@@ -34,6 +34,7 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+use crate::unwrap_any;
 
 /// Bytewax worker.
 ///
@@ -123,7 +124,12 @@ where
             // This will fail if the number of workers changed, or if
             // the local state store db can't be accessed.
             // TODO: Do a full resume in this case.
-            LocalStateStore::new(flow_id, worker_index, worker_count, rc.bind(py)).unwrap()
+            unwrap_any!(LocalStateStore::new(
+                flow_id,
+                worker_index,
+                worker_count,
+                rc.bind(py)
+            ))
         });
 
         // Broadcast the worker's resume epoch to all other workers,

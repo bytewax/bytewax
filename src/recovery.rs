@@ -68,7 +68,6 @@ impl Backup {
     }
 
     pub(crate) fn upload(&self, py: Python, from_local: PathBuf, to_key: String) -> PyResult<()> {
-        // println!("Uploading {from_local:?} to {to_key}");
         self.0
             .call_method_bound(py, intern!(py, "upload"), (from_local, to_key), None)?;
         Ok(())
@@ -129,6 +128,39 @@ impl StateStoreCache {
     pub fn remove(&mut self, step_id: &StepId, key: &StateKey) -> Option<PyObject> {
         self.cache.get_mut(step_id).unwrap().remove(key)
     }
+
+    pub fn snap(
+        &self,
+        py: Python,
+        step_id: StepId,
+        key: StateKey,
+        epoch: u64,
+    ) -> PyResult<SerializedSnapshot> {
+        let ser_change = self
+            .get(&step_id, &key)
+            // It's ok if there's no logic, because it might have been discarded
+            // due to one of the `on_*` methods returning `IsComplete::Discard`.
+            .map(|logic| -> PyResult<Vec<u8>> {
+                let snap = logic
+                    .call_method0(py, intern!(py, "snapshot"))
+                    .reraise_with(|| {
+                        format!("error calling `snapshot` in {} for key {}", step_id, key)
+                    })?;
+
+                let pickle = py.import_bound(intern!(py, "pickle"))?;
+                let ser_snap = pickle
+                    .call_method1(intern!(py, "dumps"), (snap.bind(py),))
+                    .reraise("Error serializing snapshot")?
+                    .downcast::<PyBytes>()
+                    .unwrap()
+                    .as_bytes()
+                    .to_vec();
+                Ok(ser_snap)
+            })
+            .transpose()?;
+
+        Ok(SerializedSnapshot::new(step_id, key, epoch, ser_change))
+    }
 }
 
 /// Stores that state for all the stateful operators.
@@ -154,7 +186,6 @@ pub(crate) struct LocalStateStore {
 
 impl LocalStateStore {
     pub fn new(
-        // db_dir: PathBuf,
         flow_id: String,
         worker_index: usize,
         worker_count: usize,
@@ -169,12 +200,12 @@ impl LocalStateStore {
                 db_dir
             )));
         }
+
         // Calculate resume_from.
-        // First we need to retrieve the latest frontier segment from
-        // the durable store, as we never store frontier info in the
-        // local store.
-        // Start with the default value, then if the durable store
-        // does have a frontier segment, update it with the fetched value.
+        // First we need to retrieve the latest frontier segment from the durable store,
+        // as we never store frontier info in the local store.
+        // Start with the default value, then if the durable store does have a frontier
+        // segment, update it with the fetched value.
         let mut resume_from = ResumeFrom::default();
 
         let backup = recovery_config.borrow().backup.clone();
@@ -272,6 +303,30 @@ impl LocalStateStore {
         );
 
         let file_name = format!("flow_{flow_id}_worker_{worker_index}.sqlite3");
+        // Now we need to check two conditions.
+        // The durable store tells us if this is the first execution.
+        // If that's not the case, but the file does not exist, we need
+        // to do a full resume.
+        let is_first_execution = resume_from.execution().0 == 0;
+        let db_exists = db_dir.join(file_name.clone()).exists();
+        // TODO: full resume is not implemented yet, so we crash here.
+        if !is_first_execution && !db_exists {
+            return Err(PyErr::new::<PyRuntimeError, _>("Missing db file."));
+        }
+        // The other case is if this is the first execution, but the file is present.
+        // This is not ok, but we don't want to automatically remove the file,
+        // so crash and ask the user to take action instead.
+        if is_first_execution && db_exists {
+            return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                "A file with the name '{}' already exists in '{}', \
+                but durable backup indicates that this is the first execution. \
+                Please rename or remove the file before running the dataflow.",
+                file_name,
+                db_dir.to_string_lossy()
+            )));
+        }
+
+        // Finally open or create the file.
         let conn = setup_conn(db_dir.join(file_name))?;
 
         Ok(Self {
@@ -314,10 +369,6 @@ impl LocalStateStore {
         py: Python,
         step_id: &StepId,
     ) -> PyResult<Vec<(StateKey, Option<PyObject>)>> {
-        // println!(
-        //     "Getting snapshots for epoch <= {} for {}",
-        //     self.resume_from.1 .0, step_id.0
-        // );
         // Get all the snapshots in the store for this specific step_id,
         // and deserialize them.
         let pickle = py.import_bound("pickle")?;
@@ -384,7 +435,6 @@ impl LocalStateStore {
     }
 
     pub(crate) fn write_frontier_segment(&mut self, epoch: u64) -> PyResult<PathBuf> {
-        // println!("Writing frontier for epoch {epoch}");
         let file_name = format!(
             "frontier:ex-{}:epoch-{}:_:worker-{}.sqlite3",
             self.resume_from.execution(),
@@ -818,11 +868,9 @@ where
                 ncater.for_each(
                     input_frontiers,
                     |_caps, ()| {
-                        // println!("Early uploading backup");
                         upload(inbuffer.clone());
                     },
                     |caps, ()| {
-                        // println!("Closing uploading backup");
                         let cap = &caps[0];
                         upload(inbuffer.clone());
                         output.activate().session(cap).give(());
@@ -870,7 +918,6 @@ where
 
                         let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
 
-                        // println!("Snapshot compactor early epochs: {epochs:?}");
                         for epoch in epochs {
                             let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
                             let path = local_state_store
@@ -888,7 +935,6 @@ where
 
                         let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
 
-                        // println!("Snapshot compactor closing epochs: {epochs:?}");
                         for epoch in epochs {
                             let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
                             let path = local_state_store
@@ -932,7 +978,6 @@ where
                         let mut session = handle.session(clock_cap);
 
                         let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                        // println!("Frontier compactor epochs: {epochs:?}");
                         for epoch in epochs {
                             inbuffer.borrow_mut().remove(&epoch);
                             let path = local_state_store
@@ -949,7 +994,6 @@ where
                         let mut session = handle.session(clock_cap);
 
                         let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                        // println!("Frontier compactor epochs: {epochs:?}");
                         for epoch in epochs {
                             inbuffer.borrow_mut().remove(&epoch);
                             let path = local_state_store

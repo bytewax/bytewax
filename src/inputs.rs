@@ -5,6 +5,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
@@ -20,7 +21,6 @@ use pyo3::exceptions::PyStopIteration;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Capability;
@@ -189,7 +189,7 @@ pub(crate) struct InputState {
     eofd_parts_buffer: Vec<StateKey>,
 
     // Snapshots
-    snaps: Vec<StateKey>,
+    snaps: BTreeSet<StateKey>,
 }
 
 impl InputState {
@@ -232,7 +232,7 @@ impl InputState {
             state_store_cache,
             current_time: Utc::now(),
             parts: BTreeMap::new(),
-            snaps: vec![],
+            snaps: BTreeSet::new(),
             eofd_parts_buffer: vec![],
         };
 
@@ -260,50 +260,17 @@ impl InputState {
         }
     }
 
-    pub fn snap(&self, py: Python, key: StateKey, epoch: u64) -> PyResult<SerializedSnapshot> {
-        let ssc = self.state_store_cache.borrow();
-        let ser_change = ssc
-            .get(&self.step_id, &key)
-            // It's ok if there's no logic, because it might have been discarded
-            // due to one of the `on_*` methods returning `IsComplete::Discard`.
-            .map(|logic| -> PyResult<Vec<u8>> {
-                let snap = logic
-                    .call_method0(py, intern!(py, "snapshot"))
-                    .reraise_with(|| {
-                        format!(
-                            "error calling `snapshot` in {} for key {}",
-                            self.step_id, key
-                        )
-                    })?;
-                let pickle = py.import_bound(intern!(py, "pickle"))?;
-                let ser_snap = pickle
-                    .call_method1(intern!(py, "dumps"), (snap.bind(py),))
-                    .reraise("Error serializing snapshot")?;
-                let ser_snap = ser_snap.downcast::<PyBytes>()?;
-                let ser_snap = ser_snap.as_bytes().to_vec();
-                Ok(ser_snap)
-            })
-            .transpose()?;
-
-        Ok(SerializedSnapshot::new(
-            self.step_id.clone(),
-            key,
-            epoch,
-            ser_change,
-        ))
-    }
-
     pub fn snapshots(&mut self, py: Python) -> Vec<(Capability<u64>, SerializedSnapshot)> {
         let mut res = vec![];
         if let Some(lss) = self.local_state_store.as_ref() {
-            let snaps: Vec<_> = self.snaps.drain(..).collect();
-            for key in snaps {
+            for key in std::mem::take(&mut self.snaps) {
                 let epoch = self.epoch_for(&key);
                 let snap = self
-                    .snap(py, key.clone(), epoch)
+                    .state_store_cache
+                    .borrow()
+                    .snap(py, self.step_id.clone(), key.clone(), epoch)
                     .reraise("Error snapshotting PartitionedInput")
                     .unwrap();
-                // println!("Saving snapshot: {snap:?}");
                 let cap = self.parts.get(&key).unwrap().snap_cap.clone();
                 res.push((cap, snap));
             }
@@ -314,7 +281,6 @@ impl InputState {
     }
 
     pub fn advance_epoch(&mut self, key: &StateKey, next_epoch: u64) {
-        // println!("Advance to epoch {next_epoch}");
         let part = self.parts.get_mut(key).unwrap();
         part.downstream_cap.downgrade(&next_epoch);
         part.snap_cap.downgrade(&next_epoch);
@@ -322,7 +288,7 @@ impl InputState {
         // We snapshot on EOF so that we capture the offsets for this partition to
         // resume from; we produce the same behavior as if this partition would have
         // lived to the next epoch interval.
-        self.snaps.push(key.clone())
+        self.snaps.insert(key.clone());
     }
 
     pub fn awake_after(&self) -> Option<std::time::Duration> {
@@ -364,7 +330,7 @@ impl InputState {
         if let Some(lss) = self.local_state_store.as_ref() {
             let immediate_snapshot = lss.borrow().snapshot_mode().immediate();
             if immediate_snapshot | is_eof | (self.epoch_for(&key) > current_epoch) {
-                self.snaps.push(key.clone())
+                self.snaps.insert(key.clone());
             }
         }
     }
