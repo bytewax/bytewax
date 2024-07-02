@@ -530,8 +530,6 @@ pub(crate) struct StatefulBatchState {
     // Awoken keys in this activation
     awoken_keys_this_activation: BTreeSet<StateKey>,
     awoken_keys_this_epoch_buffer: BTreeSet<StateKey>,
-    // snaps: Vec<StateKey>,
-    snapshot_mode: SnapshotMode,
 }
 
 impl StatefulBatchState {
@@ -541,7 +539,6 @@ impl StatefulBatchState {
         local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         logic_builder: TdPyCallable,
-        snapshot_mode: SnapshotMode,
     ) -> PyResult<Self> {
         state_store_cache.borrow_mut().add_step(step_id.clone());
         let builder = move |py: Python<'_>, state| {
@@ -554,7 +551,6 @@ impl StatefulBatchState {
             step_id,
             local_state_store,
             state_store_cache,
-            snapshot_mode,
             sched_cache: BTreeMap::new(),
             awoken_keys_this_activation: BTreeSet::new(),
             awoken_keys_this_epoch_buffer: BTreeSet::new(),
@@ -788,16 +784,16 @@ impl StatefulBatchState {
         is_epoch_closed: bool,
     ) -> Vec<SerializedSnapshot> {
         let mut res = vec![];
-        if self.snapshot_mode.immediate() || is_epoch_closed {
-            for key in std::mem::take(&mut self.awoken_keys_this_epoch_buffer) {
-                let snap = self
-                    .snap(py, key, epoch)
-                    .reraise("Error snapshotting PartitionedInput")
-                    .unwrap();
-                // println!("Saving snapshot: {snap:?}");
-                res.push(snap);
-            }
-            if let Some(lss) = self.local_state_store.as_ref() {
+        if let Some(lss) = self.local_state_store.as_ref() {
+            if lss.borrow().snapshot_mode().immediate() || is_epoch_closed {
+                for key in std::mem::take(&mut self.awoken_keys_this_epoch_buffer) {
+                    let snap = self
+                        .snap(py, key, epoch)
+                        .reraise("Error snapshotting PartitionedInput")
+                        .unwrap();
+                    // println!("Saving snapshot: {snap:?}");
+                    res.push(snap);
+                }
                 lss.borrow_mut().write_snapshots(res.clone());
             }
         }

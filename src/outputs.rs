@@ -172,7 +172,6 @@ pub(crate) struct OutputState {
 
     // Snapshots
     awoken: BTreeSet<StateKey>,
-    snapshot_mode: SnapshotMode,
 }
 
 impl OutputState {
@@ -182,7 +181,6 @@ impl OutputState {
         local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         sink: FixedPartitionedSink,
-        snapshot_mode: SnapshotMode,
     ) -> PyResult<Self> {
         state_store_cache.borrow_mut().add_step(step_id.clone());
         let s_id = step_id.clone();
@@ -208,7 +206,6 @@ impl OutputState {
             step_id,
             local_state_store,
             state_store_cache,
-            snapshot_mode,
             awoken: BTreeSet::new(),
             builder: Box::new(builder),
         };
@@ -302,31 +299,32 @@ impl OutputState {
 
     fn immediate_snapshots(&mut self, py: Python, epoch: u64) -> Vec<SerializedSnapshot> {
         let mut res = vec![];
-        if self.snapshot_mode.immediate() {
-            while let Some(key) = self.awoken.pop_first() {
-                let snap = self
-                    .snap(py, key, epoch)
-                    .reraise("Error snapshotting FixedPartitionedSink")
-                    .unwrap();
-                res.push(snap)
-            }
-            if let Some(lss) = self.local_state_store.as_ref() {
+        if let Some(lss) = self.local_state_store.as_ref() {
+            if lss.borrow().snapshot_mode().immediate() {
+                while let Some(key) = self.awoken.pop_first() {
+                    let snap = self
+                        .snap(py, key, epoch)
+                        .reraise("Error snapshotting FixedPartitionedSink")
+                        .unwrap();
+                    res.push(snap)
+                }
                 lss.borrow_mut().write_snapshots(res.clone());
             }
         }
         res
     }
+
     fn batch_snapshots(&mut self, py: Python, epoch: u64) -> Vec<SerializedSnapshot> {
         let mut res = vec![];
-        if self.snapshot_mode.batch() {
-            while let Some(key) = self.awoken.pop_first() {
-                let snap = self
-                    .snap(py, key, epoch)
-                    .reraise("Error snapshotting FixedPartitionedSink")
-                    .unwrap();
-                res.push(snap)
-            }
-            if let Some(lss) = self.local_state_store.as_ref() {
+        if let Some(lss) = self.local_state_store.as_ref() {
+            if lss.borrow().snapshot_mode().batch() {
+                while let Some(key) = self.awoken.pop_first() {
+                    let snap = self
+                        .snap(py, key, epoch)
+                        .reraise("Error snapshotting FixedPartitionedSink")
+                        .unwrap();
+                    res.push(snap)
+                }
                 lss.borrow_mut().write_snapshots(res.clone());
             }
         }

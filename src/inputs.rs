@@ -194,7 +194,6 @@ pub(crate) struct InputState {
 
     // Snapshots
     snaps: Vec<StateKey>,
-    snapshot_mode: SnapshotMode,
 }
 
 impl InputState {
@@ -204,7 +203,6 @@ impl InputState {
         local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         source: FixedPartitionedSource,
-        snapshot_mode: SnapshotMode,
     ) -> PyResult<Self> {
         state_store_cache.borrow_mut().add_step(step_id.clone());
         let s_id = step_id.clone();
@@ -233,7 +231,6 @@ impl InputState {
             step_id,
             local_state_store,
             state_store_cache,
-            snapshot_mode,
             current_time: Utc::now(),
             builder: Box::new(builder),
             parts: BTreeMap::new(),
@@ -307,18 +304,18 @@ impl InputState {
 
     pub fn snapshots(&mut self, py: Python) -> Vec<(Capability<u64>, SerializedSnapshot)> {
         let mut res = vec![];
-        let snaps: Vec<_> = self.snaps.drain(..).collect();
-        for key in snaps {
-            let epoch = self.epoch_for(&key);
-            let snap = self
-                .snap(py, key.clone(), epoch)
-                .reraise("Error snapshotting PartitionedInput")
-                .unwrap();
-            // println!("Saving snapshot: {snap:?}");
-            let cap = self.parts.get(&key).unwrap().snap_cap.clone();
-            res.push((cap, snap));
-        }
         if let Some(lss) = self.local_state_store.as_ref() {
+            let snaps: Vec<_> = self.snaps.drain(..).collect();
+            for key in snaps {
+                let epoch = self.epoch_for(&key);
+                let snap = self
+                    .snap(py, key.clone(), epoch)
+                    .reraise("Error snapshotting PartitionedInput")
+                    .unwrap();
+                // println!("Saving snapshot: {snap:?}");
+                let cap = self.parts.get(&key).unwrap().snap_cap.clone();
+                res.push((cap, snap));
+            }
             lss.borrow_mut()
                 .write_snapshots(res.iter().cloned().map(|(_, snap)| snap).collect());
         }
@@ -350,7 +347,7 @@ impl InputState {
             })
     }
 
-    pub fn epoch_for(&mut self, key: &StateKey) -> u64 {
+    pub fn epoch_for(&self, key: &StateKey) -> u64 {
         *self.parts.get(key).unwrap().downstream_cap.time()
     }
 
@@ -369,8 +366,15 @@ impl InputState {
     }
 
     pub fn snapshot_if_necessary(&mut self, key: StateKey, current_epoch: u64, is_eof: bool) {
-        if self.snapshot_mode.immediate() | is_eof | (self.epoch_for(&key) > current_epoch) {
-            self.snaps.push(key.clone())
+        // Only mark a key for snapshotting if the local state store is configured and:
+        // - SnapshotMode is immediate OR
+        // - The input partition has reached EOF OR
+        // - The input partition has changed epoch.
+        if let Some(lss) = self.local_state_store.as_ref() {
+            let immediate_snapshot = lss.borrow().snapshot_mode().immediate();
+            if immediate_snapshot | is_eof | (self.epoch_for(&key) > current_epoch) {
+                self.snaps.push(key.clone())
+            }
         }
     }
 

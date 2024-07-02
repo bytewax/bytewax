@@ -114,20 +114,15 @@ where
     tracing::info!("Worker start");
 
     // Init default values for recovery related fields
-    let mut snapshot_mode = SnapshotMode::Immediate;
     let mut local_state_store = None;
 
     // Now, if recovery is configured, initialize everything we need.
-    // TODO: We need to decide if we can do a fast resume first.
-    //       We CAN'T do a fast resume if:
-    //       - The number of workers changed (state_store.worker_count vs current count)
-    //       - Any of the workers can't access its own db (corrupted? volume gone?)
-    // Even if a fast_resume is possible, we still need to read execution/frontier info from
-    // the durable store, as we want a single source of truth, and we never write
-    // frontier info to the local store.
     if let Some(rc) = recovery_config {
         let mut lss = Python::with_gil(|py| {
             let flow_id = flow.flow_id(py).unwrap();
+            // This will fail if the number of workers changed, or if
+            // the local state store db can't be accessed.
+            // TODO: Do a full resume in this case.
             LocalStateStore::new(flow_id, worker_index, worker_count, rc.bind(py)).unwrap()
         });
 
@@ -146,11 +141,6 @@ where
         });
 
         lss.update_resume_epoch(ResumeEpoch(*cluster_resume_epoch.borrow()));
-
-        // Set the variables for the production dataflow.
-        Python::with_gil(|py| {
-            snapshot_mode = rc.borrow(py).snapshot_mode;
-        });
         local_state_store = Some(lss);
     }
 
@@ -165,7 +155,6 @@ where
             state_store_cache,
             local_state_store,
             epoch_interval,
-            snapshot_mode,
             &worker.abort,
         )
         .reraise("error building production dataflow")
@@ -274,7 +263,6 @@ fn build_production_dataflow<A>(
     state_store_cache: Rc<RefCell<StateStoreCache>>,
     local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     epoch_interval: EpochInterval,
-    snapshot_mode: SnapshotMode,
     abort: &Arc<AtomicBool>,
 ) -> PyResult<ProbeHandle<u64>>
 where
@@ -355,7 +343,6 @@ where
                                 local_state_store.clone(),
                                 state_store_cache.clone(),
                                 source.clone(),
-                                snapshot_mode,
                             )?;
                             let (down, snap) = source
                                 .partitioned_input(
@@ -441,7 +428,6 @@ where
                                 local_state_store.clone(),
                                 state_store_cache.clone(),
                                 sink.clone(),
-                                snapshot_mode,
                             )?;
                             let (clock, snap) = up
                                 .partitioned_output(py, step_id, sink, state)
@@ -480,7 +466,6 @@ where
                             local_state_store.clone(),
                             state_store_cache.clone(),
                             builder,
-                            snapshot_mode,
                         )?;
 
                         let up = streams

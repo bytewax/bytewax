@@ -133,6 +133,7 @@ pub(crate) struct LocalStateStore {
     db_dir: PathBuf,
     worker_index: usize,
     backup: Backup,
+    snapshot_mode: SnapshotMode,
 
     // Writers for snapshots and frontiers
     frontier_writer: FrontierWriter,
@@ -169,6 +170,7 @@ impl LocalStateStore {
         let mut resume_from = ResumeFrom::default();
 
         let backup = recovery_config.borrow().backup.clone();
+        let snapshot_mode = recovery_config.borrow().snapshot_mode.clone();
         // `keys` is the list of files in the durable store
         let keys = Python::with_gil(|py| backup.list_keys(py).unwrap());
         let mut frontier_segments: Vec<(u64, u64, String)> = keys
@@ -248,7 +250,6 @@ impl LocalStateStore {
                 }
             };
             tracing::info!(
-                // println!(
                 "Resuming from execution: {}, epoch {}",
                 resume_from.execution(),
                 resume_from.epoch()
@@ -274,8 +275,13 @@ impl LocalStateStore {
             frontier_writer,
             snapshot_writer: SnapshotWriter {},
             resume_from,
+            snapshot_mode,
             seg_num: 0,
         })
+    }
+
+    pub fn snapshot_mode(&self) -> &SnapshotMode {
+        &self.snapshot_mode
     }
 
     pub fn resume_from_epoch(&self) -> ResumeEpoch {
