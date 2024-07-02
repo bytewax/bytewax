@@ -163,14 +163,11 @@ impl PartitionFn<StateKey> for PartitionAssigner {
 pub(crate) struct OutputState {
     step_id: StepId,
 
-    // Shared references to LocalStateStore and StateStoreCache
+    /// Shared references to LocalStateStore and StateStoreCache
     local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
-    // Builder function used each time we need to insert a partition into the state_store_cache.
-    builder: Box<dyn Fn(Python, StateKey, Option<PyObject>) -> PyResult<StatefulSinkPartition>>,
-
-    // Snapshots
+    /// This is used to keep track of which keys needs to be snapshotted
     awoken: BTreeSet<StateKey>,
 }
 
@@ -182,7 +179,6 @@ impl OutputState {
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         sink: FixedPartitionedSink,
     ) -> PyResult<Self> {
-        state_store_cache.borrow_mut().add_step(step_id.clone());
         let s_id = step_id.clone();
         let builder = move |py: Python<'_>, state_key, state| {
             let parts_list = unwrap_any!(sink.list_parts(py));
@@ -200,22 +196,27 @@ impl OutputState {
                     .join(", ")
             );
             sink.build_part(py, s_id.clone(), state_key, state)
+                // `build_part` will do the type checking on `extract`, then
+                // we can use the inner PyObject.
+                .map(|part| part.0)
         };
+        state_store_cache
+            .borrow_mut()
+            .add_step(step_id.clone(), Box::new(builder));
 
         let mut this = Self {
             step_id,
             local_state_store,
             state_store_cache,
             awoken: BTreeSet::new(),
-            builder: Box::new(builder),
         };
 
         if let Some(lss) = this.local_state_store.as_ref() {
-            let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
+            let snaps = lss.borrow().get_snaps(py, &this.step_id)?;
             for (state_key, state) in snaps {
                 if state.is_some() {
                     this.insert(py, state_key, state)
-                } else {
+                } else if this.contains_key(&state_key) {
                     this.remove(py, &state_key);
                 }
             }
@@ -233,10 +234,9 @@ impl OutputState {
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
-        let logic = (self.builder)(py, state_key.clone(), state).unwrap();
         self.state_store_cache
             .borrow_mut()
-            .insert(&self.step_id, state_key, logic.0);
+            .insert(py, &self.step_id, state_key, state);
     }
 
     pub fn contains_key(&self, key: &StateKey) -> bool {

@@ -29,7 +29,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Concat;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -87,26 +86,35 @@ impl Backup {
     }
 }
 
+type LogicBuilder = Box<dyn Fn(Python, StateKey, Option<PyObject>) -> PyResult<PyObject>>;
+
+/// Stores that state for all the stateful operators.
+/// This is basically a wrapper around a HashMap that's
+/// shared between all stateful operators.
 pub(crate) struct StateStoreCache {
     cache: HashMap<StepId, BTreeMap<StateKey, PyObject>>,
+    builders: HashMap<StepId, LogicBuilder>,
 }
 
 impl StateStoreCache {
     pub fn new() -> Self {
         Self {
             cache: HashMap::new(),
+            builders: HashMap::new(),
         }
     }
 
-    pub fn add_step(&mut self, step_id: StepId) {
-        self.cache.insert(step_id, Default::default());
+    pub fn add_step(&mut self, step_id: StepId, builder: LogicBuilder) {
+        self.cache.insert(step_id.clone(), Default::default());
+        self.builders.insert(step_id, builder);
     }
 
     pub fn contains_key(&self, step_id: &StepId, key: &StateKey) -> bool {
         self.cache.get(step_id).unwrap().contains_key(key)
     }
 
-    pub fn insert(&mut self, step_id: &StepId, key: StateKey, logic: PyObject) {
+    pub fn insert(&mut self, py: Python, step_id: &StepId, key: StateKey, state: Option<PyObject>) {
+        let logic = (self.builders.get(step_id).unwrap())(py, key.clone(), state).unwrap();
         self.cache.get_mut(step_id).unwrap().insert(key, logic);
     }
 
@@ -170,7 +178,7 @@ impl LocalStateStore {
         let mut resume_from = ResumeFrom::default();
 
         let backup = recovery_config.borrow().backup.clone();
-        let snapshot_mode = recovery_config.borrow().snapshot_mode.clone();
+        let snapshot_mode = recovery_config.borrow().snapshot_mode;
         // `keys` is the list of files in the durable store
         let keys = Python::with_gil(|py| backup.list_keys(py).unwrap());
         let mut frontier_segments: Vec<(u64, u64, String)> = keys
@@ -302,7 +310,7 @@ impl LocalStateStore {
     /// into a `StatefulLogicKind`, and it will be called with data coming
     /// from each deserialized snapshot.
     pub fn get_snaps(
-        &mut self,
+        &self,
         py: Python,
         step_id: &StepId,
     ) -> PyResult<Vec<(StateKey, Option<PyObject>)>> {

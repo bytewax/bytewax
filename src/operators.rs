@@ -518,9 +518,6 @@ pub(crate) struct StatefulBatchState {
     local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
-    // Builder function used each time we need to insert a partition into the state_store_cache.
-    builder: Box<dyn Fn(Python, Option<PyObject>) -> PyResult<StatefulBatchLogic>>,
-
     // Contains the last known return value for
     // `logic.notify_at` for each key (if any). We don't
     // snapshot this because the logic itself should contain
@@ -540,13 +537,17 @@ impl StatefulBatchState {
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         logic_builder: TdPyCallable,
     ) -> PyResult<Self> {
-        state_store_cache.borrow_mut().add_step(step_id.clone());
-        let builder = move |py: Python<'_>, state| {
+        let builder = move |py: Python<'_>, _key, state| {
             logic_builder
                 .bind(py)
                 .call1((state,))?
                 .extract::<StatefulBatchLogic>()
+                .map(|result| result.0)
         };
+        state_store_cache
+            .borrow_mut()
+            .add_step(step_id.clone(), Box::new(builder));
+
         let mut this = Self {
             step_id,
             local_state_store,
@@ -554,21 +555,15 @@ impl StatefulBatchState {
             sched_cache: BTreeMap::new(),
             awoken_keys_this_activation: BTreeSet::new(),
             awoken_keys_this_epoch_buffer: BTreeSet::new(),
-            builder: Box::new(builder),
         };
         if let Some(lss) = this.local_state_store.as_ref() {
             let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
             for (state_key, state) in snaps {
                 if state.is_some() {
-                    let s = state.as_ref().unwrap().call_method0(py, "__str__").unwrap();
-                    // println!("Init: read state for {state_key}: {s}");
                     this.insert(py, state_key.clone(), state);
                     if let Some(notify_at) = this.notify_at(py, &state_key)? {
                         this.schedule(state_key, notify_at);
                     }
-                } else {
-                    // println!("Init: read state for {state_key}: None");
-                    // this.remove(&state_key);
                 }
             }
         }
@@ -593,10 +588,9 @@ impl StatefulBatchState {
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
-        let logic = (self.builder)(py, state).unwrap();
         self.state_store_cache
             .borrow_mut()
-            .insert(&self.step_id, state_key, logic.0);
+            .insert(py, &self.step_id, state_key, state);
     }
 
     pub fn awoken(&self) -> Vec<StateKey> {
@@ -754,8 +748,6 @@ impl StatefulBatchState {
                             self.step_id, key
                         )
                     })?;
-                let s = snap.call_method0(py, "__str__").unwrap();
-                // println!("stateful_batch snapshotting: {s}");
 
                 let pickle = py.import_bound(intern!(py, "pickle"))?;
                 let ser_snap = pickle
@@ -791,7 +783,6 @@ impl StatefulBatchState {
                         .snap(py, key, epoch)
                         .reraise("Error snapshotting PartitionedInput")
                         .unwrap();
-                    // println!("Saving snapshot: {snap:?}");
                     res.push(snap);
                 }
                 lss.borrow_mut().write_snapshots(res.clone());
@@ -811,7 +802,6 @@ where
         step_id: StepId,
         mut state: StatefulBatchState,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)> {
-        // let resume_epoch = state.start_at();
         let this_worker = self.scope().w_index();
 
         // We have a "partition" per worker. List all workers.

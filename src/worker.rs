@@ -144,8 +144,8 @@ where
         local_state_store = Some(lss);
     }
 
-    let state_store_cache = Rc::new(RefCell::new(StateStoreCache::new()));
     let local_state_store = local_state_store.map(|lss| Rc::new(RefCell::new(lss)));
+    let state_store_cache = Rc::new(RefCell::new(StateStoreCache::new()));
 
     let probe = Python::with_gil(|py| {
         build_production_dataflow(

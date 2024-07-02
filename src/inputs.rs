@@ -188,10 +188,6 @@ pub(crate) struct InputState {
     current_time: DateTime<Utc>,
     eofd_parts_buffer: Vec<StateKey>,
 
-    // Builder function used each time we need to insert a partition
-    // into the state_store_cache.
-    builder: Box<dyn Fn(Python, StateKey, Option<PyObject>) -> PyResult<StatefulSourcePartition>>,
-
     // Snapshots
     snaps: Vec<StateKey>,
 }
@@ -204,27 +200,30 @@ impl InputState {
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         source: FixedPartitionedSource,
     ) -> PyResult<Self> {
-        state_store_cache.borrow_mut().add_step(step_id.clone());
         let s_id = step_id.clone();
-        let builder =
-            move |py: Python<'_>, state_key, state| -> PyResult<StatefulSourcePartition> {
-                let parts_list = source.list_parts(py)?;
-                assert!(
-                    parts_list.contains(&state_key),
-                    "State found for unknown key {} in the recovery store for {}. \
+        let builder = move |py: Python<'_>, state_key, state| -> PyResult<PyObject> {
+            let parts_list = source.list_parts(py)?;
+            assert!(
+                parts_list.contains(&state_key),
+                "State found for unknown key {} in the recovery store for {}. \
                     Known partitions: {}. \
                     Fixed partitions cannot change between executions, aborting.",
-                    state_key,
-                    s_id,
-                    parts_list
-                        .iter()
-                        .map(|sk| format!("\"{}\"", sk.0))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
+                state_key,
+                s_id,
+                parts_list
+                    .iter()
+                    .map(|sk| format!("\"{}\"", sk.0))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
 
-                source.build_part(py, &s_id, &state_key, state)
-            };
+            source
+                .build_part(py, &s_id, &state_key, state)
+                .map(|part| part.0)
+        };
+        state_store_cache
+            .borrow_mut()
+            .add_step(step_id.clone(), Box::new(builder));
 
         // Initialize and hydrate the state if a local_state_store is present.
         let mut this = Self {
@@ -232,7 +231,6 @@ impl InputState {
             local_state_store,
             state_store_cache,
             current_time: Utc::now(),
-            builder: Box::new(builder),
             parts: BTreeMap::new(),
             snaps: vec![],
             eofd_parts_buffer: vec![],
@@ -242,11 +240,7 @@ impl InputState {
             let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
             for (state_key, state) in snaps {
                 if state.is_some() {
-                    let s = state.as_ref().unwrap().call_method0(py, "__str__").unwrap();
-                    // println!("Init: read state for {state_key}: {s}");
                     this.insert(py, state_key, state);
-                } else {
-                    // println!("Init: read state for {state_key}: None");
                 }
             }
         }
@@ -281,9 +275,6 @@ impl InputState {
                             self.step_id, key
                         )
                     })?;
-                let s = snap.call_method0(py, "__str__").unwrap();
-                // println!("input serializing: {s}");
-
                 let pickle = py.import_bound(intern!(py, "pickle"))?;
                 let ser_snap = pickle
                     .call_method1(intern!(py, "dumps"), (snap.bind(py),))
@@ -407,10 +398,9 @@ impl InputState {
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
-        let logic = (self.builder)(py, state_key.clone(), state).unwrap();
         self.state_store_cache
             .borrow_mut()
-            .insert(&self.step_id, state_key, logic.0);
+            .insert(py, &self.step_id, state_key, state);
     }
 
     pub fn next_batch(&mut self, py: Python, key: &StateKey) -> PyResult<BatchResult> {
@@ -676,21 +666,10 @@ impl FixedPartitionedSource {
                                         item_out_count.add(batch_len as u64, &labels);
                                         let mut batch: Vec<_> =
                                             batch.into_iter().map(TdPyAny::from).collect();
-                                        let s = batch
-                                            .iter()
-                                            .map(|item| {
-                                                item.bind(py)
-                                                    .call_method0("__str__")
-                                                    .unwrap()
-                                                    .to_string()
-                                            })
-                                            .collect::<Vec<_>>();
-                                        // println!("Received for {key}: {s:?}");
                                         downstream_session.give_vec(&mut batch);
                                     }
                                     BatchResult::Eof => {
                                         eof = true;
-                                        // println!("EOF");
                                         tracing::debug!("EOFd");
                                     }
                                     BatchResult::Abort => {
