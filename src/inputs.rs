@@ -5,7 +5,6 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
@@ -189,13 +188,15 @@ pub(crate) struct InputState {
     eofd_parts_buffer: Vec<StateKey>,
 
     // Snapshots
-    snaps: BTreeSet<StateKey>,
+    epoch_interval: EpochInterval,
+    serialized_snaps: BTreeMap<StateKey, (Capability<u64>, SerializedSnapshot)>,
 }
 
 impl InputState {
     pub fn init(
         py: Python,
         step_id: StepId,
+        epoch_interval: EpochInterval,
         local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         source: FixedPartitionedSource,
@@ -228,12 +229,13 @@ impl InputState {
         // Initialize and hydrate the state if a local_state_store is present.
         let mut this = Self {
             step_id,
+            epoch_interval,
             local_state_store,
             state_store_cache,
             current_time: Utc::now(),
             parts: BTreeMap::new(),
-            snaps: BTreeSet::new(),
             eofd_parts_buffer: vec![],
+            serialized_snaps: BTreeMap::new(),
         };
 
         if let Some(lss) = this.local_state_store.as_ref() {
@@ -260,35 +262,42 @@ impl InputState {
         }
     }
 
-    pub fn snapshots(&mut self, py: Python) -> Vec<(Capability<u64>, SerializedSnapshot)> {
-        let mut res = vec![];
-        if let Some(lss) = self.local_state_store.as_ref() {
-            for key in std::mem::take(&mut self.snaps) {
-                let epoch = self.epoch_for(&key);
-                let snap = self
-                    .state_store_cache
-                    .borrow()
-                    .snap(py, self.step_id.clone(), key.clone(), epoch)
-                    .reraise("Error snapshotting PartitionedInput")
-                    .unwrap();
-                let cap = self.parts.get(&key).unwrap().snap_cap.clone();
-                res.push((cap, snap));
-            }
-            lss.borrow_mut()
-                .write_snapshots(res.iter().cloned().map(|(_, snap)| snap).collect());
+    /// Returns the list of serialized snapshots taken during this activation.
+    pub fn snapshots(&mut self) -> Vec<(Capability<u64>, SerializedSnapshot)> {
+        let mut caps_and_snaps = vec![];
+        let mut snaps = vec![];
+
+        while let Some((_key, (cap, snap))) = self.serialized_snaps.pop_first() {
+            snaps.push(snap.clone());
+            caps_and_snaps.push((cap, snap));
         }
-        res
+
+        // Also save the snapshots in the local_state_store.
+        if let Some(lss) = self.local_state_store.as_ref() {
+            lss.borrow_mut().write_snapshots(snaps);
+        }
+
+        caps_and_snaps
     }
 
-    pub fn advance_epoch(&mut self, key: &StateKey, next_epoch: u64) {
-        let part = self.parts.get_mut(key).unwrap();
-        part.downstream_cap.downgrade(&next_epoch);
-        part.snap_cap.downgrade(&next_epoch);
-        part.epoch_started = self.current_time;
-        // We snapshot on EOF so that we capture the offsets for this partition to
-        // resume from; we produce the same behavior as if this partition would have
-        // lived to the next epoch interval.
-        self.snaps.insert(key.clone());
+    /// Advance input part epoch if needed.
+    /// Returns Some(next_epoch) if the epoch advanced, None otherwise
+    pub fn advance_epoch(&mut self, key: &StateKey) -> Option<u64> {
+        // Increment the epoch for this partition when the interval
+        // elapses or the input is EOF.
+        // Only increment once we've caught up otherwise
+        // you can get cascading advancement and never poll input.
+        if self.epoch_ended(key) || self.eofd_parts_buffer.contains(key) {
+            let epoch = self.epoch_for(key);
+            let next_epoch = epoch + 1;
+            let part = self.parts.get_mut(key).unwrap();
+            part.downstream_cap.downgrade(&next_epoch);
+            part.snap_cap.downgrade(&next_epoch);
+            part.epoch_started = self.current_time;
+            Some(next_epoch)
+        } else {
+            None
+        }
     }
 
     pub fn awake_after(&self) -> Option<std::time::Duration> {
@@ -322,15 +331,29 @@ impl InputState {
         self.parts.get(key).unwrap().awake_due(self.current_time)
     }
 
-    pub fn snapshot_if_necessary(&mut self, key: StateKey, current_epoch: u64, is_eof: bool) {
-        // Only mark a key for snapshotting if the local state store is configured and:
+    /// Takes a snapshot for a specific key, if necessary.
+    pub fn snap(&mut self, py: Python, key: StateKey) {
+        // Only snapshot if the local state store is configured and:
         // - SnapshotMode is immediate OR
         // - The input partition has reached EOF OR
         // - The input partition has changed epoch.
+        // We snapshot on EOF so that we capture the offsets for this partition to
+        // resume from; we produce the same behavior as if this partition would have
+        // lived to the next epoch interval.
         if let Some(lss) = self.local_state_store.as_ref() {
-            let immediate_snapshot = lss.borrow().snapshot_mode().immediate();
-            if immediate_snapshot | is_eof | (self.epoch_for(&key) > current_epoch) {
-                self.snaps.insert(key.clone());
+            if lss.borrow().snapshot_mode().immediate()
+                || self.eofd_parts_buffer.contains(&key)
+                || self.epoch_ended(&key)
+            {
+                let epoch = self.epoch_for(&key);
+                let snap = self
+                    .state_store_cache
+                    .borrow()
+                    .snap(py, self.step_id.clone(), key.clone(), epoch)
+                    .reraise("Error snapshotting PartitionedInput")
+                    .unwrap();
+                let cap = self.parts.get(&key).unwrap().snap_cap.clone();
+                self.serialized_snaps.insert(key.clone(), (cap, snap));
             }
         }
     }
@@ -369,7 +392,12 @@ impl InputState {
             .insert(py, &self.step_id, state_key, state);
     }
 
-    pub fn next_batch(&mut self, py: Python, key: &StateKey) -> PyResult<BatchResult> {
+    pub fn next_batch(
+        &mut self,
+        py: Python,
+        key: &StateKey,
+        abort: &Arc<AtomicBool>,
+    ) -> PyResult<Option<Vec<PyObject>>> {
         let batch = self
             .state_store_cache
             .borrow()
@@ -405,19 +433,24 @@ impl InputState {
             }
         };
 
-        match res {
-            Ok(BatchResult::Batch(ref batch)) => {
+        res.map(|batch_result| match batch_result {
+            BatchResult::Batch(batch) => {
                 let batch_len = batch.len();
-                let next_awake_res = self.next_awake(py, key)?;
-                self.update_part_next_awake(key, next_awake_res, batch_len, self.current_time)
+                let next_awake_res = self.next_awake(py, key).unwrap();
+                self.update_part_next_awake(key, next_awake_res, batch_len, self.current_time);
+                Some(batch)
             }
-            Ok(BatchResult::Eof) => {
+            BatchResult::Eof => {
+                tracing::debug!("EOFd");
                 self.eofd_parts_buffer.push(key.clone());
+                None
             }
-            _ => {}
-        }
-
-        res
+            BatchResult::Abort => {
+                tracing::debug!("EOFd");
+                abort.store(true, atomic::Ordering::Relaxed);
+                None
+            }
+        })
     }
 
     pub fn clear_eofd_parts(&mut self, py: Python) {
@@ -435,8 +468,8 @@ impl InputState {
         self.parts.get(key).unwrap().epoch_started
     }
 
-    pub fn epoch_ended(&self, key: &StateKey, epoch_interval: EpochInterval) -> bool {
-        self.current_time - self.epoch_started(key) >= epoch_interval.0
+    pub fn epoch_ended(&self, key: &StateKey) -> bool {
+        self.current_time - self.epoch_started(key) >= self.epoch_interval.0
     }
 
     pub fn update_part_next_awake(
@@ -501,7 +534,6 @@ impl FixedPartitionedSource {
         py: Python,
         scope: &mut S,
         step_id: StepId,
-        epoch_interval: EpochInterval,
         probe: &ProbeHandle<u64>,
         abort: &Arc<AtomicBool>,
         mut state: InputState,
@@ -609,67 +641,49 @@ impl FixedPartitionedSource {
                     // ouputs have finished the previous epoch before emitting more
                     // data to have backpressure.
                     if !probe.less_than(&epoch) {
-                        let mut eof = false;
-                        // Separately check whether we should call `next_batch` because
-                        // we need to keep advancing the epoch for this input, even if it
-                        // hasn't been awoken to prevent dataflow stall.
-                        if state.awake_due(&key) {
-                            unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                let batch_res = with_timer!(
+                        Python::with_gil(|py| {
+                            // Separately check whether we should call `next_batch` because
+                            // we need to keep advancing the epoch for this input, even if it
+                            // hasn't been awoken to prevent dataflow stall.
+                            if state.awake_due(&key) {
+                                if let Some(batch) = with_timer!(
                                     next_batch_histogram,
                                     labels,
-                                    state.next_batch(py, &key)?
-                                );
+                                    unwrap_any!(state.next_batch(py, &key, &abort))
+                                ) {
+                                    let batch_len = batch.len();
+                                    batch_size_histogram.record(batch_len as u64, &labels);
 
-                                match batch_res {
-                                    BatchResult::Batch(batch) => {
-                                        let batch_len = batch.len();
-                                        batch_size_histogram.record(batch_len as u64, &labels);
-
-                                        let downstream_cap = state.downstream_cap(&key);
-                                        let mut downstream_session =
-                                            downstream_handle.session(downstream_cap);
-                                        item_out_count.add(batch_len as u64, &labels);
-                                        let mut batch: Vec<_> =
-                                            batch.into_iter().map(TdPyAny::from).collect();
-                                        downstream_session.give_vec(&mut batch);
-                                    }
-                                    BatchResult::Eof => {
-                                        eof = true;
-                                        tracing::debug!("EOFd");
-                                    }
-                                    BatchResult::Abort => {
-                                        abort.store(true, atomic::Ordering::Relaxed);
-                                        tracing::debug!("EOFd");
-                                    }
+                                    let downstream_cap = state.downstream_cap(&key);
+                                    let mut downstream_session =
+                                        downstream_handle.session(downstream_cap);
+                                    item_out_count.add(batch_len as u64, &labels);
+                                    let mut batch: Vec<_> =
+                                        batch.into_iter().map(TdPyAny::from).collect();
+                                    downstream_session.give_vec(&mut batch);
                                 }
+                            }
 
-                                Ok(())
-                            }));
-                        }
+                            // Take snapshots if needed.
+                            with_timer!(snapshot_histogram, labels, {
+                                state.snap(py, key.clone());
+                            });
 
-                        // Increment the epoch for this partition when the interval
-                        // elapses or the input is EOF.
-                        // Only increment once we've caught up (in this if-block) otherwise
-                        // you can get cascading advancement and never poll input.
-                        if state.epoch_ended(&key, epoch_interval) || eof {
-                            let next_epoch = epoch + 1;
-                            state.advance_epoch(&key, next_epoch);
-                            tracing::debug!("Advanced to epoch {next_epoch}");
-                        }
-                        state.snapshot_if_necessary(key, epoch, eof);
+                            // Advance the epoch if needed.
+                            if let Some(next_epoch) = state.advance_epoch(&key) {
+                                tracing::debug!("Advanced to epoch {next_epoch}");
+                            }
+                        });
                     }
                 }
 
                 // Now send the generated snapshots to the snapshots stream.
-                Python::with_gil(|py| {
-                    with_timer!(snapshot_histogram, labels, {
-                        for (snap_cap, snap) in state.snapshots(py) {
-                            let mut snaps_session = snaps_handle.session(&snap_cap);
-                            snaps_session.give(snap);
-                        }
-                    });
+                for (snap_cap, snap) in state.snapshots() {
+                    let mut snaps_session = snaps_handle.session(&snap_cap);
+                    snaps_session.give(snap);
+                }
 
+                Python::with_gil(|py| {
                     // Clear state from parts that have EOFd
                     state.clear_eofd_parts(py);
                 });

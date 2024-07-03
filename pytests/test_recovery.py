@@ -1,10 +1,11 @@
-import pytest
-
+import os
+import shutil
 from datetime import timedelta
+from pathlib import Path
 
 import bytewax.operators as op
+import pytest
 from bytewax.dataflow import Dataflow
-from bytewax.recovery import RecoveryConfig
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
 
 ZERO_TD = timedelta(seconds=0)
@@ -24,8 +25,13 @@ def test_abort_no_snapshots(recovery_config_batch):
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [0, 1, 2]
 
-    # So resume should re-play all input.
+    # But the file has been created, so the dataflow will fail until we remove it:
     out.clear()
+    with pytest.raises(RuntimeError):
+        run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
+    # Once we remove the local state store files, the dataflow will correctly restart
+    for p in Path(recovery_config_batch.db_dir).glob("*.sqlite3"):
+        p.unlink()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [0, 1, 2, 3, 4]
 

@@ -346,20 +346,13 @@ where
                             let state = InputState::init(
                                 py,
                                 step_id.clone(),
+                                epoch_interval,
                                 local_state_store.clone(),
                                 state_store_cache.clone(),
                                 source.clone(),
                             )?;
                             let (down, snap) = source
-                                .partitioned_input(
-                                    py,
-                                    scope,
-                                    step_id,
-                                    epoch_interval,
-                                    &probe,
-                                    abort,
-                                    state,
-                                )
+                                .partitioned_input(py, scope, step_id, &probe, abort, state)
                                 .reraise("error building FixedPartitionedSource")?;
 
                             is_input_present = true;

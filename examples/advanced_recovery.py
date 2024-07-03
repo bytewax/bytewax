@@ -75,10 +75,12 @@ class TestPartition(StatefulSinkPartition):
             input_part = data["part"]
             input_state = data["counter"]
             output_state = self.counter
-            print(f"From input '{input_part}' to output '{self.part}':")
-            print(f"  - Input state counter: {input_state}")
-            print(f"  - StatefulBatch counter: {stateful_batch_state}")
-            print(f"  - Output state counter: {output_state}")
+            print(
+                f"From input '{input_part}' to output '{self.part}': \n"
+                f"    - Input state counter: {input_state}\n"
+                f"    - StatefulBatch counter: {stateful_batch_state}\n"
+                f"    - Output state counter: {output_state}\n"
+            )
             print()
 
     def snapshot(self):
