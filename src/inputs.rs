@@ -313,8 +313,8 @@ impl InputState {
             })
     }
 
-    pub fn epoch_for(&self, key: &StateKey) -> u64 {
-        *self.parts.get(key).unwrap().downstream_cap.time()
+    pub fn epoch_for(&self, key: &StateKey) -> &u64 {
+        self.parts.get(key).unwrap().downstream_cap.time()
     }
 
     pub fn remove(&mut self, py: Python, key: &StateKey) {
@@ -635,12 +635,11 @@ impl FixedPartitionedSource {
 
                 for key in state.keys() {
                     let _guard = tracing::trace_span!("partition", part_key = ?key).entered();
-                    let epoch = state.epoch_for(&key);
 
                     // When we increment the epoch for this partition, wait until all
                     // ouputs have finished the previous epoch before emitting more
                     // data to have backpressure.
-                    if !probe.less_than(&epoch) {
+                    if !probe.less_than(state.epoch_for(&key)) {
                         Python::with_gil(|py| {
                             // Separately check whether we should call `next_batch` because
                             // we need to keep advancing the epoch for this input, even if it
@@ -665,9 +664,7 @@ impl FixedPartitionedSource {
                             }
 
                             // Take snapshots if needed.
-                            with_timer!(snapshot_histogram, labels, {
-                                state.snap(py, key.clone());
-                            });
+                            with_timer!(snapshot_histogram, labels, state.snap(py, key.clone()));
 
                             // Advance the epoch if needed.
                             if let Some(next_epoch) = state.advance_epoch(&key) {

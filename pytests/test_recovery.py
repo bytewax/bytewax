@@ -25,7 +25,7 @@ def test_abort_no_snapshots(recovery_config_batch):
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [0, 1, 2]
 
-    # But no frontier info will have been writter, so the dataflow will
+    # But no frontier info will have been written, so the dataflow will
     # restart from scratch
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)

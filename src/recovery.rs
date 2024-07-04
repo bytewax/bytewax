@@ -741,8 +741,9 @@ impl SnapshotMode {
 /// :type backup: bytewax.backup.Backup
 ///
 /// :arg snapshot_mode: Whether to take state snapshots at the end
-///     of the epoch, or as soon as a change happens. Defaults
-///     to take SnapshotMode.Immediate.
+///     of the epoch (SnapshotMode.Batch), or as soon as a change
+///     happens (SnapshotMode.Immediate).
+///     Defaults to SnapshotMode.Immediate.
 ///
 /// :type snapshot_mode: SnapshotMode
 #[pyclass(module = "bytewax.recovery")]

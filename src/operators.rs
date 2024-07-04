@@ -555,6 +555,7 @@ impl StatefulBatchState {
             awoken_keys_this_activation: BTreeSet::new(),
             awoken_keys_this_epoch_buffer: BTreeSet::new(),
         };
+
         if let Some(lss) = this.local_state_store.as_ref() {
             let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
             for (state_key, state) in snaps {
@@ -575,15 +576,6 @@ impl StatefulBatchState {
         } else {
             ResumeFrom::default().epoch()
         }
-    }
-
-    pub fn clear_awoken(&mut self) {
-        self.awoken_keys_this_activation.clear();
-    }
-
-    pub fn fill_awoken_this_epoch_buffer(&mut self) {
-        self.awoken_keys_this_epoch_buffer
-            .extend(std::mem::take(&mut self.awoken_keys_this_activation));
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
@@ -646,46 +638,103 @@ impl StatefulBatchState {
         py: Python,
         key: &StateKey,
         values: Vec<PyObject>,
-    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
+    ) -> PyResult<Vec<PyObject>> {
+        // Mark this key as being awoken in this activation
+        self.awoken_keys_this_activation.insert(key.clone());
+
+        // Call user's code to get the result
         let res = self
             .state_store_cache
             .borrow()
             .get(&self.step_id, key)
             .unwrap()
             .bind(py)
-            .call_method1(intern!(py, "on_batch"), (values,))?;
-        self.awoken_keys_this_activation.insert(key.clone());
-        StatefulBatchLogic::extract_ret(res)
-            .reraise("error extracting `(emit, is_complete)`")
+            .call_method1(intern!(py, "on_batch"), (values,))
             .reraise_with(|| {
                 format!(
                     "error calling `StatefulBatch.on_batch` in step {} for key {}",
                     self.step_id, &key
                 )
-            })
+            })?;
+
+        // Do the type checking
+        let (output, is_complete) = StatefulBatchLogic::extract_ret(res)
+            .reraise("error extracting `(emit, is_complete)`")?;
+
+        // Remove the state if needed.
+        if matches!(is_complete, IsComplete::Discard) {
+            self.remove(key);
+        }
+
+        Ok(output)
     }
 
-    fn on_notify(
-        &mut self,
-        py: Python,
-        key: &StateKey,
-    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
+    fn on_notify(&mut self, py: Python, key: &StateKey) -> PyResult<Vec<PyObject>> {
+        // Mark this key as being awoken in this activation
+        self.awoken_keys_this_activation.insert(key.clone());
+
+        // Call user's code to get next scheduling time
         let res = self
             .state_store_cache
             .borrow()
             .get(&self.step_id, key)
             .unwrap()
             .bind(py)
-            .call_method0(intern!(py, "on_notify"))?;
-        self.awoken_keys_this_activation.insert(key.clone());
-        StatefulBatchLogic::extract_ret(res)
-            .reraise("error extracting `(emit, is_complete)`")
+            .call_method0(intern!(py, "on_notify"))
             .reraise_with(|| {
                 format!(
                     "error calling `StatefulBatchLogic.on_notify` in {} for key {}",
                     self.step_id, key
                 )
-            })
+            })?;
+
+        // Do the type checking
+        let (output, is_complete) = StatefulBatchLogic::extract_ret(res)
+            .reraise("error extracting `(emit, is_complete)`")?;
+
+        // Clear the state if needed
+        if matches!(is_complete, IsComplete::Discard) {
+            self.remove(key);
+        } else {
+            // Even if we don't discard the logic, the previous
+            // scheduled notification only should fire once. The
+            // logic can re-schedule it by still returning it
+            // in `notify_at`.
+            self.unschedule(key);
+        }
+
+        Ok(output)
+    }
+
+    fn on_eof(&mut self, py: Python, key: &StateKey) -> PyResult<Vec<PyObject>> {
+        // Mark this key as being awoken in this activation
+        self.awoken_keys_this_activation.insert(key.clone());
+
+        // Call user's code for the closing logic
+        let res = self
+            .state_store_cache
+            .borrow()
+            .get(&self.step_id, key)
+            .unwrap()
+            .bind(py)
+            .call_method0("on_eof")
+            .reraise_with(|| {
+                format!(
+                    "error calling `StatefulBatchLogic.on_eof` in {} for key {}",
+                    self.step_id, key
+                )
+            })?;
+
+        // Do the type checking
+        let (output, is_complete) = StatefulBatchLogic::extract_ret(res)
+            .reraise("error extracting `(emit, is_complete)`")?;
+
+        // Discard and unschedule if needed.
+        if let IsComplete::Discard = is_complete {
+            self.remove(key);
+        }
+
+        Ok(output)
     }
 
     fn notify_at(&self, py: Python, key: &StateKey) -> PyResult<Option<DateTime<Utc>>> {
@@ -710,34 +759,20 @@ impl StatefulBatchState {
         }
     }
 
-    fn on_eof(
-        &mut self,
-        py: Python,
-        key: &StateKey,
-    ) -> PyResult<(Vec<PyObject>, crate::operators::IsComplete)> {
-        let res = self
-            .state_store_cache
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .bind(py)
-            .call_method0("on_eof")
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulBatchLogic.on_eof` in {} for key {}",
-                    self.step_id, key
-                )
-            })?;
-        self.awoken_keys_this_activation.insert(key.clone());
-        StatefulBatchLogic::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
-    }
-
     fn snapshots(
         &mut self,
         py: Python,
         epoch: u64,
         is_epoch_closed: bool,
     ) -> Vec<SerializedSnapshot> {
+        // This function should be called at each activation, we then decide
+        // if we take the snapshots immediately or wait for the epoch to close.
+        // We do always take out keys from self.awoken_keys_this_activation into
+        // self.awoken_keys_this_epoch_buffer to keep track of what we need to
+        // snapshot in case we are not doing it immediately.
+        self.awoken_keys_this_epoch_buffer
+            .extend(std::mem::take(&mut self.awoken_keys_this_activation));
+
         let mut res = vec![];
         if let Some(lss) = self.local_state_store.as_ref() {
             if lss.borrow().snapshot_mode().immediate() || is_epoch_closed {
@@ -910,6 +945,7 @@ where
                 // For each epoch in order.
                 for epoch in process_epochs {
                     tracing::trace!("Processing epoch {epoch:?}");
+
                     // Since the frontier has advanced to at least this epoch (because
                     // we're going through them in order), say that we'll not be sending
                     // output at any older epochs. This also asserts "apply changes in
@@ -918,9 +954,6 @@ where
                     state_update_cap.downgrade(&epoch);
 
                     let mut kv_downstream_session = kv_downstream_handle.session(&output_cap);
-
-                    // Clear awoken keys
-                    state.clear_awoken();
 
                     // First, call `on_batch` for all the input items.
                     if let Some(items) = inbuf.remove(&epoch) {
@@ -938,7 +971,7 @@ where
                         }
 
                         // Ok, now let's actually run the logic code for each item!
-                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                        Python::with_gil(|py| {
                             for (key, values) in keyed_items {
                                 // Build the logic if it wasn't in the state yet.
                                 if !state.contains_key(&key) {
@@ -946,34 +979,29 @@ where
                                 }
 
                                 // Run the logic's on_batch function
-                                let (output, is_complete) = with_timer!(
+                                let output = with_timer!(
                                     on_batch_histogram,
                                     labels,
-                                    state.on_batch(py, &key, values)?
+                                    unwrap_any!(state.on_batch(py, &key, values))
                                 );
 
                                 // Update metrics
                                 item_out_count.add(output.len() as u64, &labels);
 
                                 // And send the output downstream.
-                                for value in output {
-                                    kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
-                                }
-
-                                // Now remove the state if needed.
-                                if let IsComplete::Discard = is_complete {
-                                    state.remove(&key);
-                                }
+                                kv_downstream_session.give_iterator(
+                                    output
+                                        .into_iter()
+                                        .map(|value| (key.clone(), TdPyAny::from(value))),
+                                );
                             }
-
-                            Ok(())
-                        }));
+                        });
                     }
 
                     // Then call all logic that has a due notification.
                     Python::with_gil(|py| {
                         for key in state.notify_keys(now) {
-                            let (output, is_complete) = with_timer!(
+                            let output = with_timer!(
                                 on_notify_histogram,
                                 labels,
                                 unwrap_any!(state.on_notify(py, &key))
@@ -983,20 +1011,11 @@ where
                             item_out_count.add(output.len() as u64, &labels);
 
                             // Send the output downstream.
-                            for value in output {
-                                kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
-                            }
-
-                            // Clear the state if needed
-                            if let IsComplete::Discard = is_complete {
-                                state.remove(&key);
-                            } else {
-                                // Even if we don't discard the logic, the previous
-                                // scheduled notification only should fire once. The
-                                // logic can re-schedule it by still returning it
-                                // in `notify_at`.
-                                state.unschedule(&key);
-                            }
+                            kv_downstream_session.give_iterator(
+                                output
+                                    .into_iter()
+                                    .map(|value| (key.clone(), TdPyAny::from(value))),
+                            );
                         }
                     });
 
@@ -1004,7 +1023,7 @@ where
                     if input_frontiers.is_eof() {
                         Python::with_gil(|py| {
                             for key in state.keys() {
-                                let (output, is_complete) = with_timer!(
+                                let output = with_timer!(
                                     on_eof_histogram,
                                     labels,
                                     unwrap_any!(state.on_eof(py, &key))
@@ -1014,14 +1033,11 @@ where
                                 item_out_count.add(output.len() as u64, &labels);
 
                                 // Send items downstream.
-                                for value in output {
-                                    kv_downstream_session.give((key.clone(), TdPyAny::from(value)));
-                                }
-
-                                // Discard and unschedule if needed.
-                                if let IsComplete::Discard = is_complete {
-                                    state.remove(&key);
-                                }
+                                kv_downstream_session.give_iterator(
+                                    output
+                                        .into_iter()
+                                        .map(|value| (key.clone(), TdPyAny::from(value))),
+                                );
                             }
                         });
                     }
@@ -1038,21 +1054,22 @@ where
                                 state.schedule(key.clone(), sched);
                             }
                         }
+                    });
 
-                        state.fill_awoken_this_epoch_buffer();
-
-                        // Snapshot and output state changes.
-                        let is_epoch_closed = input_frontiers.is_closed(&epoch);
-                        let mut snapshots = with_timer!(
+                    // Snapshot and output state changes.
+                    let is_epoch_closed = input_frontiers.is_closed(&epoch);
+                    let mut snapshots = Python::with_gil(|py| {
+                        with_timer!(
                             snapshot_histogram,
                             labels,
                             state.snapshots(py, epoch, is_epoch_closed)
-                        );
-                        if !snapshots.is_empty() {
-                            let mut snaps_session = snaps_handle.session(&state_update_cap);
-                            snaps_session.give_vec(&mut snapshots);
-                        }
+                        )
                     });
+
+                    if !snapshots.is_empty() {
+                        let mut snaps_session = snaps_handle.session(&state_update_cap);
+                        snaps_session.give_vec(&mut snapshots);
+                    }
                 }
 
                 // Schedule operator activation at the soonest requested notify at for any key.
