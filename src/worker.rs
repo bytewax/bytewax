@@ -158,13 +158,34 @@ where
             py,
             worker.worker,
             flow,
-            state_store_cache,
-            local_state_store,
+            state_store_cache.clone(),
+            local_state_store.clone(),
             epoch_interval,
             &worker.abort,
         )
         .reraise("error building production dataflow")
     })?;
+
+    // Now, write execution info to the durable store before starting
+    // the production dataflow. This way, if the dataflow crashes before
+    // the first epoch ended, we can still do a fast resume, even though
+    // we'll restart from the beginning.
+    if let Some(local_state_store) = local_state_store.as_ref() {
+        let path = local_state_store
+            .borrow_mut()
+            .write_frontier_segment(0)
+            .unwrap();
+        let backup = local_state_store.borrow().backup();
+        Python::with_gil(|py| {
+            backup
+                .upload(
+                    py,
+                    path.clone(),
+                    path.file_name().unwrap().to_string_lossy().to_string(),
+                )
+                .unwrap();
+        })
+    }
 
     tracing::info_span!("production_dataflow").in_scope(|| {
         worker.run(probe);
@@ -284,9 +305,6 @@ where
         let mut is_input_present = false;
         let mut outputs = Vec::new();
         let mut snaps = Vec::new();
-
-        // let recovery_on = state_store.borrow().recovery_on();
-        // let immediate_snapshot = state_store.borrow().immediate_snapshot();
 
         // This contains steps we still need to compile. Starts with
         // the top-level steps in the dataflow.

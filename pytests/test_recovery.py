@@ -21,17 +21,13 @@ def test_abort_no_snapshots(recovery_config_batch):
     op.output("out", s, TestingSink(out))
 
     # Setting snapshot mode to batch and epoch interval to 5 sec
-    # means we shouldn't have a snapshot when the abort happens.
+    # means we should have a snapshot when the abort happens.
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [0, 1, 2]
 
-    # But the file has been created, so the dataflow will fail until we remove it:
+    # But no frontier info will have been writter, so the dataflow will
+    # restart from scratch
     out.clear()
-    with pytest.raises(RuntimeError):
-        run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
-    # Once we remove the local state store files, the dataflow will correctly restart
-    for p in Path(recovery_config_batch.db_dir).glob("*.sqlite3"):
-        p.unlink()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config_batch)
     assert out == [0, 1, 2, 3, 4]
 

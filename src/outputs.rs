@@ -367,11 +367,6 @@ where
         ];
 
         op_builder.build(move |init_caps| {
-            // Which partitions were written to in this epoch.
-            // We only snapshot those.
-            // let awoken: BTreeSet<StateKey> = BTreeSet::new();
-            // let snaps = Vec::new();
-
             let mut routed_tmp = Vec::new();
             // First `StateKey` is partition, second is data routing.
             type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
