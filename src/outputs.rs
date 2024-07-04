@@ -168,6 +168,11 @@ pub(crate) struct OutputState {
 
     /// This is used to keep track of which keys needs to be snapshotted
     awoken: BTreeSet<StateKey>,
+
+    /// Vec only used to temporarily hold snapshots.
+    /// We keep this to avoid having to allocate a new vector
+    /// each time we take snapshots.
+    snaps_buf: Vec<SerializedSnapshot>,
 }
 
 impl OutputState {
@@ -208,6 +213,7 @@ impl OutputState {
             local_state_store,
             state_store_cache,
             awoken: BTreeSet::new(),
+            snaps_buf: vec![],
         };
 
         if let Some(lss) = this.local_state_store.as_ref() {
@@ -268,24 +274,27 @@ impl OutputState {
         epoch: u64,
         is_closing_logic: bool,
     ) -> Vec<SerializedSnapshot> {
-        let mut res = vec![];
         if let Some(lss) = self.local_state_store.as_ref() {
             // We always snapshot if snapshot_mode is immediate,
             // otherwise we only snapshot in the closing logic.
             if lss.borrow().snapshot_mode().immediate() || is_closing_logic {
-                for key in std::mem::take(&mut self.awoken) {
-                    let snap = self
-                        .state_store_cache
-                        .borrow()
-                        .snap(py, self.step_id.clone(), key, epoch)
-                        .reraise("Error snapshotting FixedPartitionedSink")
-                        .unwrap();
-                    res.push(snap)
-                }
-                lss.borrow_mut().write_snapshots(res.clone());
+                // Reuse the buffer vector, clone it for the local_state_store
+                // then immediately empty it again for the operator.
+                // This saves us a number of allocations every time this function
+                // is called.
+                self.snaps_buf
+                    .extend(std::mem::take(&mut self.awoken).into_iter().map(|key| {
+                        // Here is where we finally take the snapshot
+                        self.state_store_cache
+                            .borrow()
+                            .snap(py, self.step_id.clone(), key, epoch)
+                            .reraise("Error snapshotting FixedPartitionedSink")
+                            .unwrap()
+                    }));
+                lss.borrow_mut().write_snapshots(self.snaps_buf.clone());
             }
         }
-        res
+        std::mem::take(&mut self.snaps_buf)
     }
 }
 

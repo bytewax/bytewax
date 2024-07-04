@@ -345,7 +345,7 @@ impl InputState {
                 || self.eofd_parts_buffer.contains(&key)
                 || self.epoch_ended(&key)
             {
-                let epoch = self.epoch_for(&key);
+                let epoch = *self.epoch_for(&key);
                 let snap = self
                     .state_store_cache
                     .borrow()
@@ -358,7 +358,7 @@ impl InputState {
         }
     }
 
-    pub fn populate_parts(
+    pub fn set_init_caps(
         &mut self,
         py: Python,
         downstream_cap: Capability<u64>,
@@ -592,6 +592,15 @@ impl FixedPartitionedSource {
 
             let mut inbuf = InBuffer::new();
 
+            // Persistent across activation buffer of items.
+            // This is actually cleared every time we send items
+            // downstream, but it will keep the maximum capacity allocated
+            // so we can avoid having to allocate a new vector each time.
+            // We could also use `give_iterator` rather than `give_vec`,
+            // but we wouldn't have control over the size of the
+            // internal buffer timely uses, and thus when it is flushed.
+            let mut outbuf = Vec::new();
+
             move |input_frontiers| {
                 let _guard = tracing::debug_span!("operator", operator = op_name).entered();
                 state.init_step();
@@ -625,7 +634,7 @@ impl FixedPartitionedSource {
                             }
                         }
 
-                        state.populate_parts(py, downstream_cap, snap_cap);
+                        state.set_init_caps(py, downstream_cap, snap_cap);
                     });
                 }
 
@@ -650,16 +659,20 @@ impl FixedPartitionedSource {
                                     labels,
                                     unwrap_any!(state.next_batch(py, &key, &abort))
                                 ) {
+                                    // Send metrics
                                     let batch_len = batch.len();
+                                    item_out_count.add(batch_len as u64, &labels);
                                     batch_size_histogram.record(batch_len as u64, &labels);
 
+                                    // The send the items downastream
                                     let downstream_cap = state.downstream_cap(&key);
                                     let mut downstream_session =
                                         downstream_handle.session(downstream_cap);
-                                    item_out_count.add(batch_len as u64, &labels);
-                                    let mut batch: Vec<_> =
-                                        batch.into_iter().map(TdPyAny::from).collect();
-                                    downstream_session.give_vec(&mut batch);
+
+                                    // Reuse the already allocated buffer,
+                                    // then let timely empty it in `give_vec`.
+                                    outbuf.extend(batch.into_iter().map(TdPyAny::from));
+                                    downstream_session.give_vec(&mut outbuf);
                                 }
                             }
 

@@ -526,6 +526,11 @@ pub(crate) struct StatefulBatchState {
     // Awoken keys in this activation
     awoken_keys_this_activation: BTreeSet<StateKey>,
     awoken_keys_this_epoch_buffer: BTreeSet<StateKey>,
+
+    /// Vec only used to temporarily hold snapshots.
+    /// We keep this to avoid having to allocate a new vector
+    /// each time we take snapshots.
+    snaps_buf: Vec<SerializedSnapshot>,
 }
 
 impl StatefulBatchState {
@@ -554,6 +559,7 @@ impl StatefulBatchState {
             sched_cache: BTreeMap::new(),
             awoken_keys_this_activation: BTreeSet::new(),
             awoken_keys_this_epoch_buffer: BTreeSet::new(),
+            snaps_buf: vec![],
         };
 
         if let Some(lss) = this.local_state_store.as_ref() {
@@ -773,22 +779,28 @@ impl StatefulBatchState {
         self.awoken_keys_this_epoch_buffer
             .extend(std::mem::take(&mut self.awoken_keys_this_activation));
 
-        let mut res = vec![];
         if let Some(lss) = self.local_state_store.as_ref() {
             if lss.borrow().snapshot_mode().immediate() || is_epoch_closed {
-                for key in std::mem::take(&mut self.awoken_keys_this_epoch_buffer) {
-                    let snap = self
-                        .state_store_cache
-                        .borrow()
-                        .snap(py, self.step_id.clone(), key, epoch)
-                        .reraise("Error snapshotting PartitionedInput")
-                        .unwrap();
-                    res.push(snap);
-                }
-                lss.borrow_mut().write_snapshots(res.clone());
+                // Reuse the buffer vector, clone it for the local_state_store
+                // then immediately empty it again for the operator.
+                // This saves us a number of allocations every time this function
+                // is called.
+                self.snaps_buf.extend(
+                    std::mem::take(&mut self.awoken_keys_this_epoch_buffer)
+                        .into_iter()
+                        .map(|key| {
+                            // Here is where we finally take the snapshot
+                            self.state_store_cache
+                                .borrow()
+                                .snap(py, self.step_id.clone(), key, epoch)
+                                .reraise("Error snapshotting PartitionedInput")
+                                .unwrap()
+                        }),
+                );
+                lss.borrow_mut().write_snapshots(self.snaps_buf.clone());
             }
         }
-        res
+        std::mem::take(&mut self.snaps_buf)
     }
 }
 
@@ -877,6 +889,15 @@ where
             // process. This spans activations and will have epochs
             // removed from it as the input frontier progresses.
             let mut inbuf = InBuffer::new();
+
+            // Persistent across activation buffer of items.
+            // This is actually cleared every time we send items
+            // downstream, but it will keep the maximum capacity allocated
+            // so we can avoid having to allocate a new vector each time.
+            // We could also use `give_iterator` rather than `give_vec`,
+            // but we wouldn't have control over the size of the
+            // internal buffer timely uses, and thus when it is flushed.
+            let mut outbuf = Vec::new();
 
             move |input_frontiers| {
                 let _guard = tracing::debug_span!("operator", operator = op_name).entered();
@@ -989,11 +1010,14 @@ where
                                 item_out_count.add(output.len() as u64, &labels);
 
                                 // And send the output downstream.
-                                kv_downstream_session.give_iterator(
+                                // Reuse the already allocated buffer,
+                                // then let timely empty it in `give_vec`.
+                                outbuf.extend(
                                     output
                                         .into_iter()
                                         .map(|value| (key.clone(), TdPyAny::from(value))),
                                 );
+                                kv_downstream_session.give_vec(&mut outbuf);
                             }
                         });
                     }
@@ -1011,11 +1035,14 @@ where
                             item_out_count.add(output.len() as u64, &labels);
 
                             // Send the output downstream.
-                            kv_downstream_session.give_iterator(
+                            // Reuse the already allocated buffer,
+                            // then let timely empty it in `give_vec`.
+                            outbuf.extend(
                                 output
                                     .into_iter()
                                     .map(|value| (key.clone(), TdPyAny::from(value))),
                             );
+                            kv_downstream_session.give_vec(&mut outbuf);
                         }
                     });
 
@@ -1033,11 +1060,14 @@ where
                                 item_out_count.add(output.len() as u64, &labels);
 
                                 // Send items downstream.
-                                kv_downstream_session.give_iterator(
+                                // Reuse the already allocated buffer,
+                                // then let timely empty it in `give_vec`.
+                                outbuf.extend(
                                     output
                                         .into_iter()
                                         .map(|value| (key.clone(), TdPyAny::from(value))),
                                 );
+                                kv_downstream_session.give_vec(&mut outbuf);
                             }
                         });
                     }
