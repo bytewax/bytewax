@@ -24,10 +24,10 @@ class BytewaxTracer:
 class RecoveryConfig:
     """Configuration settings for recovery.
 
-    :arg db_dir: Local filesystem directory to use for recovery
+    :arg local_state_dir: Local filesystem directory to use for recovery
         database partitions.
 
-    :type db_dir: pathlib.Path
+    :type local_state_dir: pathlib.Path
 
     :arg backup: Class to use to save recovery files to a durable
         storage like amazon's S3.
@@ -35,15 +35,16 @@ class RecoveryConfig:
     :type backup: bytewax.backup.Backup
 
     :arg snapshot_mode: Whether to take state snapshots at the end
-        of the epoch, or as soon as a change happens. Defaults
-        to take SnapshotMode.Immediate.
+        of the epoch (SnapshotMode.Batch), or as soon as a change
+        happens (SnapshotMode.Immediate).
+        Defaults to SnapshotMode.Immediate.
 
     :type snapshot_mode: SnapshotMode
 
     """
     ...
 
-    def __init__(self, db_dir, backup, snapshot_mode=None):
+    def __init__(self, local_state_dir, backup, snapshot_mode=None):
         ...
 
     def __new__(cls, *args, **kwargs):
@@ -55,7 +56,7 @@ class RecoveryConfig:
         ...
 
     @property
-    def db_dir(self):
+    def local_state_dir(self):
         ...
 
     @property

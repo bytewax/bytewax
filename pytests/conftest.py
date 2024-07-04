@@ -61,7 +61,7 @@ def recovery_config_batch(tmp_path):
     """Generate a recovery config with snapshot_mode set to Batch."""
     os.mkdir(tmp_path / "backup")
     yield RecoveryConfig(
-        str(tmp_path),
+        tmp_path,
         backup=file_system_backup(tmp_path / "backup"),
         snapshot_mode=SnapshotMode.Batch,
     )
@@ -73,7 +73,7 @@ def recovery_config_immediate(tmp_path):
     """Generate a recovery config with snapshot_mode set to Immediate."""
     os.mkdir(tmp_path / "backup")
     yield RecoveryConfig(
-        str(tmp_path),
+        tmp_path,
         backup=file_system_backup(tmp_path / "backup"),
         snapshot_mode=SnapshotMode.Immediate,
     )

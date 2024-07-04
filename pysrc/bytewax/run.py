@@ -217,8 +217,7 @@ def _create_arg_parser():
         "-d",
         "--local-state-dir",
         type=Path,
-        help="""Local file system directory to use to save recovery data.
-        Defaults to the same dir where the execution script is launched from.""",
+        help="""Local file system directory where to save local state db files.""",
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_DIRECTORY",
     )
@@ -232,13 +231,14 @@ def _create_arg_parser():
         envvar="BYTEWAX_SNAPSHOT_MODE",
     )
     recovery.add_argument(
+        "-b",
         "--backup",
         type=str,
+        default="bytewax.backup:file_system_backup()",
         help="""
         Backup import string in the format
         <module_name>[:<backup_variable_or_factory>]
-        Example: src.dataflow or src.dataflow:backup_object or
-        "bytewax.backup.file_system_backup('/tmp/bytewax/backup')"
+        Example: "bytewax.backup.file_system_backup('/tmp/bytewax/backup')"
         """,
     )
     recovery.add_argument(
@@ -317,8 +317,7 @@ def _parse_args():
                 "the addresses option is required if a process_id is passed"
             )
 
-    # If recovery is configured, make sure that the snapshot_interval and
-    # backup_interval are set.
+    # If recovery is configured, make sure that the snapshot_interval is set.
     if args.local_state_dir is not None and args.snapshot_interval is None:
         arg_parser.error(
             "when running with recovery, the `-s/--snapshot_interval` "

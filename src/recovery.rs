@@ -191,13 +191,13 @@ impl LocalStateStore {
         worker_count: usize,
         recovery_config: &Bound<'_, RecoveryConfig>,
     ) -> PyResult<Self> {
-        // Set db_dir and open main connection to the local store.
-        let db_dir = recovery_config.borrow().db_dir.clone();
-        if !db_dir.is_dir() {
+        // Set local_state_dir and open main connection to the db.
+        let local_state_dir = recovery_config.borrow().local_state_dir.clone();
+        if !local_state_dir.is_dir() {
             return Err(PyFileNotFoundError::new_err(format!(
-                "recovery directory {:?} does not exist; \
+                "local state directory {:?} does not exist; \
                 see the `bytewax.recovery` module docstring for more info",
-                db_dir
+                local_state_dir
             )));
         }
 
@@ -250,7 +250,7 @@ impl LocalStateStore {
         frontier_segments.sort_by_key(|&(ex_num, epoch, _)| (ex_num, epoch));
 
         if let Some((_, _, frontier_segment)) = frontier_segments.last() {
-            let segment_file = db_dir.join(frontier_segment);
+            let segment_file = local_state_dir.join(frontier_segment);
             Python::with_gil(|py| {
                 backup
                     .download(py, frontier_segment, segment_file.as_path())
@@ -308,7 +308,7 @@ impl LocalStateStore {
         // If that's not the case, but the file does not exist, we need
         // to do a full resume.
         let is_first_execution = resume_from.execution().0 == 0;
-        let db_exists = db_dir.join(file_name.clone()).exists();
+        let db_exists = local_state_dir.join(file_name.clone()).exists();
         // TODO: full resume is not implemented yet, so we crash here.
         if !is_first_execution && !db_exists {
             return Err(PyErr::new::<PyRuntimeError, _>("Missing db file."));
@@ -322,16 +322,16 @@ impl LocalStateStore {
                 but durable backup indicates that this is the first execution. \
                 Please rename or remove the file before running the dataflow.",
                 file_name,
-                db_dir.to_string_lossy()
+                local_state_dir.to_string_lossy()
             )));
         }
 
         // Finally open or create the file.
-        let conn = setup_conn(db_dir.join(file_name))?;
+        let conn = setup_conn(local_state_dir.join(file_name))?;
 
         Ok(Self {
             conn,
-            db_dir,
+            db_dir: local_state_dir,
             backup,
             current_epoch: resume_from.epoch().0,
             worker_index,
@@ -374,7 +374,7 @@ impl LocalStateStore {
         let pickle = py.import_bound("pickle")?;
         self.conn
             // Retrieve all the snapshots for the latest epoch saved
-            // in the recovery store that's <= than resume_from.
+            // in the local store that's <= than resume_from.
             .prepare(
                 "SELECT step_id, state_key, MAX(epoch) as epoch, ser_change \
                 FROM snaps \
@@ -390,7 +390,7 @@ impl LocalStateStore {
                     row.get(3)?,
                 ))
             })
-            .reraise("Error binding query parameters in recovery store")?
+            .reraise("Error binding query parameters in local state store")?
             .map(|res| res.expect("Error unpacking SerializedSnapshot"))
             .map(|SerializedSnapshot(_, key, _, ser_state)| {
                 let state = ser_state.map_or_else(
@@ -462,7 +462,7 @@ fn setup_conn(path: PathBuf) -> PyResult<Connection> {
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .reraise("can't open recovery DB")?;
+    .reraise("can't open DB")?;
     rusqlite::vtab::series::load_module(&conn).reraise("Error initializing db")?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .reraise("Error initializing db")?;
@@ -730,10 +730,10 @@ impl SnapshotMode {
 
 /// Configuration settings for recovery.
 ///
-/// :arg db_dir: Local filesystem directory to use for recovery
+/// :arg local_state_dir: Local filesystem directory to use for recovery
 ///     database partitions.
 ///
-/// :type db_dir: pathlib.Path
+/// :type local_state_dir: pathlib.Path
 ///
 /// :arg backup: Class to use to save recovery files to a durable
 ///     storage like amazon's S3.
@@ -750,7 +750,7 @@ impl SnapshotMode {
 #[derive(Clone, Debug)]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
-    pub(crate) db_dir: PathBuf,
+    pub(crate) local_state_dir: PathBuf,
     #[pyo3(get)]
     pub(crate) backup: Backup,
     #[pyo3(get)]
@@ -760,10 +760,14 @@ pub(crate) struct RecoveryConfig {
 #[pymethods]
 impl RecoveryConfig {
     #[new]
-    fn new(db_dir: PathBuf, backup: Backup, snapshot_mode: Option<SnapshotMode>) -> PyResult<Self> {
+    fn new(
+        local_state_dir: PathBuf,
+        backup: Backup,
+        snapshot_mode: Option<SnapshotMode>,
+    ) -> PyResult<Self> {
         let snapshot_mode = snapshot_mode.unwrap_or(SnapshotMode::Immediate);
         Ok(Self {
-            db_dir,
+            local_state_dir,
             snapshot_mode,
             backup,
         })
