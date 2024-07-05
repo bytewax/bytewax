@@ -9,6 +9,13 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Upstream type hints on
+  {py:obj}`bytewax.connectors.kafka.operators.serialize_key`,
+  {py:obj}`~bytewax.connectors.kafka.operators.serialize_value`, and
+  {py:obj}`~bytewax.connectors.kafka.operators.serialize` have been
+  made more broad to support all Kafka serializers, like
+  {py:obj}`confluent_kafka.serialization.StringSerializer`.
+
 - Fixes a bug which caused two of the same types of windowing
   operators in a dataflow to spuriously result in a `ValueError`. This
   fix invalidates any recovery data for all windowing operators; it is

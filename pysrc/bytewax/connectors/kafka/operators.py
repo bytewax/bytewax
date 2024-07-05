@@ -18,7 +18,7 @@ kop.output("kafka-out", kafka_input.oks, brokers=[...], topic="...")
 """
 
 from dataclasses import dataclass
-from typing import Dict, Generic, List, Optional, TypeVar, Union, cast
+from typing import Any, Dict, Generic, List, Optional, TypeVar, Union, cast
 
 import confluent_kafka
 from confluent_kafka import OFFSET_BEGINNING
@@ -34,16 +34,13 @@ from bytewax.connectors.kafka import (
     KafkaSink,
     KafkaSinkMessage,
     KafkaSource,
-    KafkaSourceError,
     KafkaSourceMessage,
-    SerializedKafkaSinkMessage,
-    SerializedKafkaSourceMessage,
     V,
 )
 from bytewax.dataflow import Dataflow, Stream, operator
 
 X = TypeVar("X")
-"""Type of sucessfully processed items."""
+"""Type of successfully processed items."""
 
 E = TypeVar("E")
 """Type of errors."""
@@ -100,7 +97,10 @@ def input(  # noqa A001
     starting_offset: int = OFFSET_BEGINNING,
     add_config: Optional[Dict[str, str]] = None,
     batch_size: int = 1000,
-) -> KafkaOpOut[SerializedKafkaSourceMessage, KafkaSourceError]:
+) -> KafkaOpOut[
+    KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+    KafkaError[Optional[bytes], Optional[bytes]],
+]:
     """Consume from Kafka as an input source.
 
     Partitions are the unit of parallelism. Can support exactly-once
@@ -153,7 +153,12 @@ def input(  # noqa A001
 @operator
 def output(
     step_id: str,
-    up: Stream[Union[SerializedKafkaSourceMessage, SerializedKafkaSinkMessage]],
+    up: Stream[
+        Union[
+            KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+            KafkaSinkMessage[Optional[bytes], Optional[bytes]],
+        ]
+    ],
     *,
     brokers: List[str],
     topic: str,
@@ -325,7 +330,7 @@ def deserialize(
 @operator
 def serialize_key(
     step_id: str,
-    up: Stream[Union[KafkaSourceMessage[dict, V], KafkaSinkMessage[dict, V]]],
+    up: Stream[Union[KafkaSourceMessage[Any, V], KafkaSinkMessage[Any, V]]],
     serializer: confluent_kafka.serialization.Serializer,
 ) -> Stream[KafkaSinkMessage[bytes, V]]:
     """Serialize Kafka message keys.
@@ -345,7 +350,7 @@ def serialize_key(
 
     """
 
-    def shim_mapper(msg: KafkaSinkMessage[dict, V]) -> KafkaSinkMessage[bytes, V]:
+    def shim_mapper(msg: KafkaSinkMessage[Any, V]) -> KafkaSinkMessage[bytes, V]:
         key = serializer(msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY))
         assert key is not None
         return msg._with_key(key)
@@ -356,7 +361,7 @@ def serialize_key(
 @operator
 def serialize_value(
     step_id: str,
-    up: Stream[Union[KafkaSourceMessage[K, dict], KafkaSinkMessage[K, dict]]],
+    up: Stream[Union[KafkaSourceMessage[K, Any], KafkaSinkMessage[K, Any]]],
     serializer: confluent_kafka.serialization.Serializer,
 ) -> Stream[KafkaSinkMessage[K, bytes]]:
     """Serialize Kafka message values.
@@ -376,7 +381,7 @@ def serialize_value(
 
     """
 
-    def shim_mapper(msg: KafkaSinkMessage[K, dict]) -> KafkaSinkMessage[K, bytes]:
+    def shim_mapper(msg: KafkaSinkMessage[K, Any]) -> KafkaSinkMessage[K, bytes]:
         value = serializer(
             msg.value, ctx=SerializationContext(msg.topic, MessageField.VALUE)
         )
@@ -389,7 +394,7 @@ def serialize_value(
 @operator
 def serialize(
     step_id: str,
-    up: Stream[Union[KafkaSourceMessage[dict, dict], KafkaSinkMessage[dict, dict]]],
+    up: Stream[Union[KafkaSourceMessage[Any, Any], KafkaSinkMessage[Any, Any]]],
     *,
     key_serializer: confluent_kafka.serialization.Serializer,
     val_serializer: confluent_kafka.serialization.Serializer,
@@ -414,7 +419,7 @@ def serialize(
     """
 
     def shim_mapper(
-        msg: KafkaSinkMessage[dict, dict],
+        msg: KafkaSinkMessage[Any, Any],
     ) -> KafkaSinkMessage[bytes, bytes]:
         key = key_serializer(
             msg.key, ctx=SerializationContext(msg.topic, MessageField.KEY)

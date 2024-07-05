@@ -48,7 +48,6 @@ from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
 from prometheus_client import Gauge
-from typing_extensions import TypeAlias
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
@@ -148,13 +147,6 @@ class KafkaSourceMessage(Generic[K, V]):
         )
 
 
-SerializedKafkaSourceMessage: TypeAlias = KafkaSourceMessage[
-    Optional[bytes],
-    Optional[bytes],
-]
-"""A fully serialized Kafka message from the consumer."""
-
-
 @dataclass(frozen=True)
 class KafkaError(Generic[K, V]):
     """Error from a {py:obj}`KafkaSource`."""
@@ -164,19 +156,6 @@ class KafkaError(Generic[K, V]):
 
     msg: KafkaSourceMessage[K, V]
     """Message attached to that error."""
-
-
-KafkaSourceError: TypeAlias = KafkaError[Optional[bytes], Optional[bytes]]
-"""An error from the Kafka source with original message."""
-
-SerializedKafkaSourceResult: TypeAlias = Union[
-    SerializedKafkaSourceMessage, KafkaSourceError
-]
-"""Items emitted from the Kafka source.
-
-Might be either raw serialized messages or an error from the consumer.
-
-"""
 
 
 def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
@@ -199,7 +178,13 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
 
 
 class _KafkaSourcePartition(
-    StatefulSourcePartition[SerializedKafkaSourceResult, Optional[int]]
+    StatefulSourcePartition[
+        Union[
+            KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+            KafkaError[Optional[bytes], Optional[bytes]],
+        ],
+        Optional[int],
+    ]
 ):
     def __init__(
         self,
@@ -250,13 +235,25 @@ class _KafkaSourcePartition(
                 partition_stats["ls_offset"] - self._offset
             )
 
-    def next_batch(self) -> List[SerializedKafkaSourceResult]:
+    def next_batch(
+        self,
+    ) -> List[
+        Union[
+            KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+            KafkaError[Optional[bytes], Optional[bytes]],
+        ]
+    ]:
         if self._eof:
             raise StopIteration()
 
         msgs = self._consumer.consume(self._batch_size, 0.001)
 
-        batch: List[SerializedKafkaSourceResult] = []
+        batch: List[
+            Union[
+                KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+                KafkaError[Optional[bytes], Optional[bytes]],
+            ]
+        ] = []
         last_offset = None
         for msg in msgs:
             error = msg.error()
@@ -307,14 +304,23 @@ class _KafkaSourcePartition(
         self._consumer.close()
 
 
-class KafkaSource(FixedPartitionedSource[SerializedKafkaSourceResult, Optional[int]]):
+class KafkaSource(
+    FixedPartitionedSource[
+        Union[
+            KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+            KafkaError[Optional[bytes], Optional[bytes]],
+        ],
+        Optional[int],
+    ]
+):
     """Use a set of Kafka topics as an input source.
 
     Partitions are the unit of parallelism.
     Can support exactly-once processing.
 
     Messages are emitted into the dataflow as
-    {py:obj}`SerializedKafkaSourceResult` objects.
+    {py:obj}`KafkaSourceMessage` objects with both keys and values as
+    optional bytes.
 
     """
 
@@ -462,22 +468,16 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
         )
 
 
-SerializedKafkaSinkMessage: TypeAlias = KafkaSinkMessage[
-    Optional[bytes], Optional[bytes]
-]
-"""A fully serialized Kafka message ready for the producer.
-
-Both key and value are optional.
-
-"""
-
-
-class _KafkaSinkPartition(StatelessSinkPartition[SerializedKafkaSinkMessage]):
+class _KafkaSinkPartition(
+    StatelessSinkPartition[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
+):
     def __init__(self, producer, topic):
         self._producer = producer
         self._topic = topic
 
-    def write_batch(self, items: List[SerializedKafkaSinkMessage]) -> None:
+    def write_batch(
+        self, items: List[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
+    ) -> None:
         for msg in items:
             topic = self._topic if msg.topic is None else msg.topic
             if topic is None:
@@ -498,11 +498,12 @@ class _KafkaSinkPartition(StatelessSinkPartition[SerializedKafkaSinkMessage]):
         self._producer.flush()
 
 
-class KafkaSink(DynamicSink[SerializedKafkaSinkMessage]):
+class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]):
     """Use a single Kafka topic as an output sink.
 
     Items consumed from the dataflow must be
-    {py:obj}`SerializedKafkaSinkMessage`.
+    {py:obj}`KafkaSinkMessage` with both keys and values as optional
+    bytes.
 
     Workers are the unit of parallelism.
 
@@ -514,7 +515,7 @@ class KafkaSink(DynamicSink[SerializedKafkaSinkMessage]):
     def __init__(
         self,
         brokers: Iterable[str],
-        # Optional with no defaults, so you have to explicitely pass
+        # Optional with no defaults, so you have to explicitly pass
         # `topic=None` if you want to use the topic from the messages
         topic: Optional[str],
         add_config: Optional[Dict[str, str]] = None,
