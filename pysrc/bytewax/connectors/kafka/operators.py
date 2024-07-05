@@ -40,7 +40,7 @@ from bytewax.connectors.kafka import (
 from bytewax.dataflow import Dataflow, Stream, operator
 
 X = TypeVar("X")
-"""Type of sucessfully processed items."""
+"""Type of successfully processed items."""
 
 E = TypeVar("E")
 """Type of errors."""

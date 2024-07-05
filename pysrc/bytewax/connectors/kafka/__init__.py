@@ -515,7 +515,7 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
     def __init__(
         self,
         brokers: Iterable[str],
-        # Optional with no defaults, so you have to explicitely pass
+        # Optional with no defaults, so you have to explicitly pass
         # `topic=None` if you want to use the topic from the messages
         topic: Optional[str],
         add_config: Optional[Dict[str, str]] = None,
