@@ -6,6 +6,7 @@ channel for the given product_ids. It then processes the messages as they
 arrive and calculates the best bid and ask prices, as well as the spread.
 """
 
+# start-imports
 import json
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -17,7 +18,10 @@ from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch_async
 
+# end-imports
 
+
+# start-async
 async def _ws_agen(product_id):
     """Connect to websocket and yield messages as they arrive.
 
@@ -47,6 +51,9 @@ async def _ws_agen(product_id):
         while True:
             msg = await websocket.recv()
             yield (product_id, json.loads(msg))
+
+
+# end-async
 
 
 class CoinbasePartition(StatefulSourcePartition):
