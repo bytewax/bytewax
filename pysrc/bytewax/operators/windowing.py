@@ -539,7 +539,7 @@ class WindowerLogic(ABC, Generic[S]):
         """Next system time timestamp for which a window might close.
 
         This will be called periodically to know when to wake up this
-        operator to close windows, even if no items were recevived.
+        operator to close windows, even if no items were received.
 
         :returns: System time of when to next wake up.
 
@@ -1255,11 +1255,10 @@ def window(
 ) -> WindowOut[V, W]:
     """Advanced generic windowing operator.
 
-    This is a lower-level operator Bytewax provideds and gives you
-    control over when a windowing operator emits items.
-    {py:obj}`WindowLogic` works in tandem with {py:obj}`ClockLogic`
-    and {py:obj}`WindowerLogic` to implement its behavior. See
-    documentation of those interfaces.
+    This is a lower-level operator Bytewax and gives you control over
+    when a windowing operator emits items. {py:obj}`WindowLogic` works
+    in tandem with {py:obj}`ClockLogic` and {py:obj}`WindowerLogic` to
+    implement its behavior. See documentation of those interfaces.
 
     :arg step_id: Unique ID.
 
@@ -1275,7 +1274,7 @@ def window(
         configuration and combine it with the resume state to return a
         prepared {py:obj}`WindowLogic` for this window.
 
-    :arg ordered: Wheither to apply values to the logic in timestamp
+    :arg ordered: Whether to apply values to the logic in timestamp
         order. If not, they'll be in upstream order. There is a
         performance and latency penalty to ordering by timestamp.
         Defaults to `True`.
@@ -1451,7 +1450,7 @@ def collect_window(
 
     :arg into: Type to collect into. Defaults to {py:obj}`list`.
 
-    :arg ordered: Wheither values in the resulting containers are in
+    :arg ordered: Whether values in the resulting containers are in
         timestamp order. There is a performance and latency penalty to
         ordering by timestamp. If not, they'll be in upstream order.
         Defaults to `True`.
@@ -1574,7 +1573,7 @@ def fold_window(
     :arg merger: Combines two states whenever two windows merge. Not
         all window definitions result in merges.
 
-    :arg ordered: Wheither to fold values in timestamp order. If not,
+    :arg ordered: Whether to fold values in timestamp order. If not,
         they'll be in upstream order. There is a performance and
         latency penalty to ordering by timestamp. Defaults to `True`.
 
