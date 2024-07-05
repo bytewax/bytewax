@@ -106,7 +106,7 @@ In the batch replay case, values will be being ingested much faster
 than real-time, thus the watermark will almost never advance on its
 own due to waiting, it will only be pushed forward by encountering
 data with new timestamps. In this regime,
-{py:obj}`~bytewax.operators.windowing.EventClock.ts_getter` specifies
+{py:obj}`~bytewax.operators.windowing.EventClock.wait_for_system_duration` specifies
 the maximum out-of-order-ness of the timestamps in the dataset. This
 causes the system to identify late items in a similar way _as if the
 data had been received in real-time_.
