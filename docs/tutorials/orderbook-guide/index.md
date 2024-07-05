@@ -149,7 +149,7 @@ Before we get to the exciting part of our order book dataflow, we need to create
 
 Now that we have input for our Dataflow, we will establish a dataflow pipeline for processing live cryptocurrency order book updates. We will focus on analysis and data filtration based on order book spreads. Our goal is for the pipeline to extract and highlight trading opportunities through the analysis of spreads. Let's take a look at key components of the dataflow pipeline:
 
-The `mapper`  function updates and summarizes the order book state, ensuring its an `OrderBookState` object and applying new data updates. The result is a state-summary tuple with key metrics like the best bid and ask prices, sizes, and the spread. We can then use the {py:obj}`~bytewax.operators.map` operator on our `order_book` dataflow to apply the mapper function to each incoming data batch.
+The `mapper`  function updates and summarizes the order book state, ensuring its an `OrderBookState` object and applying new data updates. The result is a state-summary tuple with key metrics like the best bid and ask prices, sizes, and the spread. We can then use the {py:obj}`~bytewax.operators.stateful_map` operator on our `order_book` dataflow to apply the mapper function to each incoming data batch.
 
 ```{literalinclude} orderbook_dataflow.py
 :caption: dataflow.py
