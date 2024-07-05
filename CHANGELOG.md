@@ -9,6 +9,12 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes a bug which caused two of the same types of windowing
+  operators in a dataflow to spuriously result in a `ValueError`. This
+  fix invalidates any recovery data for all windowing operators; it is
+  recommended to delete and re-create the recovery store if you are
+  using windowing operators.
+
 - Fixes a performance issue where
   {py:obj}`bytewax.operators.StatefulBatchLogic.notify_at` (and thus
   many of the other stateful operators' `notify_at` derived from it)
@@ -19,7 +25,6 @@ notes on GitHub when we make a new release.__
 - Fixes a bug when using
   {py:obj}`~bytewax.operators.windowing.EventClock` where in-order but
   "slow" data results in watermark assertion errors.
-
 
 ## v0.20.0
 
