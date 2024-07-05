@@ -1586,7 +1586,7 @@ def fold_window(
         state = resume_state if resume_state is not None else builder()
         return _FoldWindowLogic(folder, merger, state)
 
-    return window("generic_window", up, clock, windower, shim_builder, ordered)
+    return window("window", up, clock, windower, shim_builder, ordered)
 
 
 @dataclass
