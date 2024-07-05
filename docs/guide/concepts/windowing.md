@@ -65,10 +65,12 @@ processing happens ASAP.
 By instantiating a {py:obj}`~bytewax.operators.windowing.EventClock` you
 can use event time in your windowing definition. This is more nuanced.
 
-1. The callback function `dt_getter` is used to extract and assign the
-   timestamp within each value. If this timestamp is the largest ever
-   seen, that and the current system time are stored internally.
-   (System time never affects the timestamp assigned to an item.)
+1. The callback function
+   {py:obj}`~bytewax.operators.windowing.EventClock.ts_getter` is used
+   to extract and assign the timestamp within each value. If this
+   timestamp is the largest ever seen, that and the current system
+   time are stored internally. (System time never affects the
+   timestamp assigned to an item.)
 
 2. The watermark is `max_ts - wait_for_system_duration +
    system_time_of_max` but the watermark can never go backwards. It is
@@ -88,7 +90,8 @@ table, we show the state of the clock as a few different values are
 processed. The watermark is always advancing by the system time, the
 watermark can be fast-forwarded if new timestamps are seen that show
 that time has progressed, and items before the current watermark are
-late. We will effectively wait for up to `wait_for_system_duration`
+late. We will effectively wait for up to
+{py:obj}`~bytewax.operators.windowing.EventClock.wait_for_system_duration`
 real-time for late data, then move on if we don't see any.
 
 | Real-Time | Current Watermark | Incoming Timestamp | Late? | Possible Watermark | Accepted? | Resulting Watermark |
@@ -102,10 +105,11 @@ real-time for late data, then move on if we don't see any.
 In the batch replay case, values will be being ingested much faster
 than real-time, thus the watermark will almost never advance on its
 own due to waiting, it will only be pushed forward by encountering
-data with new timestamps. In this regime, `wait_for_system_duration`
-specifies the maximum out-of-order-ness of the timestamps in the
-dataset. This causes the system to identify late items in a similar
-way _as if the data had been received in real-time_.
+data with new timestamps. In this regime,
+{py:obj}`~bytewax.operators.windowing.EventClock.wait_for_system_duration` specifies
+the maximum out-of-order-ness of the timestamps in the dataset. This
+causes the system to identify late items in a similar way _as if the
+data had been received in real-time_.
 
 In the case of batch reading totally out-of-order data (e.g. reading a
 CSV ordered by user ID but extracting a timestamp field), there is no
