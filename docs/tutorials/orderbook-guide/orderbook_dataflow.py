@@ -56,6 +56,7 @@ async def _ws_agen(product_id):
 # end-async
 
 
+# start-partition
 class CoinbasePartition(StatefulSourcePartition):
     """Process messages from the Coinbase websocket as they arrive.
 
@@ -96,6 +97,10 @@ class CoinbasePartition(StatefulSourcePartition):
         return None
 
 
+# end-partition
+
+
+# start-source
 @dataclass
 class CoinbaseSource(FixedPartitionedSource):
     """Connect to the Coinbase websocket and yield messages as they arrive.
@@ -142,6 +147,10 @@ class CoinbaseSource(FixedPartitionedSource):
         return CoinbasePartition(for_key)
 
 
+# end-source
+
+
+# start-orderbook
 @dataclass(frozen=True)
 class OrderBookSummary:
     """Represents a summary of the order book state."""
@@ -153,6 +162,10 @@ class OrderBookSummary:
     spread: float
 
 
+# end-orderbook
+
+
+# start-orderbook-state
 @dataclass
 class OrderBookState:
     """Maintains the state of the order book."""
@@ -219,7 +232,13 @@ class OrderBookState:
         )
 
 
+# end-orderbook-state
+
+# start-dataflow
 flow = Dataflow("orderbook")
+# end-dataflow
+
+# start-input
 inp = op.input(
     "input", flow, CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"])
 )
@@ -229,8 +248,10 @@ inp = op.input(
 #     'changes': [['buy', '36905.39', '0.00334873']],
 #     'time': '2022-05-05T17:25:09.072519Z',
 # })
+# end-input
 
 
+# start-mapper
 def mapper(state, value):
     """Update the state with the given value and return the state and a summary."""
     if state is None:
@@ -242,8 +263,10 @@ def mapper(state, value):
 
 stats = op.stateful_map("orderbook", inp, mapper)
 # ('BTC-USD', (36905.39, 0.00334873, 36905.4, 1.6e-05, 0.010000000002037268))
+# end-mapper
 
 
+# start-filter
 # # filter on 0.1% spread as a per
 def just_large_spread(prod_summary):
     """Filter out products with a spread less than 0.1%."""
@@ -252,4 +275,8 @@ def just_large_spread(prod_summary):
 
 
 state = op.filter("big_spread", stats, just_large_spread)
+# end-filter
+
+# start-output
 op.output("out", stats, StdOutSink())
+# end-output

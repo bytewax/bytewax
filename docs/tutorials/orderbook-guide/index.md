@@ -85,3 +85,64 @@ The function `_ws_agen` inputs cryptocurrency pair identifiers (e.g., `["BTC-USD
 :end-before: end-async
 :lineno-match:
 ```
+
+To efficiently process and manage this data, we implement the `CoinbasePartition` class, extending Bytewax's {py:obj}`~bytewax.inputs.StatefulSourcePartition`. This enables us to obtain the current orderbook at the beginning of the stream when we subscribe.
+
+Within `CoinbasePartition`, `_ws_agen` is used for data fetching through `self._batcher` - in the code we specify batching incoming data every 0.5 seconds or upon receiving 100 messages, optimizing data processing and state management. This structure ensures an efficient, scalable, and fault-tolerant system for real-time cryptocurrency market monitoring.
+
+In this section we defined the key building blocks to enable asynchronous WebSocket connections and efficient data processing. Before we can establish a dataflow to maintain the order book, we need to define the data classes - this will enable a structured approach to data processing and management. Let's take a look at this in the next section.
+
+```{literalinclude} orderbook_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: start-partition
+:end-before: end-partition
+:lineno-match:
+```
+
+## Defining data classes
+Through the Python dataclasses library we can establish a structured approach to data processing and management. This is particularly useful for maintaining the order book, as it allows us to define the structure of the data we are working with. As part of this approach we define three data classes:
+
+* `CoinbaseSource`: Serves as a source for partitioning data based on cryptocurrency product IDs. It is crucial for organizing and distributing the data flow across multiple workers, facilitating parallel processing of cryptocurrency pairs.
+
+```{literalinclude} orderbook_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: start-source
+:end-before: end-source
+:lineno-match:
+```
+
+* `OrderBookSummary`: Summarizes the state of an order book at a point in time, encapsulating the bid and ask prices, sizes, and the spread. This class is immutable `(frozen=True)`, ensuring that each instance is a snapshot that cannot be altered, which is essential for accurate historical analysis and decision-making.
+
+```{literalinclude} orderbook_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: start-orderbook
+:end-before: end-orderbook
+:lineno-match:
+```
+
+* `OrderBookState`: Maintains the current state of the order book, including all bids and asks. It allows for dynamic updates as new market data arrives, keeping track of the best bid and ask prices and their respective sizes.
+
+```{literalinclude} orderbook_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: start-orderbook-state
+:end-before: end-orderbook-state
+:lineno-match:
+```
+
+In this section, we have defined the data classes that will enable us to maintain the order book in real time. These classes will be used to structure the data flow and manage the state of the order book. Now that we have defined the data classes, we can proceed to construct the dataflow to maintain the order book.
+
+## Constructing The Dataflow
+
+Before we get to the exciting part of our order book dataflow, we need to create our Dataflow object and prep the data. We'll start with creating a Dataflow named 'orderbook'. Once this is initialized, we can incorporate an input data source into the data flow. We can do this by using the bytewax module operator {py:obj}`bytewax.operators` which we've imported here by a shorter name, `op`. We will use , specify its input id as input, pass the 'orderbook' dataflow along with the data source - in this case the source of data is the CoinbaseSource class we defined earlier initialized with the ids `["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]`.
+
+```{literalinclude} orderbook_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: start-orderbook
+:end-before: end-orderbook
+:lineno-match:
+```
