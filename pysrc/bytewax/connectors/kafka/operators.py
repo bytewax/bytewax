@@ -34,10 +34,7 @@ from bytewax.connectors.kafka import (
     KafkaSink,
     KafkaSinkMessage,
     KafkaSource,
-    KafkaSourceError,
     KafkaSourceMessage,
-    SerializedKafkaSinkMessage,
-    SerializedKafkaSourceMessage,
     V,
 )
 from bytewax.dataflow import Dataflow, Stream, operator
@@ -100,7 +97,10 @@ def input(  # noqa A001
     starting_offset: int = OFFSET_BEGINNING,
     add_config: Optional[Dict[str, str]] = None,
     batch_size: int = 1000,
-) -> KafkaOpOut[SerializedKafkaSourceMessage, KafkaSourceError]:
+) -> KafkaOpOut[
+    KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+    KafkaError[Optional[bytes], Optional[bytes]],
+]:
     """Consume from Kafka as an input source.
 
     Partitions are the unit of parallelism. Can support exactly-once
@@ -153,7 +153,12 @@ def input(  # noqa A001
 @operator
 def output(
     step_id: str,
-    up: Stream[Union[SerializedKafkaSourceMessage, SerializedKafkaSinkMessage]],
+    up: Stream[
+        Union[
+            KafkaSourceMessage[Optional[bytes], Optional[bytes]],
+            KafkaSinkMessage[Optional[bytes], Optional[bytes]],
+        ]
+    ],
     *,
     brokers: List[str],
     topic: str,
