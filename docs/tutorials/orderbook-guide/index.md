@@ -142,7 +142,57 @@ Before we get to the exciting part of our order book dataflow, we need to create
 ```{literalinclude} orderbook_dataflow.py
 :caption: dataflow.py
 :language: python
-:start-after: start-orderbook
-:end-before: end-orderbook
+:start-after: start-dataflow
+:end-before: end-dataflow
 :lineno-match:
 ```
+
+Now that we have input for our Dataflow, we will establish a dataflow pipeline for processing live cryptocurrency order book updates. We will focus on analysis and data filtration based on order book spreads. Our goal is for the pipeline to extract and highlight trading opportunities through the analysis of spreads. Let's take a look at key components of the dataflow pipeline:
+
+The `mapper`  function updates and summarizes the order book state, ensuring its an `OrderBookState` object and applying new data updates. The result is a state-summary tuple with key metrics like the best bid and ask prices, sizes, and the spread. We can then use the {py:obj}`~bytewax.operators.map` operator on our `order_book` dataflow to apply the mapper function to each incoming data batch.
+
+```{literalinclude} orderbook_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: start-mapper
+:end-before: end-mapper
+:lineno-match:
+```
+
+The last step is to filter the summaries by spread percentage, with a focus on identifying significant spreads greater than 0.1% of the ask price - we will use this as a proxy for trading opportunities. We will define the function and use {py:obj}`~bytewax.operators.filter` to apply the filter to summaries from the `'orderbook'` dataflow.
+
+```{literalinclude} orderbook_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: start-filter
+:end-before: end-filter
+:lineno-match:
+```
+
+To return the result of the dataflow, we can use {py:obj}`~bytewax.operators.output`.
+
+```{literalinclude} orderbook_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: start-output
+:end-before: end-output
+:lineno-match:
+```
+
+## Executing the Dataflow
+Now we can run our completed dataflow:
+
+```console
+> python -m bytewax.run dataflow:flow
+```
+
+This will process real-time order book data for three cryptocurrency pairs: BTC-USD, ETH-EUR, and ETH-USD. Each summary provided detailed insights into the bid and ask sides of the market, including prices and sizes.
+
+```console
+('BTC-EUR', OrderBookSummary(bid_price=60152.78, bid_size=0.0104, ask_price=60173.35, ask_size=0.02238611, spread=20.56999999999971))
+('BTC-USD', OrderBookSummary(bid_price=65677.38, bid_size=0.05, ask_price=65368.71, ask_size=0.001663, spread=-308.67000000000553))
+('ETH-EUR', OrderBookSummary(bid_price=3095.16, bid_size=0.20712451, ask_price=3079.9, ask_size=0.14696149, spread=-15.259999999999764))
+```
+
+## Summary
+That's it! You've learned how to use websockets with Bytewax and how to leverage stateful map to maintain the state in a streaming application.

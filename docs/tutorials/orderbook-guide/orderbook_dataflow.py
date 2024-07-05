@@ -236,9 +236,6 @@ class OrderBookState:
 
 # start-dataflow
 flow = Dataflow("orderbook")
-# end-dataflow
-
-# start-input
 inp = op.input(
     "input", flow, CoinbaseSource(["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"])
 )
@@ -248,7 +245,7 @@ inp = op.input(
 #     'changes': [['buy', '36905.39', '0.00334873']],
 #     'time': '2022-05-05T17:25:09.072519Z',
 # })
-# end-input
+# end-dataflow
 
 
 # start-mapper
