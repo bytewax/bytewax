@@ -1539,6 +1539,7 @@ class _FoldWindowLogic(WindowLogic[V, S, S]):
         return copy.deepcopy(self.state)
 
 
+@operator
 def fold_window(
     step_id: str,
     up: KeyedStream[V],
