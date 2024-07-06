@@ -5,4 +5,5 @@ Tutorials
 :titlesonly:
 
 search-logs/index.md
+handling-missing-data/index.md
 ```
