@@ -90,7 +90,7 @@ With this we complete the input part of our dataflow. We will now turn our atten
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py
 :language: python
-:start-after: # start-dataflow
+:start-after: start-dataflow
 :end-before: end-dataflow
 :lineno-match:
 ```
@@ -107,7 +107,7 @@ Let’s unpack the code. When our class `WindowedArray` is initialized, it will 
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py
 :language: python
-:start-after: # start-windowed-array
+:start-after: start-windowed-array
 :end-before: end-windowed-array
 :lineno-match:
 ```
@@ -117,7 +117,7 @@ We also create a `StatefulImputer` wrapper class that will create an instance of
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py
 :language: python
-:start-after: # start-stateful-imputer
+:start-after: start-stateful-imputer
 :end-before: end-stateful-imputer
 :lineno-match:
 ```
@@ -127,7 +127,7 @@ We can then initialize our dataflow with StatefulImputer as the stateful map ope
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py
 :language: python
-:start-after: # start-dataflow-inpute
+:start-after: start-dataflow-inpute
 :end-before: end-dataflow-inpute
 :lineno-match:
 ```
@@ -139,7 +139,7 @@ Next up we will use the capture operator to write our code to an output source, 
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py
 :language: python
-:start-after: # start-output
+:start-after: start-output
 :end-before: end-output
 :lineno-match:
 ```
