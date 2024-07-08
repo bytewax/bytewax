@@ -76,7 +76,7 @@ Now, let's import the required modules and set up the environment for building t
 ## Websocket Input
 Our goal is to build a scalable system that can monitor multiple cryptocurrency pairs across different workers in real time. By crafting an asynchronous function to connect to the Coinbase Pro WebSocket, we facilitate streaming of cryptocurrency data into our dataflow. This process involves the websockets Python library for WebSocket connections and bytewax for dataflow integration.
 
-The function `_ws_agen` inputs cryptocurrency pair identifiers (e.g., `["BTC-USD", "ETH-USD"]`), establishing a connection to Coinbase Pro's WebSocket. It subscribes to the `level2_batch` channel for live order book updates, sending a JSON subscription message and awaiting a confirmation response with `ws.recv()`.
+The function `_ws_agen` yields cryptocurrency data, paired with their identifiers (e.g., `["BTC-USD", "ETH-USD"]`) by establishing a connection to the Coinbase Exchange WebSocket. It subscribes to the `level2_batch` feed for live order book updates, first sending a JSON subscription message and awaiting a confirmation response with `ws.recv()`.
 
 ```{literalinclude} orderbook_dataflow.py
 :caption: dataflow.py
@@ -88,7 +88,8 @@ The function `_ws_agen` inputs cryptocurrency pair identifiers (e.g., `["BTC-USD
 
 To efficiently process and manage this data, we implement the `CoinbasePartition` class, extending Bytewax's {py:obj}`~bytewax.inputs.StatefulSourcePartition`. This enables us to obtain the current orderbook at the beginning of the stream when we subscribe.
 
-Within `CoinbasePartition`, `_ws_agen` is used for data fetching through `self._batcher` - in the code we specify batching incoming data every 0.5 seconds or upon receiving 100 messages, optimizing data processing and state management. This structure ensures an efficient, scalable, and fault-tolerant system for real-time cryptocurrency market monitoring.
+
+Within `CoinbasePartition`, the `_ws_agen` function is used for data fetching using {py:obj}`~bytewax.inputs.batch_async` which allows us to collect a batch of incoming data for up to 0.5 seconds or after receiving 100 messages, optimizing data processing and state management. This structure ensures an efficient, scalable, and fault-tolerant system for real-time cryptocurrency market monitoring.
 
 In this section we defined the key building blocks to enable asynchronous WebSocket connections and efficient data processing. Before we can establish a dataflow to maintain the order book, we need to define the data classes - this will enable a structured approach to data processing and management. Let's take a look at this in the next section.
 
@@ -101,7 +102,7 @@ In this section we defined the key building blocks to enable asynchronous WebSoc
 ```
 
 ## Defining data classes
-Through the Python dataclasses library we can establish a structured approach to data processing and management. This is particularly useful for maintaining the order book, as it allows us to define the structure of the data we are working with. As part of this approach we define three data classes:
+Through the Python {py:obj}`dataclasses` library we can define the structure of the data we are working with. As part of this approach we define three dataclasses:
 
 * `CoinbaseSource`: Serves as a source for partitioning data based on cryptocurrency product IDs. It is crucial for organizing and distributing the data flow across multiple workers, facilitating parallel processing of cryptocurrency pairs.
 
@@ -137,7 +138,7 @@ In this section, we have defined the data classes that will enable us to maintai
 
 ## Constructing The Dataflow
 
-Before we get to the exciting part of our order book dataflow, we need to create our Dataflow object and prep the data. We'll start with creating a Dataflow named 'orderbook'. Once this is initialized, we can incorporate an input data source into the data flow. We can do this by using the bytewax module operator {py:obj}`bytewax.operators` which we've imported here by a shorter name, `op`. We will use , specify its input id as input, pass the 'orderbook' dataflow along with the data source - in this case the source of data is the CoinbaseSource class we defined earlier initialized with the ids `["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]`.
+Before we get to the exciting part of our order book dataflow, we need to create our Dataflow object and prep the data. We'll start with creating a Dataflow named 'orderbook'. Once this is initialized, we can incorporate an input data source into the data flow. We can do this by using the bytewax module operator {py:obj}`bytewax.operators` which we've imported here by a shorter name, `op`. We will use the operator {py:obj}`~bytewax.operators.input`, specify its `step_id` as "input", pass the `orderbook` dataflow  object along with the data source - in this case the source of data is the `CoinbaseSource` class we defined earlier initialized with the ids `["BTC-USD", "ETH-USD", "BTC-EUR", "ETH-EUR"]`.
 
 ```{literalinclude} orderbook_dataflow.py
 :caption: dataflow.py
