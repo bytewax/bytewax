@@ -131,6 +131,7 @@ confluent-kafka==2.3.0 \
     --hash=sha256:ec17b26d6155feeaded4a435ba949095aea9699afb65309d8f22e55722f53c48 \
     --hash=sha256:f175e11facaf12130abd5d2d471db39d7cc89126c4d991527cf14e3da22c635c \
     --hash=sha256:f9842720ed0debcf4620710e01d356681a4812441f1ff49664fc205d1f9120e5
+    # via bytewax (pyproject.toml)
 fastavro==1.9.4 \
     --hash=sha256:02bf1276b7326397314adf41b34a4890f6ffa59cf7e0eb20b9e4ab0a143a1598 \
     --hash=sha256:063d01d197fc929c20adc09ca9f0ca86d33ac25ee0963ce0b438244eee8315ae \
@@ -163,22 +164,23 @@ fastavro==1.9.4 \
     --hash=sha256:e4a138710bd61580324d23bc5e3df01f0b82aee0a76404d5dddae73d9e4c723f \
     --hash=sha256:eca6e54da571b06a3c5a72dbb7212073f56c92a6fbfbf847b91c347510f8a426 \
     --hash=sha256:f05d2afcb10a92e2a9e580a3891f090589b3e567fdc5641f8a46a0b084f120c3
+    # via bytewax (pyproject.toml)
 idna==3.7 \
     --hash=sha256:028ff3aadf0609c1fd278d8ea3089299412a7a8b9bd005dd08b9f8285bcb5cfc \
     --hash=sha256:82fee1fc78add43492d3a1898bfa6d8a904cc97d8427f683ed8e798d07761aa0
     # via requests
-jsonpickle==3.0.4 \
-    --hash=sha256:04ae7567a14269579e3af66b76bda284587458d7e8a204951ca8f71a3309952e \
-    --hash=sha256:a1b14c8d6221cd8f394f2a97e735ea1d7edc927fbd135b26f2f8700657c8c62b
 prometheus-client==0.20.0 \
     --hash=sha256:287629d00b147a32dcb2be0b9df905da599b2d82f80377083ec8463309a4bb89 \
     --hash=sha256:cde524a85bce83ca359cc837f28b8c0db5cac7aa653a588fd7e84ba061c329e7
+    # via bytewax (pyproject.toml)
 requests==2.31.0 \
     --hash=sha256:58cd2187c01e70e6e26505bca751777aa9f2ee0b7f4300988b709f44e013003f \
     --hash=sha256:942c5a758f98d790eaed1a29cb6eefc7ffb0d1cf7af05c3d2791656dbd6ad1e1
+    # via bytewax (pyproject.toml)
 typing-extensions==4.11.0 \
     --hash=sha256:83f085bd5ca59c80295fc2a82ab5dac679cbe02b9f33f7d83af68e241bea51b0 \
     --hash=sha256:c1f94d72897edaf4ce775bb7558d5b79d8126906a14ea5ed1635921406c0387a
+    # via bytewax (pyproject.toml)
 urllib3==2.2.1 \
     --hash=sha256:450b20ec296a467077128bff42b73080516e71b56ff59a60a02bef2232c4fa9d \
     --hash=sha256:d0570876c61ab9e520d776c38acbbb5b05a776d3f9ff98a5c8fd5162a444cf19
