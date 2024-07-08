@@ -211,7 +211,12 @@ def _create_arg_parser():
         "src.dataflow:get_flow('string_argument')",
     )
     recovery = parser.add_argument_group(
-        "Recovery", """See the `bytewax.recovery` module docstring for more info."""
+        "Recovery",
+        """
+        See the guide at
+        `https://docs.bytewax.io/stable/guide/concepts/recovery.html`
+        for more info.
+        """,
     )
     recovery.add_argument(
         "-d",

@@ -1,7 +1,7 @@
 //! Internal code for implementing recovery.
 //!
-//! For a user-centric version of recovery, read the
-//! `bytewax.recovery` Python module docstring. Read that first.
+//! For a user-centric version of recovery, read the guide at
+//! `https://docs.bytewax.io/stable/guide/concepts/recovery.html`
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -201,7 +201,8 @@ impl LocalStateStore {
         if !local_state_dir.is_dir() {
             return Err(PyFileNotFoundError::new_err(format!(
                 "local state directory {:?} does not exist; \
-                see the `bytewax.recovery` module docstring for more info",
+                see the guide at `https://docs.bytewax.io/stable/guide/concepts/recovery.html` \
+                for more info",
                 local_state_dir
             )));
         }
