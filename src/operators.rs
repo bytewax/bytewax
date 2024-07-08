@@ -531,6 +531,7 @@ pub(crate) struct StatefulBatchState {
     /// We keep this to avoid having to allocate a new vector
     /// each time we take snapshots.
     snaps_buf: Vec<SerializedSnapshot>,
+    outs_buf: Vec<(StateKey, TdPyAny)>,
 }
 
 impl StatefulBatchState {
@@ -560,6 +561,7 @@ impl StatefulBatchState {
             awoken_keys_this_activation: BTreeSet::new(),
             awoken_keys_this_epoch_buffer: BTreeSet::new(),
             snaps_buf: vec![],
+            outs_buf: vec![],
         };
 
         if let Some(lss) = this.local_state_store.as_ref() {
@@ -590,24 +592,11 @@ impl StatefulBatchState {
             .insert(py, &self.step_id, state_key, state);
     }
 
-    pub fn awoken(&self) -> Vec<StateKey> {
-        self.awoken_keys_this_activation.iter().cloned().collect()
-    }
-
     pub fn remove(&mut self, key: &StateKey) {
         self.state_store_cache
             .borrow_mut()
             .remove(&self.step_id, key)
             .unwrap();
-        self.sched_cache.remove(key);
-    }
-
-    pub fn notify_keys(&self, now: DateTime<Utc>) -> Vec<StateKey> {
-        self.sched_cache
-            .iter()
-            .filter(|(_key, sched)| **sched <= now)
-            .map(|(key, _sched)| key.clone())
-            .collect()
     }
 
     pub fn schedule(&mut self, key: StateKey, time: DateTime<Utc>) {
@@ -635,112 +624,69 @@ impl StatefulBatchState {
             .contains_key(&self.step_id, key)
     }
 
-    pub fn keys(&self) -> Vec<StateKey> {
-        self.state_store_cache.borrow().keys(&self.step_id)
-    }
-
     fn on_batch(
-        &mut self,
+        &self,
         py: Python,
         key: &StateKey,
         values: Vec<PyObject>,
-    ) -> PyResult<Vec<PyObject>> {
-        // Mark this key as being awoken in this activation
-        self.awoken_keys_this_activation.insert(key.clone());
-
+    ) -> PyResult<(Vec<PyObject>, IsComplete)> {
         // Call user's code to get the result
-        let res = self
-            .state_store_cache
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .bind(py)
-            .call_method1(intern!(py, "on_batch"), (values,))
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulBatch.on_batch` in step {} for key {}",
-                    self.step_id, &key
-                )
-            })?;
-
-        // Do the type checking
-        let (output, is_complete) = StatefulBatchLogic::extract_ret(res)
-            .reraise("error extracting `(emit, is_complete)`")?;
-
-        // Remove the state if needed.
-        if matches!(is_complete, IsComplete::Discard) {
-            self.remove(key);
-        }
-
-        Ok(output)
+        // extract_ret will do the type checking.
+        StatefulBatchLogic::extract_ret(
+            self.state_store_cache
+                .borrow()
+                .get(&self.step_id, key)
+                .unwrap()
+                .bind(py)
+                .call_method1(intern!(py, "on_batch"), (values,))
+                .reraise_with(|| {
+                    format!(
+                        "error calling `StatefulBatch.on_batch` in step {} for key {}",
+                        self.step_id, &key
+                    )
+                })?,
+        )
+        .reraise("error extracting `(emit, is_complete)`")
     }
 
-    fn on_notify(&mut self, py: Python, key: &StateKey) -> PyResult<Vec<PyObject>> {
-        // Mark this key as being awoken in this activation
-        self.awoken_keys_this_activation.insert(key.clone());
-
+    fn on_notify(&self, py: Python, key: &StateKey) -> PyResult<(Vec<PyObject>, IsComplete)> {
         // Call user's code to get next scheduling time
-        let res = self
-            .state_store_cache
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .bind(py)
-            .call_method0(intern!(py, "on_notify"))
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulBatchLogic.on_notify` in {} for key {}",
-                    self.step_id, key
-                )
-            })?;
-
-        // Do the type checking
-        let (output, is_complete) = StatefulBatchLogic::extract_ret(res)
-            .reraise("error extracting `(emit, is_complete)`")?;
-
-        // Clear the state if needed
-        if matches!(is_complete, IsComplete::Discard) {
-            self.remove(key);
-        } else {
-            // Even if we don't discard the logic, the previous
-            // scheduled notification only should fire once. The
-            // logic can re-schedule it by still returning it
-            // in `notify_at`.
-            self.unschedule(key);
-        }
-
-        Ok(output)
+        // extract_ret will do the type checking.
+        StatefulBatchLogic::extract_ret(
+            self.state_store_cache
+                .borrow()
+                .get(&self.step_id, key)
+                .unwrap()
+                .bind(py)
+                .call_method0(intern!(py, "on_notify"))
+                .reraise_with(|| {
+                    format!(
+                        "error calling `StatefulBatchLogic.on_notify` in {} for key {}",
+                        self.step_id, key
+                    )
+                })?,
+        )
+        .reraise("error extracting `(emit, is_complete)`")
     }
 
-    fn on_eof(&mut self, py: Python, key: &StateKey) -> PyResult<Vec<PyObject>> {
-        // Mark this key as being awoken in this activation
-        self.awoken_keys_this_activation.insert(key.clone());
-
+    fn on_eof(&self, py: Python, key: &StateKey) -> PyResult<(Vec<PyObject>, IsComplete)> {
         // Call user's code for the closing logic
-        let res = self
-            .state_store_cache
-            .borrow()
-            .get(&self.step_id, key)
-            .unwrap()
-            .bind(py)
-            .call_method0("on_eof")
-            .reraise_with(|| {
-                format!(
-                    "error calling `StatefulBatchLogic.on_eof` in {} for key {}",
-                    self.step_id, key
-                )
-            })?;
-
-        // Do the type checking
-        let (output, is_complete) = StatefulBatchLogic::extract_ret(res)
-            .reraise("error extracting `(emit, is_complete)`")?;
-
-        // Discard and unschedule if needed.
-        if let IsComplete::Discard = is_complete {
-            self.remove(key);
-        }
-
-        Ok(output)
+        // extract_ret will do the type checking.
+        StatefulBatchLogic::extract_ret(
+            self.state_store_cache
+                .borrow()
+                .get(&self.step_id, key)
+                .unwrap()
+                .bind(py)
+                .call_method0("on_eof")
+                .reraise_with(|| {
+                    format!(
+                        "error calling `StatefulBatchLogic.on_eof` in {} for key {}",
+                        self.step_id, key
+                    )
+                })?,
+        )
+        .reraise("error extracting `(emit, is_complete)`")
     }
 
     fn notify_at(&self, py: Python, key: &StateKey) -> PyResult<Option<DateTime<Utc>>> {
@@ -756,7 +702,8 @@ impl StatefulBatchState {
                 })?;
             res.extract().reraise_with(|| {
                 format!(
-                    "did not return a `datetime`; got a `{}` instead",
+                    "`StatefulBatchLogic.notify_at` did not return an `Optional[datetime]`; \
+                        got `{}` instead",
                     unwrap_any!(res.get_type().name())
                 )
             })
@@ -765,7 +712,118 @@ impl StatefulBatchState {
         }
     }
 
-    fn snapshots(
+    fn call_eof_logic(&mut self, py: Python) -> PyResult<Vec<(StateKey, TdPyAny)>> {
+        debug_assert!(self.outs_buf.is_empty());
+        let mut to_remove = vec![];
+        for key in self.state_store_cache.borrow().keys(&self.step_id) {
+            // Mark this key as being awoken in this activation
+            self.awoken_keys_this_activation.insert(key.clone());
+
+            let (mut output, is_complete) = self.on_eof(py, key)?;
+
+            // Discard and unschedule if needed.
+            if let IsComplete::Discard = is_complete {
+                to_remove.push(key.clone());
+            }
+
+            self.outs_buf.extend(
+                std::mem::take(&mut output)
+                    .into_iter()
+                    .map(|value| (key.clone(), TdPyAny::from(value))),
+            );
+        }
+        for key in to_remove.iter() {
+            self.remove(key);
+            self.unschedule(key);
+        }
+        Ok(self.outs_buf.drain(..).collect())
+    }
+
+    fn call_scheduled_logics(
+        &mut self,
+        py: Python,
+        now: DateTime<Utc>,
+    ) -> PyResult<Vec<(StateKey, TdPyAny)>> {
+        debug_assert!(self.outs_buf.is_empty());
+        // Use `BTreeMap.extract_if` once stabilized
+        let due_keys = self
+            .sched_cache
+            .iter()
+            .filter_map(|(key, sched)| {
+                if sched <= &now {
+                    Some(key.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        for key in due_keys {
+            // Mark this key as being awoken in this activation
+            self.awoken_keys_this_activation.insert(key.clone());
+            // Even if we don't discard the logic, the previous
+            // scheduled notification only should fire once. The
+            // logic can re-schedule it by still returning it
+            // in `notify_at`.
+            self.sched_cache.remove(&key);
+
+            let (output, is_complete) = self.on_notify(py, &key)?;
+
+            // Clear the state if needed
+            if matches!(is_complete, IsComplete::Discard) {
+                self.remove(&key);
+                self.unschedule(&key);
+            }
+            self.outs_buf.extend(
+                output
+                    .into_iter()
+                    .map(|value| (key.clone(), TdPyAny::from(value))),
+            );
+        }
+
+        Ok(self.outs_buf.drain(..).collect())
+    }
+
+    fn batches(
+        &mut self,
+        py: Python,
+        keyed_items: BTreeMap<StateKey, Vec<PyObject>>,
+    ) -> PyResult<Vec<(StateKey, TdPyAny)>> {
+        debug_assert!(self.outs_buf.is_empty());
+        for (key, values) in keyed_items {
+            if !self.contains_key(&key) {
+                self.insert(py, key.clone(), None)
+            }
+            // Mark this key as being awoken in this activation
+            self.awoken_keys_this_activation.insert(key.clone());
+            let (output, is_complete) = self.on_batch(py, &key, values)?;
+
+            // Remove the state if needed.
+            if matches!(is_complete, IsComplete::Discard) {
+                self.remove(&key);
+                self.unschedule(&key);
+            }
+
+            self.outs_buf.extend(
+                output
+                    .into_iter()
+                    .map(|value| (key.clone(), TdPyAny::from(value))),
+            );
+        }
+
+        Ok(self.outs_buf.drain(..).collect())
+    }
+
+    fn schedule_awoken_parts(&mut self, py: Python) -> PyResult<()> {
+        // Go through all awoken keys and update the next scheduled notification times.
+        for key in self.awoken_keys_this_activation.iter() {
+            if let Some(sched) = self.notify_at(py, key)? {
+                self.sched_cache.insert(key.clone(), sched);
+            }
+        }
+        Ok(())
+    }
+
+    fn get_snapshots(
         &mut self,
         py: Python,
         epoch: u64,
@@ -800,7 +858,10 @@ impl StatefulBatchState {
                 lss.borrow_mut().write_snapshots(self.snaps_buf.clone());
             }
         }
-        std::mem::take(&mut self.snaps_buf)
+        // Using `.drain(..).collect()` allows us to keep the allocated space
+        // for the `snaps_buf`, so we don't need to reallocate new space at
+        // each activation
+        self.snaps_buf.drain(..).collect()
     }
 }
 
@@ -889,15 +950,6 @@ where
             // process. This spans activations and will have epochs
             // removed from it as the input frontier progresses.
             let mut inbuf = InBuffer::new();
-
-            // Persistent across activation buffer of items.
-            // This is actually cleared every time we send items
-            // downstream, but it will keep the maximum capacity allocated
-            // so we can avoid having to allocate a new vector each time.
-            // We could also use `give_iterator` rather than `give_vec`,
-            // but we wouldn't have control over the size of the
-            // internal buffer timely uses, and thus when it is flushed.
-            let mut outbuf = Vec::new();
 
             move |input_frontiers| {
                 let _guard = tracing::debug_span!("operator", operator = op_name).entered();
@@ -992,109 +1044,55 @@ where
                         }
 
                         // Ok, now let's actually run the logic code for each item!
-                        Python::with_gil(|py| {
-                            for (key, values) in keyed_items {
-                                // Build the logic if it wasn't in the state yet.
-                                if !state.contains_key(&key) {
-                                    state.insert(py, key.clone(), None);
-                                }
-
-                                // Run the logic's on_batch function
-                                let output = with_timer!(
-                                    on_batch_histogram,
-                                    labels,
-                                    unwrap_any!(state.on_batch(py, &key, values))
-                                );
-
-                                // Update metrics
-                                item_out_count.add(output.len() as u64, &labels);
-
-                                // And send the output downstream.
-                                // Reuse the already allocated buffer,
-                                // then let timely empty it in `give_vec`.
-                                outbuf.extend(
-                                    output
-                                        .into_iter()
-                                        .map(|value| (key.clone(), TdPyAny::from(value))),
-                                );
-                                kv_downstream_session.give_vec(&mut outbuf);
-                            }
-                        });
+                        let mut batches = with_timer!(
+                            on_batch_histogram,
+                            labels,
+                            Python::with_gil(|py| unwrap_any!(state.batches(py, keyed_items)))
+                        );
+                        // Update metrics
+                        item_out_count.add(batches.len() as u64, &labels);
+                        // And send the keyed batches downstream.
+                        kv_downstream_session.give_vec(&mut batches);
                     }
 
                     // Then call all logic that has a due notification.
-                    Python::with_gil(|py| {
-                        for key in state.notify_keys(now) {
-                            let output = with_timer!(
-                                on_notify_histogram,
-                                labels,
-                                unwrap_any!(state.on_notify(py, &key))
-                            );
-
-                            // Update metrics
-                            item_out_count.add(output.len() as u64, &labels);
-
-                            // Send the output downstream.
-                            // Reuse the already allocated buffer,
-                            // then let timely empty it in `give_vec`.
-                            outbuf.extend(
-                                output
-                                    .into_iter()
-                                    .map(|value| (key.clone(), TdPyAny::from(value))),
-                            );
-                            kv_downstream_session.give_vec(&mut outbuf);
-                        }
-                    });
+                    let mut batches = with_timer!(
+                        on_notify_histogram,
+                        labels,
+                        Python::with_gil(|py| unwrap_any!(state.call_scheduled_logics(py, now)))
+                    );
+                    // Update metrics
+                    item_out_count.add(batches.len() as u64, &labels);
+                    // Send the output downstream.
+                    kv_downstream_session.give_vec(&mut batches);
 
                     // Then if EOF, call all logic that still exists.
                     if input_frontiers.is_eof() {
-                        Python::with_gil(|py| {
-                            for key in state.keys() {
-                                let output = with_timer!(
-                                    on_eof_histogram,
-                                    labels,
-                                    unwrap_any!(state.on_eof(py, &key))
-                                );
-
-                                // Update metrics.
-                                item_out_count.add(output.len() as u64, &labels);
-
-                                // Send items downstream.
-                                // Reuse the already allocated buffer,
-                                // then let timely empty it in `give_vec`.
-                                outbuf.extend(
-                                    output
-                                        .into_iter()
-                                        .map(|value| (key.clone(), TdPyAny::from(value))),
-                                );
-                                kv_downstream_session.give_vec(&mut outbuf);
-                            }
-                        });
+                        let mut batches = with_timer!(
+                            on_eof_histogram,
+                            labels,
+                            Python::with_gil(|py| unwrap_any!(state.call_eof_logic(py)))
+                        );
+                        // Update metrics.
+                        item_out_count.add(batches.len() as u64, &labels);
+                        // Send items downstream.
+                        kv_downstream_session.give_vec(&mut batches);
                     }
 
-                    // Then go through all awoken keys and update the next scheduled
-                    // notification times.
-                    Python::with_gil(|py| {
-                        for key in state.awoken() {
-                            if let Some(sched) = with_timer!(
-                                notify_at_histogram,
-                                labels,
-                                unwrap_any!(state.notify_at(py, &key))
-                            ) {
-                                state.schedule(key.clone(), sched);
-                            }
-                        }
-                    });
+                    // Then schedule the next notification for all the awoken parts
+                    with_timer!(
+                        notify_at_histogram,
+                        labels,
+                        Python::with_gil(|py| unwrap_any!(state.schedule_awoken_parts(py)))
+                    );
 
                     // Snapshot and output state changes.
                     let is_epoch_closed = input_frontiers.is_closed(&epoch);
-                    let mut snapshots = Python::with_gil(|py| {
-                        with_timer!(
-                            snapshot_histogram,
-                            labels,
-                            state.snapshots(py, epoch, is_epoch_closed)
-                        )
-                    });
+                    let mut snapshots = with_timer!(
+                        snapshot_histogram,
+                        labels,
+                        Python::with_gil(|py| state.get_snapshots(py, epoch, is_epoch_closed))
+                    );
 
                     if !snapshots.is_empty() {
                         let mut snaps_session = snaps_handle.session(&state_update_cap);

@@ -268,7 +268,7 @@ impl OutputState {
         Ok(())
     }
 
-    fn snapshots(
+    fn get_snapshots(
         &mut self,
         py: Python,
         epoch: u64,
@@ -294,7 +294,7 @@ impl OutputState {
                 lss.borrow_mut().write_snapshots(self.snaps_buf.clone());
             }
         }
-        std::mem::take(&mut self.snaps_buf)
+        self.snaps_buf.drain(..).collect()
     }
 }
 
@@ -437,7 +437,7 @@ where
                                 let mut snaps = with_timer!(
                                     snapshot_histogram,
                                     labels,
-                                    state.snapshots(py, *epoch, false)
+                                    state.get_snapshots(py, *epoch, false)
                                 );
                                 immediate_snaps_output
                                     .activate()
@@ -456,7 +456,7 @@ where
                             with_timer!(
                                 snapshot_histogram,
                                 labels,
-                                state.snapshots(py, *epoch, true)
+                                state.get_snapshots(py, *epoch, true)
                             )
                         });
                         batch_snaps_output

@@ -90,6 +90,11 @@ type LogicBuilder = Box<dyn Fn(Python, StateKey, Option<PyObject>) -> PyResult<P
 /// Stores that state for all the stateful operators.
 /// This is basically a wrapper around a HashMap that's
 /// shared between all stateful operators.
+// TODO: To implement larger than memory state handling,
+//       this could become a trait with two implementation:
+//       one that behaves like this, and another one which
+//       requires a connection to the local state store and
+//       can load and offload data from there.
 pub(crate) struct StateStoreCache {
     cache: HashMap<StepId, BTreeMap<StateKey, PyObject>>,
     builders: HashMap<StepId, LogicBuilder>,
@@ -121,8 +126,8 @@ impl StateStoreCache {
         self.cache.get(step_id).unwrap().get(key)
     }
 
-    pub fn keys(&self, step_id: &StepId) -> Vec<StateKey> {
-        self.cache.get(step_id).unwrap().keys().cloned().collect()
+    pub fn keys(&self, step_id: &StepId) -> impl Iterator<Item = &StateKey> {
+        self.cache.get(step_id).unwrap().keys()
     }
 
     pub fn remove(&mut self, step_id: &StepId, key: &StateKey) -> Option<PyObject> {
