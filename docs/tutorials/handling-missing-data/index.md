@@ -101,4 +101,75 @@ Before we dive into the code, it is important to understand the stateful map ope
 
 In our case our key will be the same for the entire stream because we only have one stream of data in this example. So, we have some code that will create a `WindowedArray` object in the builder function and then use the update function to impute the mean. This class allows us to maintain a sliding window of the most recent values in a sequence, allowing for the computation of window-based statistics.
 
-Let’s unpack the code. When our class `WindowedArray` is initialized, it will create an empty Numpy array with dtype of object. The reason the the object datatype is that this will allow us to add both integers and `Nan` values. For each new data point that we receive, we will instruct the stateful map operator to use the impute_value method that will check if the value is nan and then calculate the mean from the last n objects, n being the size of array of values we've "remembered". In other words, how many of the values we care about and want to use in our calculation. this will vary on the application itself. It will also add the value to our window (last_n).
+Let’s unpack the code. When our class `WindowedArray` is initialized, it will create an empty Numpy array with `dtype` of object. The reason the the object datatype is that this will allow us to add both integers and `Nan` values. For each new data point that we receive, we will instruct the stateful map operator to use the impute_value method that will check if the value is nan and then calculate the mean from the last n objects, n being the size of array of values we've "remembered". In other words, how many of the values we care about and want to use in our calculation. this will vary on the application itself. It will also add the value to our window (`last_n`).
+
+
+```{literalinclude} missing_data_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: # start-windowed-array
+:end-before: end-windowed-array
+:lineno-match:
+```
+
+We also create a `StatefulImputer` wrapper class that will create an instance of `WindowedArray` and return it when the stateful map operator needs to be built. This is useful as the stateful map operator {py:obj}`~bytewax.operators.stateful_map` requires stateful operations to be encapsulated in objects (for example, in a streaming data processing framework where state needs to be maintained across batches of data), thus the StatefulImputer provides a convenient wrapper to maintain the state.
+
+```{literalinclude} missing_data_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: # start-stateful-imputer
+:end-before: end-stateful-imputer
+:lineno-match:
+```
+
+We can then initialize our dataflow with StatefulImputer as the stateful map operator.
+
+```{literalinclude} missing_data_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: # start-dataflow-inpute
+:end-before: end-dataflow-inpute
+:lineno-match:
+```
+
+## Output Results
+
+Next up we will use the capture operator to write our code to an output source, in this case StdOutSink. This is not going to do anything sophisticated, just output the data and the imputed value to standard output.
+
+```{literalinclude} missing_data_dataflow.py
+:caption: dataflow.py
+:language: python
+:start-after: # start-output
+:end-before: end-output
+:lineno-match:
+```
+
+## Running our dataflow
+
+That’s it! To run the code, use the following invocation:
+
+```console
+> python -m bytewax.run dataflow:flow
+```
+
+This yields:
+
+```console
+('data', (nan, nan))
+('data', (10, 10))
+('data', (1, 1))
+('data', (4, 4))
+('data', (10, 10))
+('data', (nan, 6.25))
+('data', (5, 5))
+('data', (10, 10))
+('data', (8, 8))
+('data', (5, 5))
+('data', (nan, 6.625))
+```
+
+On the left hand side of the tuple we see the original value, and on the right hand side the imputed value. Note that the imputed value is calculated based on the last 4 values in the window. Note also that if the first value in the stream is an empty value, the imputed value will be the same as the first value in the stream.
+
+## Summary
+
+In this example, we learned how to impute missing values from a datastream using Bytewax and numpy through custom classes, the dataflow and stateful map operators.
