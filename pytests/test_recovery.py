@@ -1,7 +1,4 @@
-import os
-import shutil
 from datetime import timedelta
-from pathlib import Path
 
 import bytewax.operators as op
 import pytest

@@ -6,13 +6,12 @@ This sets up our fixtures and logging.
 
 import os
 import shutil
-
 from datetime import datetime, timezone
 
+from bytewax.backup import file_system_backup
 from bytewax.recovery import RecoveryConfig, SnapshotMode
 from bytewax.testing import cluster_main, run_main
 from bytewax.tracing import setup_tracing
-from bytewax.backup import file_system_backup
 from pytest import fixture
 
 

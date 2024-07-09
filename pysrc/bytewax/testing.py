@@ -1,13 +1,10 @@
 """Helper tools for testing dataflows."""
 
 import asyncio
-import os
-import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
 from typing_extensions import override
@@ -16,7 +13,6 @@ from bytewax._bytewax import (
     cluster_main,
     run_main,
 )
-from bytewax.backup import Backup
 from bytewax.inputs import (
     AbortExecution,
     FixedPartitionedSource,
