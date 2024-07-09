@@ -421,7 +421,7 @@ impl LocalStateStore {
         snaps: Vec<SerializedSnapshot>,
         epoch: u64,
     ) -> PyResult<PathBuf> {
-        if epoch >= self.current_epoch {
+        if epoch > self.current_epoch {
             self.current_epoch = epoch;
             self.seg_num = 1;
         } else {

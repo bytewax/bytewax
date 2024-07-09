@@ -87,7 +87,7 @@ class FileSystemBackup(Backup):
             to_local.parent.exists()
         ), f"Trying to download to a non existing directory: {to_local}!"
         source = self.path / from_key
-        shutil.move(source, to_local)
+        shutil.copy(source, to_local)
 
     @override
     def delete(self, key: str) -> None:
