@@ -353,10 +353,6 @@ impl LocalStateStore {
         &self.snapshot_mode
     }
 
-    pub fn is_first_execution(&self) -> bool {
-        self.resume_from.execution().0 == 0
-    }
-
     pub fn resume_from_epoch(&self) -> ResumeEpoch {
         self.resume_from.epoch()
     }

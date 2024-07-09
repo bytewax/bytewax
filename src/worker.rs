@@ -166,31 +166,29 @@ where
         .reraise("error building production dataflow")
     })?;
 
-    // TODO: This doesn't work properly, disabling it for now. The dataflow
-    //       will crash if it finds local db files but no execution info.
-    // // Now, write execution info to the durable store before starting
-    // // the production dataflow if this is the first execution.
-    // // This way, if the dataflow crashes before the first epoch ended,
-    // // we can still do a fast resume, even though we'll restart from
-    // // the beginning.
-    // if let Some(local_state_store) = local_state_store.as_ref() {
-    //     if local_state_store.borrow().is_first_execution() {
-    //         let path = local_state_store
-    //             .borrow_mut()
-    //             .write_frontier_segment(0)
-    //             .unwrap();
-    //         let backup = local_state_store.borrow().backup();
-    //         Python::with_gil(|py| {
-    //             backup
-    //                 .upload(
-    //                     py,
-    //                     path.clone(),
-    //                     path.file_name().unwrap().to_string_lossy().to_string(),
-    //                 )
-    //                 .unwrap();
-    //         })
-    //     }
-    // }
+    // Now, write execution info to the durable store before starting
+    // the production dataflow if we never reached the second epoch.
+    // This way, if the dataflow crashes before the first epoch ended,
+    // we can still do a fast resume.
+    if let Some(local_state_store) = local_state_store.as_ref() {
+        let resume_epoch = local_state_store.borrow().resume_from_epoch();
+        if resume_epoch.0 == 1 {
+            let path = local_state_store
+                .borrow_mut()
+                .write_frontier_segment(resume_epoch.0)
+                .unwrap();
+            let backup = local_state_store.borrow().backup();
+            Python::with_gil(|py| {
+                backup
+                    .upload(
+                        py,
+                        path.clone(),
+                        path.file_name().unwrap().to_string_lossy().to_string(),
+                    )
+                    .unwrap();
+            })
+        }
+    }
 
     tracing::info_span!("production_dataflow").in_scope(|| {
         worker.run(probe);
