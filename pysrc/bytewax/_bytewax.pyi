@@ -15,7 +15,6 @@ class BytewaxTracer:
     This should only be built via `setup_tracing`.
 
     """
-
     ...
 
     def __new__(cls, *args, **kwargs):
@@ -25,32 +24,87 @@ class BytewaxTracer:
 class RecoveryConfig:
     """Configuration settings for recovery.
 
-    :arg db_dir: Local filesystem directory to search for recovery
+    :arg local_state_dir: Local filesystem directory to use for recovery
         database partitions.
 
-    :type db_dir: pathlib.Path
+    :type local_state_dir: pathlib.Path
 
-    :arg backup_interval: Amount of system time to wait to permanently
-        delete a state snapshot after it is no longer needed. You
-        should set this to the interval at which you are backing up
-        the recovery partitions off of the workers into archival
-        storage (e.g. S3). Defaults to zero duration.
+    :arg backup: Class to use to save recovery files to a durable
+        storage like amazon's S3.
 
-    :type backup_interval: typing.Optional[datetime.timedelta]
+    :type backup: bytewax.backup.Backup
+
+    :arg snapshot_mode: Whether to take state snapshots at the end
+        of the epoch (SnapshotMode.Batch), or as soon as a change
+        happens (SnapshotMode.Immediate).
+        Defaults to SnapshotMode.Immediate.
+
+    :type snapshot_mode: SnapshotMode
 
     """
-
     ...
 
-    def __init__(self, db_dir, backup_interval=None): ...
+    def __init__(self, local_state_dir, backup, snapshot_mode=None):
+        ...
+
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
     @property
-    def backup_interval(self): ...
+    def backup(self):
+        ...
+
     @property
-    def db_dir(self): ...
+    def local_state_dir(self):
+        ...
+
+    @property
+    def snapshot_mode(self):
+        ...
+
+class SnapshotMode:
+    ...
+
+    Batch: object
+
+    Immediate: object
+
+    def __eq__(self, value, /):
+        """Return self==value."""
+        ...
+
+    def __ge__(self, value, /):
+        """Return self>=value."""
+        ...
+
+    def __gt__(self, value, /):
+        """Return self>value."""
+        ...
+
+    def __int__(self, /):
+        """int(self)."""
+        ...
+
+    def __le__(self, value, /):
+        """Return self<=value."""
+        ...
+
+    def __lt__(self, value, /):
+        """Return self<value."""
+        ...
+
+    def __ne__(self, value, /):
+        """Return self!=value."""
+        ...
+
+    def __new__(cls, *args, **kwargs):
+        """Create and return a new object.  See help(type) for accurate signature."""
+        ...
+
+    def __repr__(self, /):
+        """Return repr(self)."""
+        ...
 
 class TracingConfig:
     """Base class for tracing/logging configuration.
@@ -61,10 +115,11 @@ class TracingConfig:
     traces to go.
 
     """
-
     ...
 
-    def __init__(self): ...
+    def __init__(self):
+        ...
+
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
@@ -76,8 +131,10 @@ def cli_main(
     process_id=None,
     addresses=None,
     epoch_interval=None,
-    recovery_config=None,
-): ...
+    recovery_config=None
+):
+    ...
+
 def cluster_main(
     flow,
     addresses,
@@ -85,7 +142,7 @@ def cluster_main(
     *,
     epoch_interval=None,
     recovery_config=None,
-    worker_count_per_proc=1,
+    worker_count_per_proc=1
 ):
     """Execute a dataflow in the current process as part of a cluster.
 
@@ -147,20 +204,6 @@ def cluster_main(
     """
     ...
 
-def init_db_dir(db_dir, count):
-    """Create and init a set of empty recovery partitions.
-
-    :arg db_dir: Local directory to create partitions in.
-
-    :type db_dir: pathlib.Path
-
-    :arg count: Number of partitions to create.
-
-    :type count: int
-
-    """
-    ...
-
 def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """Execute a dataflow in the current thread.
 
@@ -217,7 +260,6 @@ def setup_tracing(tracing_config=None, log_level=None):
 
     ```python
     from bytewax.tracing import setup_tracing
-
     tracer = setup_tracing()
     ```
 
@@ -236,23 +278,6 @@ def setup_tracing(tracing_config=None, log_level=None):
 
 class AbortExecution(RuntimeError):
     """Raise this from `next_batch` to abort for testing purposes."""
-
-    ...
-
-class InconsistentPartitionsError(ValueError):
-    """Raised when two recovery partitions are from very different times.
-
-    Bytewax only keeps around state snapshots for the backup interval.
-    This means that if you are resuming a dataflow with one recovery
-    partition much newer than another, it's not possible to find a
-    consistent set of snapshots between them.
-
-    This is probably due to not restoring a consistent set of recovery
-    partition backups onto all workers or the backup process has been
-    continously failing on only some workers.
-
-    """
-
     ...
 
 class JaegerConfig(TracingConfig):
@@ -281,20 +306,26 @@ class JaegerConfig(TracingConfig):
     :type sampling_ratio: float
 
     """
-
     ...
 
-    def __init__(self, service_name, endpoint=None, sampling_ratio=1.0): ...
+    def __init__(self, service_name, endpoint=None, sampling_ratio=1.0):
+        ...
+
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
     @property
-    def endpoint(self): ...
+    def endpoint(self):
+        ...
+
     @property
-    def sampling_ratio(self): ...
+    def sampling_ratio(self):
+        ...
+
     @property
-    def service_name(self): ...
+    def service_name(self):
+        ...
 
 class OtlpTracingConfig(TracingConfig):
     """Send traces to the OpenTelemetry collector.
@@ -322,31 +353,23 @@ class OtlpTracingConfig(TracingConfig):
     :type sampling_ratio: float
 
     """
-
     ...
 
-    def __init__(self, service_name, url=None, sampling_ratio=1.0): ...
+    def __init__(self, service_name, url=None, sampling_ratio=1.0):
+        ...
+
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
 
     @property
-    def sampling_ratio(self): ...
+    def sampling_ratio(self):
+        ...
+
     @property
-    def service_name(self): ...
+    def service_name(self):
+        ...
+
     @property
-    def url(self): ...
-
-class MissingPartitionsError(FileNotFoundError):
-    """Raised when an incomplete set of recovery partitions is detected."""
-
-    ...
-
-class NoPartitionsError(FileNotFoundError):
-    """Raised when no recovery partitions are found on any worker.
-
-    This is probably due to the wrong recovery directory being specified.
-
-    """
-
-    ...
+    def url(self):
+        ...

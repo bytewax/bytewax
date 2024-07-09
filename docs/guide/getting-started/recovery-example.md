@@ -10,23 +10,6 @@ Here, we'll walk through a tutorial demonstrating recovery. For more
 advanced settings and important details about recovery, see the
 concepts section article <project:#recovery>.
 
-## Create Recovery Partitions
-
-Recovery partitions must be pre-initialized before running the
-dataflow. This is done by executing the {py:obj}`bytewax.recovery`
-module:
-
-```console
-$ python -m bytewax.recovery db_dir/ 1
-```
-
-This will create a recovery partition in the `db_dir/` directory:
-
-```console
-$ ls db_dir/
-part-0.sqlite3
-```
-
 ## Executing with Recovery
 
 Let's create an example dataflow that we can use to demonstrate
@@ -76,14 +59,24 @@ total_sum_stream = op.stateful_map("running_count", keyed_stream, update_sum)
 op.output("out", total_sum_stream, StdOutSink())
 ```
 
-To enable recovery when you execute a dataflow, pass the `-r` flag to
-{py:obj}`bytewax.run` and specify the recovery directory. We will also
-need to set two values for recovery, the `snapshot_interval` via the
-`-s` flag and the `backup_interval` via the `-b` flag.
-
-The `snapshot_interval` specifies the amount of time in seconds to wait
-before creating a snapshot. The `backup_interval` specifies the amount
-of time in seconds to keep older state snapshots around.
+To enable recovery when you execute a dataflow, you need to pass some
+parameters to {py:obj}`bytewax.run`.
+- The `-d/--local-state-dir` flag to specify the directory where bytewax
+  will write the database file for that process.
+- The `-b/--backup` (optional) to indicate which `Backup` strategy to use for durable backup.
+  This defaults to a `FileSystemBackup` instance saved in a subdirectory named `backup`
+  in the same folder where the script is executed. You need to create that directory
+  or pass a different one here. This flag works the same way as the dataflow import string,
+  so you can use `--backup "bytewax.backup:file_system_backup('/tmp/bytewax/backup')"`.
+- The `--snapshot-mode` (optional) to set when bytewax should take the snapshots. There are
+  two modes: 'immediate' or 'batch'. In 'immediate' mode snapshots are taken as soon as
+  the state changes, in 'batch' mode they are taken in batches at the end of the
+  `snapshot_interval`. It's a tradeoff between latency and overall throughput. Taking
+  snapshots in batch is usually more efficient overall, but can add a delay between
+  snapshot intervals. Defaults to `immediate`.
+- The `-s/--snapshot-interval` indicates when the recovery system should take snapshots if
+  the `snapshot-mode` is `batch`, and when the `backup` class should be called to save the state
+  into durable backup.
 
 For production dataflows, you should set these values carefully for
 each dataflow to match your operational needs. For more information,
@@ -92,7 +85,8 @@ please see the concept section on <project:#recovery>.
 Running the example above, you should see the following output:
 
 ```console
-$ python -m bytewax.run recovery -r db_dir/ -s 30 -b 0
+$ mkdir backup
+$ python -m bytewax.run recovery -d db_dir/ -s 30
 ```
 
 ```{testcode}
@@ -130,7 +124,7 @@ inp.extend([3, 4])
 Now we can re-run our dataflow:
 
 ```console
-$ python -m bytewax.run recovery -r db_dir/ -s 30 -b 0
+$ python -m bytewax.run recovery -d db_dir/ -s 30
 ('ALL', 6)
 ('ALL', 10)
 ```
