@@ -86,8 +86,7 @@ Now, let's import the required modules and set up the environment for building t
 
 For this example we will mock up some data that will yield either a random integer between 0 and 10, or a numpy nan value for every 5th value we generate.
 
-To simulate the generation of random numbers and `NaN` values, we will create a class called `RandomNumpyData`. This class will generate a random integer between 0 and 10, or a `NaN` value for every 5th value. We will design this class to inherit from {py
-}`~bytewax.inputs.StatelessSourcePartition`, allowing us to create our input as a stateless Bytewax input partition.
+To simulate the generation of random numbers and `NaN` values, we will create a class called `RandomNumpyData`. This class will generate a random integer between 0 and 10, or a `NaN` value for every 5th value. We will design this class to inherit from {py}`~bytewax.inputs.StatelessSourcePartition`, allowing us to create our input as a stateless Bytewax input partition.
 
 Next, we will create the `RandomNumpyInput` class, which will act as a wrapper for `RandomNumpyData`. This wrapper facilitates dynamic data generation based on the distribution of work across multiple workers in a distributed processing system. When the data source needs to be instantiated (e.g., at the start of a processing step or when distributed across workers), each worker will create and return an instance of `RandomNumpyData`.
 
