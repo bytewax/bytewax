@@ -35,10 +35,27 @@ We can represent our dataflow - called map_eg through this diagram, in which the
 * stateful map to impute the values: we will create a custom window to impute the missing values
 * output: output the data and the imputed value to standard output
 
-![mermaid](mermaid.png)
+```mermaid
+graph TD;
+    subgraph W1[map_eg_input]
+        direction TD
+        W1I[map_eg_input] --> W1O[map_eg.input_down portout]
+    end
+    W1O --> W2I[map_eg.impute_up]
+    subgraph W2[map_eg_impute]
+        direction TD
+        W2I --> W2M[map_eg_impute]
+        W2M --> W2O[map_eg.impute_down portout]
+    end
+    W2O --> W3I[map_eg.output_up]
+    subgraph W3[map_eg_output]
+        direction TD
+        W3I --> W3O[map_eg_output]
+    end
+```
 
 
-During data input, we will generate random integers and nan values. In the stateful map, we will create a custom window to impute the missing values. Finally, we will output the data and the imputed value to standard output.
+During data input, we will generate random integers and `NaN` values. In the stateful map, we will create a custom window to impute the missing values. Finally, we will output the data and the imputed value to standard output.
 
 Let's get started!
 
@@ -69,9 +86,10 @@ Now, let's import the required modules and set up the environment for building t
 
 For this example we will mock up some data that will yield either a random integer between 0 and 10, or a numpy nan value for every 5th value we generate.
 
-To simulate the generation of random numbers and nan values, we will create a class called `RandomNumpyData` that will return a random integer between 0 and 10 or `nan` value for every 5th value. We will build this class such that it inherits from the {py:obj}`~bytewax.inputs.StatelessSourcePartition`. This will enable us to create our input as a Bytewax input partition that is stateless.
+To simulate the generation of random numbers and `NaN` values, we will create a class called `RandomNumpyData`. This class will generate a random integer between 0 and 10, or a `NaN` value for every 5th value. We will design this class to inherit from {py
+}`~bytewax.inputs.StatelessSourcePartition`, allowing us to create our input as a stateless Bytewax input partition.
 
-We will then create the `RandomNumpyInput` class - this acts as a wrapper for RandomNumpyData, facilitating dynamic data generation based on the distribution of work across multiple workers in a distributed processing system. When the data source needs to be built (e.g., at the start of a processing step or when distributed across workers), it simply creates and returns an instance of `RandomNumpyData`.
+Next, we will create the `RandomNumpyInput` class, which will act as a wrapper for `RandomNumpyData`. This wrapper facilitates dynamic data generation based on the distribution of work across multiple workers in a distributed processing system. When the data source needs to be instantiated (e.g., at the start of a processing step or when distributed across workers), each worker will create and return an instance of `RandomNumpyData`.
 
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py
