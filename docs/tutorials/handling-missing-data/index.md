@@ -97,7 +97,7 @@ With this we complete the input part of our dataflow. We will now turn our atten
 
 ## Custom Window Using Stateful Map
 
-Before we dive into the code, it is important to understand the stateful map operator. Stateful map is a one-to-one transformation of values in (key, value) pairs, but allows you to reference a persistent state for each key when doing the transformation. The stateful map operator has two parts to it: a builder function and a mapper function. The builder function will get evoked for each new key and the mapper will get called for every new data point. For more information on how this works, the api docs have a great explanation.
+Before we dive into the code, it is important to understand the stateful map operator. Stateful map is a one-to-one transformation of values in (key, value) pairs, but allows you to reference a persistent state for each key when doing the transformation. For more information see the API docs {py:obj}`~bytewax.operators.stateful_map`.
 
 In our case our key will be the same for the entire stream because we only have one stream of data in this example. So, we have some code that will create a `WindowedArray` object in the builder function and then use the update function to impute the mean. This class allows us to maintain a sliding window of the most recent values in a sequence, allowing for the computation of window-based statistics.
 
