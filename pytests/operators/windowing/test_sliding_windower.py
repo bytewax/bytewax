@@ -186,6 +186,30 @@ def test_intersect_overlap_offset_indivisible_by_length_bulk_positive():
     ]
 
 
+def test_intersect_overlap_offset_indivisible_by_length_bulk_positive_remainder():
+    logic = _SlidingWindowerLogic(
+        length=timedelta(seconds=10),
+        offset=timedelta(seconds=3),
+        align_to=datetime(2023, 3, 16, 9, 0, 0, tzinfo=timezone.utc),
+        state=_SlidingWindowerState(),
+    )
+
+    #            9:00:11.5
+    #            I
+    # [0--------)
+    #    [1--------)
+    #       [2--------)
+    #          [3--------)
+    #             [4--------)
+    assert logic.intersects(
+        datetime(2023, 3, 16, 9, 0, 11, 500000, tzinfo=timezone.utc)
+    ) == [
+        1,
+        2,
+        3,
+    ]
+
+
 def test_intersect_overlap_offset_indivisible_by_length_bulk_negative():
     logic = _SlidingWindowerLogic(
         length=timedelta(seconds=10),
@@ -202,6 +226,30 @@ def test_intersect_overlap_offset_indivisible_by_length_bulk_negative():
     #          [--------1)
     #             [0--------)
     assert logic.intersects(datetime(2023, 3, 16, 8, 59, 59, tzinfo=timezone.utc)) == [
+        -3,
+        -2,
+        -1,
+    ]
+
+
+def test_intersect_overlap_offset_indivisible_by_length_bulk_negative_remainder():
+    logic = _SlidingWindowerLogic(
+        length=timedelta(seconds=10),
+        offset=timedelta(seconds=3),
+        align_to=datetime(2023, 3, 16, 9, 0, 0, tzinfo=timezone.utc),
+        state=_SlidingWindowerState(),
+    )
+
+    #            8:59:58.5
+    #            I
+    # [--------4)
+    #    [--------3)
+    #       [--------2)
+    #          [--------1)
+    #             [0--------)
+    assert logic.intersects(
+        datetime(2023, 3, 16, 8, 59, 58, 500000, tzinfo=timezone.utc)
+    ) == [
         -3,
         -2,
         -1,

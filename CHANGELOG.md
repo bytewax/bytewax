@@ -9,6 +9,11 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes a bug when using
+  {py:obj}`~bytewax.operators.windowing.SlidingWindower` where values
+  would be assigned to an extra window if their timestamps were near
+  the end of the correct window.
+
 - Upstream type hints on
   {py:obj}`bytewax.connectors.kafka.operators.serialize_key`,
   {py:obj}`~bytewax.connectors.kafka.operators.serialize_value`, and
