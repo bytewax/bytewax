@@ -240,7 +240,18 @@ autodoc2_module_all_regexes = [
 autodoc2_output_dir = "api"
 # Python package to parse to generate Markdown API docs for in the
 # above directory.
-autodoc2_packages = ["../pysrc/bytewax"]
+autodoc2_packages = [
+    {"path": "../pysrc/bytewax/run.py", "module": "bytewax.run"},
+    {"path": "../pysrc/bytewax/dataflow.py", "module": "bytewax.dataflow"},
+    {"path": "../pysrc/bytewax/inputs.py", "module": "bytewax.inputs"},
+    {"path": "../pysrc/bytewax/outputs.py", "module": "bytewax.outputs"},
+    {"path": "../pysrc/bytewax/tracing.py", "module": "bytewax.tracing"},
+    {"path": "../pysrc/bytewax/testing.py", "module": "bytewax.testing"},
+    {"path": "../pysrc/bytewax/visualize.py", "module": "bytewax.visualize"},
+    {"path": "../pysrc/bytewax/recovery.py", "module": "bytewax.recovery"},
+    {"path": "../pysrc/bytewax/connectors", "module": "bytewax.connectors"},
+    {"path": "../pysrc/bytewax/operators", "module": "bytewax.operators"},
+]
 # Controls the generation of those Markdown files. We have some
 # specific formatting requirements and inhereit from the built-in
 # renderer. This is why we need the path adjustment at the beginning
