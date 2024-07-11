@@ -599,36 +599,15 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
     length: timedelta
     offset: timedelta
     align_to: datetime
-    _origin_close: datetime = field(init=False)
-    _overlap_factor: int = field(init=False)
-    _overlap_remainder: timedelta = field(init=False)
+
     state: _SlidingWindowerState
 
-    def __post_init__(self):
-        # Don't support gaps. Nice error thrown in `SlidingWindower`.
-        assert self.offset <= self.length
-        # Pre-calc constants for performance.
-        self._origin_close = self.align_to + self.length
-        # Hell yes: "upside-down floor division" to get ceil. Use this
-        # instead of `math.ceil` so that the "interface" of a
-        # timestamp doesn't need to include `__ceil__`. It already has
-        # to support `__floordiv__` and `__mod__` for other reasons.
-        self._overlap_factor = -(self.length // -self.offset) + 1
-        self._overlap_remainder = self.length % self.offset
-
     def intersects(self, timestamp: datetime) -> List[int]:
-        since_close_origin_window = timestamp - self._origin_close
-        first_window_idx, close_remainder = divmod(
-            since_close_origin_window, self.offset
-        )
-        if self._overlap_remainder == ZERO_TD:
-            factor_reduction = 0
-        else:
-            factor_reduction = 0 if close_remainder > self._overlap_remainder else 1
+        since_origin = timestamp - self.align_to
         return list(
             range(
-                first_window_idx + 1,
-                first_window_idx + self._overlap_factor - factor_reduction,
+                (since_origin - self.length) // self.offset + 1,
+                since_origin // self.offset + 1,
             )
         )
 
@@ -757,7 +736,7 @@ class _SessionWindowerLogic(WindowerLogic[_SessionWindowerState]):
             elif until_open > ZERO_TD and until_open <= self.gap:
                 # If we're within the gap before an existing session,
                 # re-use the session ID, but also see if any merges
-                # occured.
+                # occurred.
                 meta.open_time = timestamp
                 self._find_merges()
                 return (window_id,)
