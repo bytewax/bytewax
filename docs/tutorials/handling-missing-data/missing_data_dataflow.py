@@ -148,7 +148,7 @@ def mapper(
         window.push(orig_value)
         new_value = orig_value
     else:
-        new_value = window.impute()  # Calculate derived value.
+        new_value = window.impute_value()  # Calculate derived value.
 
     return (window, (orig_value, new_value))
 
