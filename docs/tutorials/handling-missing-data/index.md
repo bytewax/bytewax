@@ -23,7 +23,7 @@ Bytewax is based around the concept of a dataflow. A dataflow is made up of a se
 
 * **Stateless vs. Stateful** - In Bytewax, operators can be either stateless or stateful. A stateless operator is one that processes each value it sees in isolation. A stateful operator, on the other hand, maintains some state between items and allows you to modify the state. This state can be used to store information about the data that has been seen so far, or to store the results of some computation.
 
-* **Workers** - A worker is a single thread of execution that runs a dataflow. Workers are responsible for executing the operators in the dataflow and passing data between them. Workers can run on a single machine, or they can be distributed across multiple machines. See <project:#execution-model> for more information.
+* **Workers** - A worker is a single thread of execution that runs a dataflow. Workers are responsible for executing the operators in the dataflow and passing data between them. Workers can run on a single machine, or they can be distributed across multiple machines. See <project:#xref-execution> for more information
 
 ## Goal
 
