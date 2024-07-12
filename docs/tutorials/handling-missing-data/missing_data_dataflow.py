@@ -8,6 +8,7 @@ using a windowed mean imputation strategy.
 
 # start-imports
 import random
+from typing import Optional, Tuple
 
 import bytewax.operators as op
 import numpy as np
@@ -135,17 +136,22 @@ class StatefulImputer:
 
 # end-stateful-imputer
 
+
 # start-dataflow-inpute
-def mapper(window: Optional[WindowedArray], orig_value: float) -> Tuple[Optional[WindowedArray], Tuple[float, float]]:
+def mapper(
+    window: Optional[WindowedArray], orig_value: float
+) -> Tuple[Optional[WindowedArray], Tuple[float, float]]:
+    """Impute missing values in a stream of numbers."""
     if window is None:
         window = WindowedArray(10)
     if not np.isnan(orig_value):
-        window.push(value)
+        window.push(orig_value)
         new_value = orig_value
     else:
         new_value = window.impute()  # Calculate derived value.
-        
+
     return (window, (orig_value, new_value))
+
 
 imputed_stream = op.stateful_map("impute", input_stream, mapper)
 # end-dataflow-inpute
