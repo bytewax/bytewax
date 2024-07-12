@@ -12,7 +12,7 @@ Given that the real world is never ideal, our datasets are often far from perfec
 
 ## Your Takeaway
 
-Learn how to create a custom sliding window with the stateful map operator to impute values using numpy
+Learn how to create a custom sliding window with the stateful map operator to impute, or fill in missing values, with an estimate using numpy
 
 ## Resources
 
@@ -21,9 +21,9 @@ Learn how to create a custom sliding window with the stateful map operator to im
 ## Important Concepts
 Bytewax is based around the concept of a dataflow. A dataflow is made up of a sequence of operators that interact with data that is “flowing” through it. The dataflow is a directed graph where the nodes are operators and the edges are the data that flows between them. The dataflow is a powerful abstraction that allows you to build complex data processing pipelines with ease.
 
-* Stateless vs stateful- In Bytewax, operators can be either stateless or stateful. A stateless operator is one that does not maintain any state between invocations. A stateful operator, on the other hand, maintains some state between invocations. This state can be used to store information about the data that has been seen so far, or to store the results of some computation.
+* **Stateless vs. Stateful** - In Bytewax, operators can be either stateless or stateful. A stateless operator is one that processes each value it sees in isolation. A stateful operator, on the other hand, maintains some state between items and allows you to modify the state. This state can be used to store information about the data that has been seen so far, or to store the results of some computation.
 
-* Workers - A worker is a process that runs a dataflow. Workers are responsible for executing the operators in the dataflow and passing data between them. Workers can run on a single machine, or they can be distributed across multiple machines.
+* **Workers** - A worker is a single thread of execution that runs a dataflow. Workers are responsible for executing the operators in the dataflow and passing data between them. Workers can run on a single machine, or they can be distributed across multiple machines. See <project:#execution-model> for more information.
 
 ## Goal
 
@@ -136,7 +136,7 @@ We also create a `StatefulImputer` wrapper class that will create an instance of
 :lineno-match:
 ```
 
-We can then initialize our dataflow with StatefulImputer as the stateful map operator.
+We can then add the {py:obj}`~bytewax.operators.stateful_map` step to our dataflow.
 
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py
@@ -148,7 +148,7 @@ We can then initialize our dataflow with StatefulImputer as the stateful map ope
 
 ## Output Results
 
-Next up we will use the capture operator to write our code to an output source, in this case StdOutSink. This is not going to do anything sophisticated, just output the data and the imputed value to standard output.
+Next up we will use the {py:obj}`~bytewax.operators.output` operator to write our code to a sink, in this case {py:obj}`~bytewax.connectors.stdio.StdOutSink`. This is not going to do anything sophisticated, just print the data and the imputed value to standard output.
 
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py

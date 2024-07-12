@@ -74,7 +74,7 @@ class WindowedArray:
     Create a numpy array to run windowed statistics on.
     """
 
-    def __init__(self, window_size):
+    def __init__(self, window_size: int) -> None:
         """Initialize the windowed array.
 
         Args:
@@ -83,7 +83,7 @@ class WindowedArray:
         self.last_n = np.empty(0, dtype=float)
         self.n = window_size
 
-    def _push(self, value):
+    def push(self, value: float) -> None:
         """Push a value into the windowed array.
 
         Args:
@@ -96,24 +96,13 @@ class WindowedArray:
             except IndexError:
                 pass
 
-    def impute_value(self, value):
-        """Impute the value in the windowed array.
-
-        Args:
-            value (float): The value to impute.
+    def impute_value(self) -> float:
+        """Impute the next value in the windowed array.
 
         Returns:
             tuple: A tuple containing the original value and the imputed value.
         """
-        self._push(value)
-        if np.isnan(value):
-            if self.last_n.size == 0 or np.all(np.isnan(self.last_n)):
-                new_value = value
-            else:
-                new_value = np.nanmean(self.last_n)
-        else:
-            new_value = value
-        return self, (value, new_value)
+        return np.nanmean(self.last_n)
 
 
 # end-windowed-array
@@ -147,8 +136,18 @@ class StatefulImputer:
 # end-stateful-imputer
 
 # start-dataflow-inpute
-imputer = StatefulImputer(window_size=10)
-imputed_stream = op.stateful_map("impute", input_stream, imputer.impute_value)
+def mapper(window: Optional[WindowedArray], orig_value: float) -> Tuple[Optional[WindowedArray], Tuple[float, float]]:
+    if window is None:
+        window = WindowedArray(10)
+    if not np.isnan(orig_value):
+        window.push(value)
+        new_value = orig_value
+    else:
+        new_value = window.impute()  # Calculate derived value.
+        
+    return (window, (orig_value, new_value))
+
+imputed_stream = op.stateful_map("impute", input_stream, mapper)
 # end-dataflow-inpute
 
 # start-output
