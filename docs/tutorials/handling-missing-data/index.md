@@ -36,19 +36,14 @@ We can represent our dataflow - called map_eg through this diagram, in which the
 * output: output the data and the imputed value to standard output
 
 ```mermaid
-graph TD;
-    subgraph map_eg_input
-        map_eg_input-->input_down[map_eg.input_down portout]
-    end
-    input_down-->impute_up[map_eg.impute_up]
-    subgraph map_eg_impute
-        impute_up-->map_eg_impute
-        map_eg_impute-->impute_down[map_eg.impute_down portout]
-    end
-    impute_down-->output_up[map_eg.output_up]
-    subgraph map_eg_output
-        output_up-->map_eg_output
-    end
+flowchart TD
+    subgraph "map_eg (Dataflow)"
+        map_eg.input["input (input)"]
+        map_eg.impute["impute (stateful_map)"]
+        map_eg.input -- "down → up" --> map_eg.impute
+        map_eg.output["output (output)"]
+        map_eg.impute -- "down → up" --> map_eg.output
+end
 ```
 
 
