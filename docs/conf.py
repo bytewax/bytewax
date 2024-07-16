@@ -95,6 +95,9 @@ nitpick_ignore = [
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
+html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "")
+print("READTHEDOCS_CANONICAL_URL", html_baseurl)
+
 html_show_copyright = False
 html_show_sourcelink = False
 html_static_path = ["_static"]
