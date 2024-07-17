@@ -233,6 +233,13 @@ kafka = [
 ]
 ```
 
+### Doctest Dependencies
+
+If your documentation relies on other dependencies, you
+need to add them under `requirements/dev.in`, then
+[re-compile the dependencies](#xref-dev-compile) and
+commit the changes.
+
 ### For Development Environment
 
 If you want to add a dependency that isn't required to use the Bytewax
