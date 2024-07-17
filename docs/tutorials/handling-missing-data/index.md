@@ -16,7 +16,7 @@ Learn how to create a custom sliding window with the stateful map operator to im
 
 ## Resources
 
-<gh-path:/docs/tutorials/search-logs/missing_data_dataflow.py>
+<gh-path:/docs/tutorials/handling-missing-data/missing_data_dataflow.py>
 
 ## Important Concepts
 Bytewax is based around the concept of a dataflow. A dataflow is made up of a sequence of operators that interact with data that is “flowing” through it. The dataflow is a directed graph where the nodes are operators and the edges are the data that flows between them. The dataflow is a powerful abstraction that allows you to build complex data processing pipelines with ease.
