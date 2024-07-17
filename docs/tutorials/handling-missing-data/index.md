@@ -46,9 +46,6 @@ flowchart TD
 end
 ```
 
-
-During data input, we will generate random integers and `NaN` values. In the stateful map, we will create a custom window to impute the missing values. Finally, we will output the data and the imputed value to standard output.
-
 Let's get started!
 
 ## Imports and Setup
