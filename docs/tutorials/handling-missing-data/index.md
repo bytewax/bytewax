@@ -118,7 +118,7 @@ Let’s unpack the code. When our class `WindowedArray` is initialized, it will 
 :lineno-match:
 ```
 
-We also create a `StatefulImputer` wrapper class that will create an instance of `WindowedArray` and return it when the stateful map operator needs to be built. This is useful as the stateful map operator {py:obj}`~bytewax.operators.stateful_map` requires stateful operations to be encapsulated in objects (for example, in a streaming data processing framework where state needs to be maintained across batches of data), thus the StatefulImputer provides a convenient wrapper to maintain the state.
+We also create a `StatefulImputer` wrapper class that will create an instance of `WindowedArray` and return it when the stateful map operator needs to be built. This is useful for maintaining state in streaming data processing where state needs to be maintained across batches of data. The `StatefulImputer` provides a convenient way to manage state. By separating the state management into a simple mapper function, the `WindowedArray` can remain focused on its primary functionality without concerning itself with the operator’s requirements.
 
 ```{literalinclude} missing_data_dataflow.py
 :caption: dataflow.py
