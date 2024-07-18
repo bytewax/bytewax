@@ -831,6 +831,7 @@ numpy==1.26.4 \
     #   matplotlib
     #   numba
     #   pandas
+    #   pandas-stubs
     #   patsy
     #   phik
     #   pywavelets
@@ -939,6 +940,10 @@ pandas==2.2.2 \
     #   statsmodels
     #   visions
     #   ydata-profiling
+pandas-stubs==2.2.2.240603 \
+    --hash=sha256:2dcc86e8fa6ea41535a4561c1f08b3942ba5267b464eff2e99caeee66f9e4cd1 \
+    --hash=sha256:e08ce7f602a4da2bff5a67475ba881c39f2a4d4f7fccc1cba57c6f35a379c6c0
+    # via -r requirements/doctest.in
 parso==0.8.4 \
     --hash=sha256:a418670a20291dacd2dddc80c377c5c3791378ee1e8d12bffc35420643d43f18 \
     --hash=sha256:eb3a7b58240fb99099a345571deecc0f9540ea5f4dd2fe14c2a99d6b281ab92d
@@ -1528,6 +1533,10 @@ types-docutils==0.20.0.20240406 \
     --hash=sha256:e8ec4a5a125d06d8632bbaac8a11fbea18a1edfa94df9c5129dc45980915b84b \
     --hash=sha256:f1966b05087c0e1227c399281ecc796cb67d0afc23398d7c5c95b3355de14113
     # via -r requirements/dev.in
+types-pytz==2024.1.0.20240417 \
+    --hash=sha256:6810c8a1f68f21fdf0f4f374a432487c77645a0ac0b31de4bf4690cf21ad3981 \
+    --hash=sha256:8335d443310e2db7b74e007414e74c4f53b67452c0cb0d228ca359ccfba59659
+    # via pandas-stubs
 typing-extensions==4.11.0 \
     --hash=sha256:83f085bd5ca59c80295fc2a82ab5dac679cbe02b9f33f7d83af68e241bea51b0 \
     --hash=sha256:c1f94d72897edaf4ce775bb7558d5b79d8126906a14ea5ed1635921406c0387a
