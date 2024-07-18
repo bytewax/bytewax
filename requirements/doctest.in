@@ -2,3 +2,4 @@ orjson
 requests
 numpy
 ydata-profiling
+pandas

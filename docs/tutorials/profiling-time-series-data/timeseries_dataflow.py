@@ -1,80 +1,103 @@
-"""Setup a dataflow for handling missing data in a stream of numbers.
+"""Setup a dataflow for profiling time series data.
 
-This example demonstrates how to use the bytewax library to create a dataflow
-that processes a stream of numbers, where every 5th number is missing (represented
-by np.nan). The dataflow uses a stateful operator to impute the missing values
-using a windowed mean imputation strategy.
+This script sets up a dataflow that reads in a CSV file containing time series data
+and profiles the data in hourly windows. The data is read in from a CSV file and
+parsed to extract the timestamp. The data is then windowed into hourly windows and
+accumulated. The accumulated data is then profiled using the ydata_profiling library
+and the profile report is output to a file.
 """
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import bytewax.operators as op
+import pandas as pd
 from bytewax.connectors.files import CSVSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
+from bytewax.operators import windowing as wop
+from bytewax.operators.windowing import EventClock, TumblingWindower
+from ydata_profiling import ProfileReport  # type: ignore
 
+# Initialize dataflow
 flow = Dataflow("timeseries")
 csv_path = Path("iot_telemetry_data_1000.csv")
 input_data = op.input("simulated_stream", flow, CSVSource(csv_path))
-op.output("output", input_data, StdOutSink())
 
 
-# from bytewax.window import EventClockConfig, TumblingWindow
-# from ydata_profiling import ProfileReport
-# import pandas as pd
-# # parse timestamp
-# def parse_time(reading_data):
-#     reading_data["ts"] = datetime.fromtimestamp(float(reading_data["ts"]),
-#                                                   timezone.utc)
-#     return reading_data
-
-# flow.map(parse_time)
+# Parse timestamps in data
+def parse_time(reading_data):
+    """Parse the timestamp in the reading data."""
+    reading_data["ts"] = datetime.fromtimestamp(float(reading_data["ts"]), timezone.utc)
+    return reading_data
 
 
-# # remap format to tuple (device_id, reading_data)
-# flow.map(lambda reading_data: (reading_data['device'], reading_data))
+parse_time_step = op.map("parse_time", input_data, parse_time)
+map_tuple = op.map(
+    "tuple_map",
+    parse_time_step,
+    lambda reading_data: (reading_data["device"], reading_data),
+)
 
 
-# # This is the accumulator function, and outputs a list of readings
-# def acc_values(acc, reading):
-#     acc.append(reading)
-#     return acc
+# Accumulator function
+def acc_values():
+    """Initialize the accumulator for the windowed data."""
+    return []
 
 
-# # This function instructs the event clock on how to retrieve the
-# # event's datetime from the input.
-# def get_time(reading):
-#     return reading["ts"]
+def accumulate(acc, reading):
+    """Accumulate the readings in the window."""
+    acc.append(reading)
+    return acc
 
 
-# # Configure the `fold_window` operator to use the event time.
-# cc = EventClockConfig(get_time, wait_for_system_duration=timedelta(seconds=30))
-
-# # And a 5 seconds tumbling window
-# align_to = datetime(2020, 1, 1, tzinfo=timezone.utc)
-# wc = TumblingWindow(align_to=align_to, length=timedelta(hours=1))
-
-# flow.fold_window("running_average", cc, wc, list, acc_values)
-
-# flow.inspect(print)
+def merge_acc(acc1, acc2):
+    """Merge two accumulators together."""
+    return acc1 + acc2
 
 
-# def profile(device_id__readings):
-#     print(device_id__readings)
-#     device_id, readings = device_id__readings
-#     start_time = readings[0]['ts'].replace(minute=0,
-#                   second=0, microsecond=0).strftime('%Y-%m-%d %H:%M:%S')
-#     df = pd.DataFrame(readings)
-#     profile = ProfileReport(
-#         df,
-#         tsmode=True,
-#         sortby="ts",
-#         title=f"Sensor Readings - device: {device_id}"
-#     )
+def output_profile(acc):
+    """Output a profile report for the accumulated data."""
+    df = pd.DataFrame(acc)
+    profile = ProfileReport(df, title="Profiling Report")
+    profile.to_file(f"profile_{datetime.now(tz=timezone.utc).isoformat()}.html")
+    return acc
 
-#     profile.to_file(f"Ts_Profile_{device_id}-{start_time}.html")
-#     return f"device {device_id} profiled at hour {start_time}"
 
-# flow.map(profile)
+# Get timestamp from reading
+def get_time(reading):
+    """Get the timestamp from the reading."""
+    return reading["ts"]
 
-# flow.output("out", StdOutput())
+
+# Configure windowing
+event_time_config = EventClock(get_time, wait_for_system_duration=timedelta(seconds=30))
+align_to = datetime(2020, 1, 1, tzinfo=timezone.utc)
+clock_config = TumblingWindower(align_to=align_to, length=timedelta(hours=1))
+
+# Collect windowed data
+windowed_data = wop.fold_window(
+    "windowed_data",
+    map_tuple,
+    clock=event_time_config,
+    windower=clock_config,
+    builder=acc_values,
+    folder=accumulate,
+    merger=merge_acc,
+)
+
+
+# Process windowed data and generate profile report
+def fold_and_profile(acc, reading):
+    """Fold the windowed data and output a profile report."""
+    acc = accumulate(acc, reading)
+    if len(acc) > 0:  # Perform profiling if there are accumulated readings
+        output_profile(acc)
+    return acc
+
+
+folded = op.fold_final("acc_values", windowed_data.down, acc_values, fold_and_profile)
+
+# Output results
+op.output("output", folded, StdOutSink())

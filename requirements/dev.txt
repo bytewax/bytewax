@@ -933,6 +933,7 @@ pandas==2.2.2 \
     --hash=sha256:e9b79011ff7a0f4b1d6da6a61aa1aa604fb312d6647de5bad20013682d1429ce \
     --hash=sha256:eee3a87076c0756de40b05c5e9a6069c035ba43e8dd71c379e68cab2c20f16ad
     # via
+    #   -r requirements/doctest.in
     #   phik
     #   seaborn
     #   statsmodels
