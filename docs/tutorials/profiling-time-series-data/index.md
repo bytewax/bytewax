@@ -221,6 +221,10 @@ python -m bytewax.run timeseries_dataflow:flow
 
 This will generate a series of `html` files with a profile of the data.
 
+Here is what the profiling report would look like for the data:
+
+![](sample-report.png)
+
 ## Generating a mermaid graph
 
 We can also visualize the steps in the dataflow as follows:
