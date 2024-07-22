@@ -7,6 +7,7 @@ accumulated. The accumulated data is then profiled using the ydata_profiling lib
 and the profile report is output to a file.
 """
 
+# start-imports
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,12 +20,17 @@ from bytewax.operators import windowing as wop
 from bytewax.operators.windowing import EventClock, TumblingWindower
 from ydata_profiling import ProfileReport  # type: ignore
 
+# end-imports
+
+# start-dataflow
 # Initialize dataflow
 flow = Dataflow("timeseries")
 csv_path = Path("iot_telemetry_data_1000.csv")
 input_data = op.input("simulated_stream", flow, CSVSource(csv_path))
+# end-dataflow
 
 
+# start-parse-time-stamp
 # Parse timestamps in data
 def parse_time(reading_data):
     """Parse the timestamp in the reading data."""
@@ -38,8 +44,10 @@ map_tuple = op.map(
     parse_time_step,
     lambda reading_data: (reading_data["device"], reading_data),
 )
+# end-parse-time-stamp
 
 
+# start-accumulator-helpers
 # Accumulator function
 def acc_values():
     """Initialize the accumulator for the windowed data."""
@@ -57,25 +65,22 @@ def merge_acc(acc1, acc2):
     return acc1 + acc2
 
 
-def output_profile(acc):
-    """Output a profile report for the accumulated data."""
-    df = pd.DataFrame(acc)
-    profile = ProfileReport(df, title="Profiling Report")
-    profile.to_file(f"profile_{datetime.now(tz=timezone.utc).isoformat()}.html")
-    return acc
-
-
 # Get timestamp from reading
 def get_time(reading):
     """Get the timestamp from the reading."""
     return reading["ts"]
 
 
+# end-accumulator-helpers
+
+# start-windowing
 # Configure windowing
 event_time_config = EventClock(get_time, wait_for_system_duration=timedelta(seconds=30))
 align_to = datetime(2020, 1, 1, tzinfo=timezone.utc)
 clock_config = TumblingWindower(align_to=align_to, length=timedelta(hours=1))
+# end-windowing
 
+# start-windowed-data
 # Collect windowed data
 windowed_data = wop.fold_window(
     "windowed_data",
@@ -86,6 +91,16 @@ windowed_data = wop.fold_window(
     folder=accumulate,
     merger=merge_acc,
 )
+# end-windowed-data
+
+
+# start-profile-report
+def output_profile(acc):
+    """Output a profile report for the accumulated data."""
+    df = pd.DataFrame(acc)
+    profile = ProfileReport(df, title="Profiling Report")
+    profile.to_file(f"profile_{datetime.now(tz=timezone.utc).isoformat()}.html")
+    return acc
 
 
 # Process windowed data and generate profile report
@@ -99,5 +114,9 @@ def fold_and_profile(acc, reading):
 
 folded = op.fold_final("acc_values", windowed_data.down, acc_values, fold_and_profile)
 
+# end-profile-report
+
+# start-output
 # Output results
 op.output("output", folded, StdOutSink())
+# end-output
