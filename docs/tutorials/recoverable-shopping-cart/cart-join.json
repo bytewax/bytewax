@@ -1,0 +1,8 @@
+{"user_id": "a", "type": "order", "order_id": 1}
+{"user_id": "a", "type": "order", "order_id": 2}
+{"user_id": "b", "type": "order", "order_id": 3}
+{"user_id": "a", "type": "payment", "order_id": 2}
+{"user_id": "b", "type": "order", "order_id": 4}
+FAIL HERE
+{"user_id": "a", "type": "payment", "order_id": 1}
+{"user_id": "b", "type": "payment", "order_id": 4}
