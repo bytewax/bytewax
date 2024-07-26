@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Generic, List, Optional, TypeVar, Union, cast
 
 import confluent_kafka
+import confluent_kafka.serialization
 from confluent_kafka import OFFSET_BEGINNING
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.serialization import MessageField, SerializationContext
