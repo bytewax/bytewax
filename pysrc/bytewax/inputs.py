@@ -32,6 +32,7 @@ __all__ = [
     "FixedPartitionedSource",
     "S",
     "SimplePollingSource",
+    "Sn",
     "Source",
     "StatefulSourcePartition",
     "StatelessSourcePartition",
