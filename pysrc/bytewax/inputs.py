@@ -115,8 +115,8 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
 
         Be careful of "off by one" errors in resume state. This should
         return a state that, when built into a partition, resumes
-        reading _after the last read item_, not any of the the same
-        items that {py:obj}`next_batch` last returned.
+        reading _after the last read item_, not any of the same items
+        that {py:obj}`next_batch` last returned.
 
         This is guaranteed to never be called after {py:obj}`close`.
 
@@ -176,7 +176,6 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
-
 
         :arg step_id: The step_id of the input operator.
 
@@ -353,7 +352,7 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
     If you need a high-throughput source, or custom retry or timing,
     avoid this. Instead create a source using one of the other
     {py:obj}`Source` subclasses where you can have increased
-    paralellism, batching, and finer control over timing.
+    parallelism, batching, and finer control over timing.
 
     """
 
@@ -411,7 +410,7 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 def batch(ib: Iterable[X], batch_size: int) -> Iterator[List[X]]:
     """Batch an iterable.
 
-    Use this to easily generate batches of items for a partitions's
+    Use this to easily generate batches of items for a partition's
     `next_batch` method.
 
     :arg ib: The underlying source iterable of items.
@@ -435,7 +434,7 @@ def batch_getter(
 ) -> Iterator[List[X]]:
     """Batch from a getter function that might not return an item.
 
-     Use this to easily generate batches of items for a partitions's
+     Use this to easily generate batches of items for a partition's
     `next_batch` method.
 
     :arg getter: Function to call to get the next item. Should raise
