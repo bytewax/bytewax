@@ -3,12 +3,14 @@ import itertools
 import queue
 import re
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import (
+    AbortExecution,
     DynamicSource,
     FixedPartitionedSource,
     SimplePollingSource,
@@ -275,6 +277,57 @@ def test_fixed_partitioned_source_advances_epoch_even_if_not_awoken():
         assert td >= fast_interval
 
 
+class SimpleListSource(SimplePollingSource[str, int]):
+    @dataclass
+    class Abort:
+        _triggered: bool = False
+
+    def __init__(self, items: List[str]) -> None:
+        self.items = items
+        self._next_idx = 0
+
+        super().__init__(interval=timedelta(seconds=0))
+
+    @override
+    def next_item(self) -> str:
+        try:
+            item = self.items[self._next_idx]
+            self._next_idx += 1
+
+            if isinstance(item, SimpleListSource.Abort) and not item._triggered:
+                item._triggered = True
+                raise AbortExecution()
+
+            return item
+        except IndexError as ex:
+            raise StopIteration() from ex
+
+    @override
+    def snapshot(self) -> int:
+        return self._next_idx
+
+    @override
+    def resume(self, resume_state: int) -> None:
+        self._next_idx = resume_state
+
+
+def test_simple_polling_source_resume_state():
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp", flow, SimpleListSource(["a", "b", SimpleListSource.Abort(), "c"])
+    )
+    op.output("out", s, TestingSink(out))
+
+    run_main(flow)
+    assert out == ["a", "b"]
+
+    out.clear()
+    run_main(flow)
+    assert out == ["c"]
+
+
 def test_simple_polling_source_interval():
     now = datetime(2023, 1, 1, 5, 0, tzinfo=timezone.utc)
 
@@ -283,6 +336,7 @@ def test_simple_polling_source_interval():
         interval=timedelta(minutes=30),
         align_to=now,
         getter=lambda: True,
+        snapshot=lambda: None,
     )
     assert part.next_batch() == [True]
     assert part.next_awake() == datetime(2023, 1, 1, 5, 30, tzinfo=timezone.utc)
@@ -299,6 +353,7 @@ def test_simple_polling_source_retry():
         interval=timedelta(minutes=30),
         align_to=now,
         getter=getter,
+        snapshot=lambda: None,
     )
     assert part.next_batch() == []
     assert part.next_awake() == datetime(2023, 1, 1, 5, 0, 5, tzinfo=timezone.utc)
@@ -310,6 +365,7 @@ def test_simple_polling_source_align_to():
         interval=timedelta(minutes=30),
         align_to=datetime(2023, 1, 1, 4, 0, tzinfo=timezone.utc),
         getter=lambda: True,
+        snapshot=lambda: None,
     )
     assert part.next_awake() == datetime(2023, 1, 1, 5, 30, tzinfo=timezone.utc)
 
@@ -320,6 +376,7 @@ def test_simple_polling_source_align_to_start_on_align_awakes_immediately():
         interval=timedelta(minutes=30),
         align_to=datetime(2023, 1, 1, 4, 0, tzinfo=timezone.utc),
         getter=lambda: True,
+        snapshot=lambda: None,
     )
     assert part.next_awake() == datetime(2023, 1, 1, 5, 0, tzinfo=timezone.utc)
 

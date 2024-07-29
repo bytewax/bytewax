@@ -19,10 +19,10 @@ from typing import (
     List,
     Optional,
     Type,
-    TypeVar,
+    cast,
 )
 
-from typing_extensions import AsyncIterable, override
+from typing_extensions import AsyncIterable, TypeVar, override
 
 from bytewax._bytewax import AbortExecution
 
@@ -32,6 +32,7 @@ __all__ = [
     "FixedPartitionedSource",
     "S",
     "SimplePollingSource",
+    "Sn",
     "Source",
     "StatefulSourcePartition",
     "StatelessSourcePartition",
@@ -48,6 +49,10 @@ X = TypeVar("X")
 
 S = TypeVar("S")
 """Type of state snapshots."""
+
+
+Sn = TypeVar("Sn", default=None)
+"""Type of state snapshots but defaults to `None`."""
 
 
 class Source(ABC, Generic[X]):  # noqa: B024
@@ -115,8 +120,8 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
 
         Be careful of "off by one" errors in resume state. This should
         return a state that, when built into a partition, resumes
-        reading _after the last read item_, not any of the the same
-        items that {py:obj}`next_batch` last returned.
+        reading _after the last read item_, not any of the same items
+        that {py:obj}`next_batch` last returned.
 
         This is guaranteed to never be called after {py:obj}`close`.
 
@@ -176,7 +181,6 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
         Do not pre-build state about a partition in the
         constructor. All state must be derived from `resume_state` for
         recovery to work properly.
-
 
         :arg step_id: The step_id of the input operator.
 
@@ -279,16 +283,18 @@ class DynamicSource(Source[X]):
         ...
 
 
-class _SimplePollingPartition(StatefulSourcePartition[X, None]):
+class _SimplePollingPartition(StatefulSourcePartition[X, S]):
     def __init__(
         self,
         now: datetime,
         interval: timedelta,
         align_to: Optional[datetime],
         getter: Callable[[], X],
+        snapshot: Callable[[], S],
     ):
         self._interval = interval
         self._getter = getter
+        self._snapshot = snapshot
 
         if align_to is not None:
             # Hell yeah timedelta implements remainder.
@@ -321,11 +327,11 @@ class _SimplePollingPartition(StatefulSourcePartition[X, None]):
         return self._next_awake
 
     @override
-    def snapshot(self) -> None:
-        return None
+    def snapshot(self) -> S:
+        return self._snapshot()
 
 
-class SimplePollingSource(FixedPartitionedSource[X, None]):
+class SimplePollingSource(FixedPartitionedSource[X, Sn]):
     """Calls a user defined function at a regular interval.
 
     ```{testcode}
@@ -333,7 +339,7 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 
     class URLSource(SimplePollingSource):
         def __init__(self):
-            super(interval=timedelta(seconds=10))
+            super().__init__(interval=timedelta(seconds=10))
 
         def next_item(self):
             res = requests.get("https://example.com")
@@ -344,8 +350,9 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 
     There is no parallelism; only one worker will poll this source.
 
-    Does not support storing any resume state. Thus these kind of
-    sources only naively can support at-most-once processing.
+    Supports maintaining the state of the source and resuming. If the
+    source supports seeking, this input can support exactly-once
+    processing. Override {py:obj}`snapshot` and {py:obj}`resume`.
 
     This is best for low-throughput polling on the order of seconds to
     hours.
@@ -353,7 +360,7 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
     If you need a high-throughput source, or custom retry or timing,
     avoid this. Instead create a source using one of the other
     {py:obj}`Source` subclasses where you can have increased
-    paralellism, batching, and finer control over timing.
+    parallelism, batching, and finer control over timing.
 
     """
 
@@ -387,11 +394,22 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
 
     @override
     def build_part(
-        self, _step_id: str, for_part: str, resume_state: Optional[None]
-    ) -> _SimplePollingPartition[X]:
+        self,
+        _step_id: str,
+        for_part: str,
+        resume_state: Optional[Sn],
+    ) -> _SimplePollingPartition[X, Sn]:
         now = datetime.now(timezone.utc)
+
+        if resume_state is not None:
+            self.resume(resume_state)
+
         return _SimplePollingPartition(
-            now, self._interval, self._align_to, self.next_item
+            now,
+            self._interval,
+            self._align_to,
+            self.next_item,
+            self.snapshot,
         )
 
     @abstractmethod
@@ -407,11 +425,38 @@ class SimplePollingSource(FixedPartitionedSource[X, None]):
         """
         ...
 
+    def snapshot(self) -> Sn:
+        """Snapshot the position of the next read of this source.
+
+        This will be returned to you via the `resume_state` parameter
+        of {py:obj}`resume`.
+
+        Be careful of "off by one" errors in resume state. This should
+        return a state that, after being passed to {py:obj}`resume`,
+        resumes reading _after the last read item_, not any of the
+        same item that {py:obj}`next_item` last returned.
+
+        :returns: Resume state.
+
+        """
+        return cast(Sn, None)
+
+    def resume(self, resume_state: Sn) -> None:
+        """Reset the position of the next read of this source.
+
+        This will be called once before {py:obj}`next_item` if this
+        execution is a resume.
+
+        :arg resume_state:
+
+        """
+        pass
+
 
 def batch(ib: Iterable[X], batch_size: int) -> Iterator[List[X]]:
     """Batch an iterable.
 
-    Use this to easily generate batches of items for a partitions's
+    Use this to easily generate batches of items for a partition's
     `next_batch` method.
 
     :arg ib: The underlying source iterable of items.
@@ -435,7 +480,7 @@ def batch_getter(
 ) -> Iterator[List[X]]:
     """Batch from a getter function that might not return an item.
 
-     Use this to easily generate batches of items for a partitions's
+     Use this to easily generate batches of items for a partition's
     `next_batch` method.
 
     :arg getter: Function to call to get the next item. Should raise
