@@ -98,11 +98,11 @@ ci-pre: lint test-py test-rs test-doc test-benchmark
 
 # Start an auto-refreshing doc development server
 doc-autobuild: _assert-venv
-    sphinx-autobuild --ignore '**/.*' -E docs/ docs/_build/
+    sphinx-autobuild -T --ignore '**/.*' -E docs/ docs/_build/
 
 # Build the docs into static HTML files in `docs/_build/`
 doc-build: _assert-venv
-    sphinx-build -b html -E docs/ docs/_build/
+    sphinx-build -T -b html -E docs/ docs/_build/
 
 # Init the Read the Docs venv; only use if you are debugging RtD; use `just doc-autobuild` to write docs locally
 venv-init-doc:
