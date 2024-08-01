@@ -6,10 +6,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from zlib import adler32
 
-from typing_extensions import override
-
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch
 from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
+from typing_extensions import override
 
 
 def _get_path_dev(path: Path) -> str:

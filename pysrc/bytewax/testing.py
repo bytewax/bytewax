@@ -7,8 +7,6 @@ from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
-from typing_extensions import override
-
 from bytewax._bytewax import (
     cluster_main,
     run_main,
@@ -24,6 +22,7 @@ from bytewax.run import (
     _create_arg_parser,
     _EnvDefault,
 )
+from typing_extensions import override
 
 __all__ = [
     "TestingSink",

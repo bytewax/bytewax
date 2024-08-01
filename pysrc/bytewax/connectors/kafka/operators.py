@@ -20,13 +20,9 @@ kop.output("kafka-out", kafka_input.oks, brokers=[...], topic="...")
 from dataclasses import dataclass
 from typing import Any, Dict, Generic, List, Optional, TypeVar, Union, cast
 
+import bytewax.operators as op
 import confluent_kafka
 import confluent_kafka.serialization
-from confluent_kafka import OFFSET_BEGINNING
-from confluent_kafka import KafkaError as ConfluentKafkaError
-from confluent_kafka.serialization import MessageField, SerializationContext
-
-import bytewax.operators as op
 from bytewax.connectors.kafka import (
     K2,
     V2,
@@ -39,6 +35,9 @@ from bytewax.connectors.kafka import (
     V,
 )
 from bytewax.dataflow import Dataflow, Stream, operator
+from confluent_kafka import OFFSET_BEGINNING
+from confluent_kafka import KafkaError as ConfluentKafkaError
+from confluent_kafka.serialization import MessageField, SerializationContext
 
 X = TypeVar("X")
 """Type of successfully processed items."""

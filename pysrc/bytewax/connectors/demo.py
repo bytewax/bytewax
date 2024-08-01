@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, List, Optional, Tuple, TypeVar
 
-from typing_extensions import override
-
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from typing_extensions import override
 
 X = TypeVar("X")
 
