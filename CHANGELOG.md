@@ -9,7 +9,7 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-## v0.20.2
+## v0.21.0
 
 - {py:obj}`~bytewax.inputs.SimplePollingSource` now allows you to
   retain state to support at-least-once delivery.
@@ -26,11 +26,11 @@ notes on GitHub when we make a new release.__
   made more broad to support all Kafka serializers, like
   {py:obj}`confluent_kafka.serialization.StringSerializer`.
 
-- Fixes a bug which caused two of the same types of windowing
-  operators in a dataflow to spuriously result in a `ValueError`. This
-  fix invalidates any recovery data for all windowing operators; it is
-  recommended to delete and re-create the recovery store if you are
-  using windowing operators.
+- *Breaking change* - Fixes a bug which caused two of the same types
+  of windowing operators in a dataflow to spuriously result in a
+  `ValueError`. This fix invalidates any recovery data for all
+  windowing operators; it is recommended to delete and re-create
+  the recovery store if you are using windowing operators.
 
 - Fixes a performance issue where
   {py:obj}`bytewax.operators.StatefulBatchLogic.notify_at` (and thus
