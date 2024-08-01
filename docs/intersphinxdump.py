@@ -12,9 +12,10 @@ role syntax.
 import warnings
 from typing import Dict, cast
 
-from conf import intersphinx_mapping
 from sphinx.application import Sphinx
 from sphinx.ext import intersphinx
+
+from docs.conf import intersphinx_mapping
 
 
 class _MockConfig:
