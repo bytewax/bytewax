@@ -9,6 +9,8 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## v0.20.2
+
 - {py:obj}`~bytewax.inputs.SimplePollingSource` now allows you to
   retain state to support at-least-once delivery.
 
