@@ -28,8 +28,6 @@ from typing import (
     overload,
 )
 
-from typing_extensions import Self, TypeAlias, TypeGuard, override
-
 from bytewax.dataflow import (
     Dataflow,
     Stream,
@@ -38,6 +36,7 @@ from bytewax.dataflow import (
 )
 from bytewax.inputs import Source
 from bytewax.outputs import DynamicSink, Sink, StatelessSinkPartition
+from typing_extensions import Self, TypeAlias, TypeGuard, override
 
 X = TypeVar("X")
 """Type of upstream items."""

@@ -24,8 +24,6 @@ from typing import (
     overload,
 )
 
-from typing_extensions import Self, TypeAlias, override
-
 import bytewax.operators as op
 from bytewax._utils import partition
 from bytewax.dataflow import (
@@ -51,6 +49,7 @@ from bytewax.operators import (
     _JoinState,
     _untyped_none,
 )
+from typing_extensions import Self, TypeAlias, override
 
 ZERO_TD: timedelta = timedelta(seconds=0)
 """A zero length of time."""

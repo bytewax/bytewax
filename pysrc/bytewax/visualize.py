@@ -14,10 +14,9 @@ from dataclasses import dataclass
 from functools import singledispatch
 from typing import Any, Dict, List, Literal
 
-from typing_extensions import Self
-
 from bytewax.dataflow import Dataflow, Operator
 from bytewax.run import _locate_dataflow, _prepare_import
+from typing_extensions import Self
 
 
 @dataclass(frozen=True)

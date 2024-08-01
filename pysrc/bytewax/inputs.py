@@ -22,9 +22,8 @@ from typing import (
     cast,
 )
 
-from typing_extensions import AsyncIterable, TypeVar, override
-
 from bytewax._bytewax import AbortExecution
+from typing_extensions import AsyncIterable, TypeVar, override
 
 __all__ = [
     "AbortExecution",

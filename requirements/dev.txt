@@ -1406,9 +1406,7 @@ sphinx==7.3.7 \
 sphinx-autobuild==2024.4.16 \
     --hash=sha256:1c0ed37a1970eed197f9c5a66d65759e7c4e4cba7b5a5d77940752bf1a59f2c7 \
     --hash=sha256:f2522779d30fcbf0253e09714f274ce8c608cb6ebcd67922b1c54de59faba702
-sphinx-autodoc2 @ git+https://github.com/davidselassie/sphinx-autodoc2@a9db7460ca254983c673184f1d7b5db6c1c31e83 \
-    --hash=sha256:7d76044aa81d6af74447080182b6868c7eb066874edc835e8ddf810735b6565a \
-    --hash=sha256:e867013b1512f9d6d7e6f6799f8b537d6884462acd118ef361f3f619a60b5c9e
+sphinx-autodoc2 @ git+https://github.com/davidselassie/sphinx-autodoc2@a9db7460ca254983c673184f1d7b5db6c1c31e83
 sphinx-favicon==1.0.1 \
     --hash=sha256:7c93d6b634cb4c9687ceab67a8526f05d3b02679df94e273e51a43282e6b034c \
     --hash=sha256:df796de32125609c1b4a8964db74270ebf4502089c27cd53f542354dc0b57e8e
