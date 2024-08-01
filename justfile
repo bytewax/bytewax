@@ -68,7 +68,8 @@ lint: _assert-venv
     ruff check pysrc/ pytests/ docs/ examples/ *.py
     # TODO: Add `examples/` to mypy checking. Will require a lot of
     # fixup?
-    MYPYPATH=pysrc/ mypy --namespace-packages --explicit-package-bases pysrc/ pytests/ docs/ *.py
+    mypy -p bytewax
+    mypy pytests/ docs/ *.py
     cargo clippy
 
 # Manually check that all pre-commit hooks pass; runs in CI
