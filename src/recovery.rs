@@ -380,12 +380,18 @@ impl LocalStateStore {
         let pickle = py.import_bound("pickle")?;
         self.conn
             // Retrieve all the snapshots for the latest epoch saved
-            // in the local store that's <= than resume_from.
+            // in the local store that's < than resume_from.
             .prepare(
-                "SELECT step_id, state_key, MAX(epoch) as epoch, ser_change \
-                FROM snaps \
-                WHERE epoch <= ?1 AND step_id = ?2 \
-                GROUP BY step_id, state_key",
+                "WITH max_epoch_snaps AS (
+                    SELECT step_id, state_key, MAX(epoch) AS epoch
+                    FROM snaps
+                    WHERE epoch < ?1 AND step_id = ?2
+                    GROUP BY step_id, state_key
+                )
+                SELECT step_id, state_key, epoch, ser_change
+                FROM snaps
+                JOIN max_epoch_snaps USING (step_id, state_key, epoch)
+                WHERE epoch < ?1 AND step_id = ?2",
             )
             .reraise("Error preparing query for recovery db.")?
             .query_map((&self.resume_from.1 .0, &step_id.0), |row| {
@@ -851,39 +857,31 @@ where
         let (mut output, clock) = op_builder.new_output();
 
         op_builder.build(move |init_caps| {
-            let inbuffer = Rc::new(RefCell::new(InBuffer::<u64, PathBuf>::new()));
+            let mut inbuffer = InBuffer::<u64, PathBuf>::new();
             let mut ncater = EagerNotificator::new(init_caps, ());
 
-            // This logic is reused in both eager and closing logic.
-            // Takes the inbuffer, empties it and uploads all the paths in the stream.
-            let upload = move |inbuffer: Rc<RefCell<InBuffer<u64, PathBuf>>>| {
-                Python::with_gil(|py| {
-                    let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                    for epoch in epochs {
-                        for path in inbuffer.borrow_mut().remove(&epoch).unwrap() {
-                            backup
-                                .upload(
-                                    py,
-                                    path.clone(),
-                                    path.file_name().unwrap().to_string_lossy().to_string(),
-                                )
-                                .unwrap();
-                        }
-                    }
-                });
-            };
-
             move |input_frontiers| {
-                input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
+                input.buffer_notify(&mut inbuffer, &mut ncater);
 
                 ncater.for_each(
                     input_frontiers,
-                    |_caps, ()| {
-                        upload(inbuffer.clone());
-                    },
+                    |_caps, ()| {},
                     |caps, ()| {
                         let cap = &caps[0];
-                        upload(inbuffer.clone());
+                        let epoch = cap.time();
+                        Python::with_gil(|py| {
+                            if let Some(paths) = inbuffer.remove(epoch) {
+                                for path in paths {
+                                    backup
+                                        .upload(
+                                            py,
+                                            path.clone(),
+                                            path.file_name().unwrap().to_string_lossy().to_string(),
+                                        )
+                                        .unwrap();
+                                }
+                            }
+                        });
                         output.activate().session(cap).give(());
                     },
                 )
@@ -908,52 +906,36 @@ where
         let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
 
-        let (mut immediate_segments_output, immediate_segments) = op_builder.new_output();
-        let (mut batch_segments_output, batch_segments) = op_builder.new_output();
-        let segments = immediate_segments.concatenate(vec![batch_segments]);
+        let (mut segments_output, segments) = op_builder.new_output();
 
         op_builder.build(move |init_caps| {
-            let inbuffer = Rc::new(RefCell::new(InBuffer::new()));
+            let mut inbuffer = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, ());
+            let paths = Rc::new(RefCell::new(Vec::new()));
 
             move |input_frontiers| {
-                input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
+                input.buffer_notify(&mut inbuffer, &mut ncater);
 
                 ncater.for_each(
                     input_frontiers,
                     |caps, ()| {
                         let cap = &caps[0];
+                        let epoch = cap.time();
 
-                        let mut handle = immediate_segments_output.activate();
-                        let mut session = handle.session(cap);
-
-                        let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-
-                        for epoch in epochs {
-                            let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
+                        if let Some(snaps) = inbuffer.remove(epoch) {
                             let path = local_state_store
                                 .borrow_mut()
-                                .write_snapshots_segment(snaps, epoch)
+                                .write_snapshots_segment(snaps, *epoch)
                                 .unwrap();
-                            session.give(path);
+                            paths.borrow_mut().push(path);
                         }
                     },
                     |caps, ()| {
-                        let cap = &caps[1];
-
-                        let mut handle = batch_segments_output.activate();
+                        let cap = &caps[0];
+                        let mut handle = segments_output.activate();
                         let mut session = handle.session(cap);
-
-                        let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-
-                        for epoch in epochs {
-                            let snaps = inbuffer.borrow_mut().remove(&epoch).unwrap();
-                            let path = local_state_store
-                                .borrow_mut()
-                                .write_snapshots_segment(snaps, epoch)
-                                .unwrap();
-                            session.give(path);
-                        }
+                        // TODO: Actual compaction
+                        session.give_vec(&mut paths.borrow_mut());
                     },
                 )
             }
@@ -969,50 +951,30 @@ where
     fn compactor(&self, local_state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
-        let (mut early_segments_output, early_segments) = op_builder.new_output();
-        let (mut closing_segments_output, closing_segments) = op_builder.new_output();
-        let segments = early_segments.concatenate(vec![closing_segments]);
+        let (mut segments_output, segments) = op_builder.new_output();
 
         op_builder.build(move |init_caps| {
-            let inbuffer = Rc::new(RefCell::new(InBuffer::new()));
+            let mut inbuffer = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, ());
 
             move |input_frontiers| {
-                input.buffer_notify(&mut inbuffer.borrow_mut(), &mut ncater);
-
+                input.buffer_notify(&mut inbuffer, &mut ncater);
                 ncater.for_each(
                     input_frontiers,
+                    |_caps, ()| {},
                     |caps, ()| {
-                        let clock_cap = &caps[0];
+                        let cap = &caps[0];
+                        let epoch = cap.time();
 
-                        let mut handle = early_segments_output.activate();
-                        let mut session = handle.session(clock_cap);
+                        let mut handle = segments_output.activate();
+                        let mut session = handle.session(cap);
 
-                        let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                        for epoch in epochs {
-                            inbuffer.borrow_mut().remove(&epoch);
-                            let path = local_state_store
-                                .borrow_mut()
-                                .write_frontier_segment(epoch)
-                                .unwrap();
-                            session.give(path);
-                        }
-                    },
-                    |caps, ()| {
-                        let clock_cap = &caps[1];
-
-                        let mut handle = closing_segments_output.activate();
-                        let mut session = handle.session(clock_cap);
-
-                        let epochs = inbuffer.borrow().epochs().collect::<Vec<_>>();
-                        for epoch in epochs {
-                            inbuffer.borrow_mut().remove(&epoch);
-                            let path = local_state_store
-                                .borrow_mut()
-                                .write_frontier_segment(epoch)
-                                .unwrap();
-                            session.give(path);
-                        }
+                        inbuffer.remove(epoch);
+                        let path = local_state_store
+                            .borrow_mut()
+                            .write_frontier_segment(*epoch + 1)
+                            .unwrap();
+                        session.give(path);
                     },
                 )
             }
