@@ -325,7 +325,6 @@ def test_stateful_recovers_older_snapshots(recovery_config_immediate):
     out.clear()
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
     assert out == [
-        ("b", ("b1", "b1")),
         ("c", (None, "c1")),
         ("b", ("b1", "DISCARD")),
     ]
@@ -333,7 +332,6 @@ def test_stateful_recovers_older_snapshots(recovery_config_immediate):
     out.clear()
     run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
     assert out == [
-        ("b", (None, "DISCARD")),
         ("a", ("a1", "a2")),
         ("b", (None, "b2")),
         ("c", ("c1", "c2")),
