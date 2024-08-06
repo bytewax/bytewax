@@ -148,7 +148,7 @@ def test_stateful_on_notify_retain():
     ]
 
 
-def test_stateful_on_eof_discard(recovery_config_immediate):
+def test_stateful_on_eof_discard(recovery_config):
     inp = [1, TestingSource.EOF(), 2, TestingSource.ABORT()]
     out = []
 
@@ -161,15 +161,15 @@ def test_stateful_on_eof_discard(recovery_config_immediate):
     s = op.stateful("stateful", s, TestLogic)
     op.output("out", s, TestingSink(out))
 
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [("ALL", ("NEW", "ITEM")), ("ALL", ("ITEM", "EOF"))]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [("ALL", ("NEW", "ITEM"))]
 
 
-def test_stateful_on_eof_retain(recovery_config_immediate):
+def test_stateful_on_eof_retain(recovery_config):
     inp = [1, TestingSource.EOF(), 2, TestingSource.ABORT()]
     out = []
 
@@ -182,11 +182,11 @@ def test_stateful_on_eof_retain(recovery_config_immediate):
     s = op.stateful("stateful", s, TestLogic)
     op.output("out", s, TestingSink(out))
 
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [("ALL", ("NEW", "ITEM")), ("ALL", ("ITEM", "EOF"))]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [("ALL", ("EOF", "ITEM"))]
 
 
@@ -235,7 +235,7 @@ def test_stateful_keeps_logic_per_key():
     ]
 
 
-def test_stateful_snapshots_logic_per_key(recovery_config_immediate):
+def test_stateful_snapshots_logic_per_key(recovery_config):
     inp = [("a", "a1"), ("b", "b1"), TestingSource.ABORT(), ("a", "a2"), ("b", "b2")]
     out = []
 
@@ -244,21 +244,21 @@ def test_stateful_snapshots_logic_per_key(recovery_config_immediate):
     s = op.stateful("stateful", s, KeepLastLogic)
     op.output("out", s, TestingSink(out))
 
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("a", (None, "a1")),
         ("b", (None, "b1")),
     ]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("a", ("a1", "a2")),
         ("b", ("b1", "b2")),
     ]
 
 
-def test_stateful_snapshots_discard_per_key(recovery_config_immediate):
+def test_stateful_snapshots_discard_per_key(recovery_config):
     inp = [
         ("a", "a1"),
         ("b", "b1"),
@@ -275,7 +275,7 @@ def test_stateful_snapshots_discard_per_key(recovery_config_immediate):
     s = op.stateful("stateful", s, KeepLastLogic)
     op.output("out", s, TestingSink(out))
 
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("a", (None, "a1")),
         ("b", (None, "b1")),
@@ -284,14 +284,14 @@ def test_stateful_snapshots_discard_per_key(recovery_config_immediate):
     ]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("a", (None, "a3")),
         ("b", ("b2", "b3")),
     ]
 
 
-def test_stateful_recovers_older_snapshots(recovery_config_immediate):
+def test_stateful_recovers_older_snapshots(recovery_config):
     inp = [
         ("a", "a1"),
         TestingSource.ABORT(),
@@ -311,26 +311,26 @@ def test_stateful_recovers_older_snapshots(recovery_config_immediate):
     s = op.stateful("stateful", s, KeepLastLogic)
     op.output("out", s, TestingSink(out))
 
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("a", (None, "a1")),
     ]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("b", (None, "b1")),
     ]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("c", (None, "c1")),
         ("b", ("b1", "DISCARD")),
     ]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [
         ("a", ("a1", "a2")),
         ("b", (None, "b2")),

@@ -56,20 +56,8 @@ def entry_point(entry_point_name):
 
 
 @fixture
-def recovery_config_batch(tmp_path):
-    """Generate a recovery config with snapshot_mode set to Batch."""
-    os.mkdir(tmp_path / "backup")
-    yield RecoveryConfig(
-        tmp_path,
-        backup=file_system_backup(tmp_path / "backup"),
-        snapshot_mode=SnapshotMode.Batch,
-    )
-    shutil.rmtree(tmp_path)
-
-
-@fixture
-def recovery_config_immediate(tmp_path):
-    """Generate a recovery config with snapshot_mode set to Immediate."""
+def recovery_config(tmp_path):
+    """Generate a recovery config."""
     os.mkdir(tmp_path / "backup")
     yield RecoveryConfig(
         tmp_path,

@@ -74,7 +74,7 @@ def test_testing_source_eof():
     part.close()
 
 
-def test_testing_source_eof_run(recovery_config_immediate):
+def test_testing_source_eof_run(recovery_config):
     inp = [0, 1, 2, TestingSource.EOF(), 3, 4]
     out = []
 
@@ -82,11 +82,11 @@ def test_testing_source_eof_run(recovery_config_immediate):
     s = op.input("inp", flow, TestingSource(inp, batch_size=2))
     op.output("out", s, TestingSink(out))
 
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [3, 4]
 
 
@@ -107,7 +107,7 @@ def test_testing_source_abort():
     part.close()
 
 
-def test_testing_source_abort_run(recovery_config_immediate):
+def test_testing_source_abort_run(recovery_config):
     inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
     out = []
 
@@ -115,9 +115,9 @@ def test_testing_source_abort_run(recovery_config_immediate):
     s = op.input("inp", flow, TestingSource(inp, batch_size=2))
     op.output("out", s, TestingSink(out))
 
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2]
 
     out.clear()
-    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config_immediate)
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
     assert out == [3, 4]
