@@ -236,11 +236,11 @@ acyclic graph.
 (xref-operator-execution)=
 ## Operator Execution
 
-Bytewax's runtime uses identical workers. Each worker executes all
-steps (including input and output) of a dataflow and automatically
+Bytewax's runtime uses identical worker threads. Each worker executes
+all steps (including input and output) of a dataflow and automatically
 trades data over the network to ensure the semantics of the operators.
 
-Within each worker thread, the Bytewax runtime models each step in the
+Within each worker, the Bytewax runtime models each step in the
 dataflow as a separate concurrent task with an input queue of items.
 As operators are **activated** or **awoken** due to the runtime
 detecting queued input or a pending notification, they run their
