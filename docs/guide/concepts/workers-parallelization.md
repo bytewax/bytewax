@@ -7,14 +7,11 @@ Workers can be grouped into separate **processes**, but refer to the
 individual threads within. A **cluster** is a set of processes that
 have been configured to collaborate on running a dataflow.
 
-Bytewax's execution model uses identical workers. Workers execute all
-steps (including input and output) in a dataflow and automatically
-trade data to ensure the semantics of the operators. If a dataflow is
-run on multiple processes, there will be a slight overhead due to
-pickling and network communication whenever items must be moved
-between workers, but it will allow you to paralellize some work for
-higher throughput. See <project:#xref-stateful-operators> and the
-{py:obj}`~bytewax.operators.redistribute` operator for more
+If a dataflow is run on multiple processes, there will be a slight
+overhead due to pickling and network communication whenever items must
+be moved between workers, but it will allow you to parallelize some
+work for higher throughput. See <project:#xref-operator-execution> and
+the {py:obj}`~bytewax.operators.redistribute` operator for more
 information.
 
 ## Run Script

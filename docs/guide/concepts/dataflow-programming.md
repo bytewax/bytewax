@@ -10,11 +10,19 @@ A Bytewax **dataflow** is a fixed directed acyclic graph of
 computational **steps** which are preformed on a possibly-unbounded
 stream of data. Each step is made up of an **operator** or a specific
 shape of computation (e.g. "transform each item individually" /
-{py:obj}`~bytewax.operators.map`). You define a dataflow via Python
-code and run the dataflow, and it goes out and polls the input for new
-items and automatically pushes them through the steps until they reach
-an output. An **item** is a single Python object that is flowing
-through the dataflow.
+{py:obj}`~bytewax.operators.map`). Some operators are **stateful** and
+allow you to maintain state across items, as long as you can shard
+that state by a **key**. You define a dataflow via Python code and run
+the dataflow, and the runtime polls the input for new items and
+automatically moves them through the steps until they reach an output.
+An **item** is a single Python object that is flowing through the
+dataflow.
+
+It's important to note that not every kind of problem cleanly maps
+onto the stateful dataflow model. If you are able to phrase your
+problem as a fixed set of transformations and keyed state on unbounded
+data, then you are able to take advantage of the benefits like
+rescaling and fault tolerance.
 
 See [our getting started guides](../getting-started/simple-example.md)
 for the most basic examples. In this document, we're going to discuss
@@ -224,6 +232,47 @@ Because references to {py:obj}`~bytewax.dataflow.Stream`s are only
 created via operators, that means you can't reference a stream before
 it is created and thus the resulting dataflow is always a directed
 acyclic graph.
+
+(xref-operator-execution)=
+## Operator Execution
+
+Bytewax's runtime uses identical workers. Each worker executes all
+steps (including input and output) of a dataflow and automatically
+trades data over the network to ensure the semantics of the operators.
+
+Within each worker thread, the Bytewax runtime models each step in the
+dataflow as a separate concurrent task with an input queue of items.
+As operators are **activated** or **awoken** due to the runtime
+detecting queued input or a pending notification, they run their
+processing logic, and hand off output items to the runtime to enqueue
+on downstream steps. Once awoken, a step processes all items; there is
+no concept of preemption or canceling a single step's work, other than
+the entire dataflow raising an exception.
+
+Due to the nondeterminism of network communication (if your cluster
+contains multiple processes), operating system thread scheduling, and
+certain steps possibly deciding to delay emitting items downstream
+(like a windowing operator waiting for time to elapse), it is possible
+that operators will be activated in a "random" order in any
+multi-worker cluster. The only ordering that is guaranteed is between
+items in a single stream from a single worker.
+
+The runtime manages most aspects of flow control for you. It will
+periodically delay activating input steps to ensure that queues for
+all other steps do not grow without bound. This delay is also taken
+advantage of to enable cluster coordinated snapshotting.
+
+Thus, it's important to realize that:
+
+- You can't coordinate activations between operators. Just because a
+  step is later in the dataflow graph, it is not necessarily always
+  awoken "after" a step earlier in the graph.
+
+- A single item is not activated or "walked through" all steps and
+  output before new items are be ingested by an input and partially
+  processed by some operators.
+
+- Within the dataflow, items are never dropped from queues.
 
 ## State
 
