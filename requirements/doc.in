@@ -1,7 +1,7 @@
 myst-parser
 pydata-sphinx-theme
 sphinx
-sphinx-autodoc2 @ git+https://github.com/davidselassie/sphinx-autodoc2@namespace-packages
+sphinx-autodoc2 @ https://github.com/davidselassie/sphinx-autodoc2/archive/namespace-packages.zip
 sphinx-favicon
 sphinx-substitution-extensions
 sphinxcontrib-mermaid
