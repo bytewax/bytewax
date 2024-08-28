@@ -29,7 +29,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
-use timely::dataflow::operators::Concatenate;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 
@@ -90,48 +89,70 @@ type LogicBuilder = Box<dyn Fn(Python, StateKey, Option<PyObject>) -> PyResult<P
 /// Stores that state for all the stateful operators.
 /// This is basically a wrapper around a HashMap that's
 /// shared between all stateful operators.
+/// It also holds the reference to an optional LocalStateStore
+/// where snapshots for recovery are saved.
 // TODO: To implement larger than memory state handling,
-//       this could become a trait with two implementation:
-//       one that behaves like this, and another one which
-//       requires a connection to the local state store and
-//       can load and offload data from there.
+//       a local_state_store can also be used to unload
+//       data for some of the keys.
 pub(crate) struct StateStoreCache {
     cache: HashMap<StepId, BTreeMap<StateKey, PyObject>>,
     builders: HashMap<StepId, LogicBuilder>,
+    // Recovery related fields
+    resume_from: ResumeFrom,
+    local_state_store: Option<LocalStateStore>,
+    snapshot_mode: SnapshotMode,
+    backup: Option<Backup>,
 }
 
 impl StateStoreCache {
-    pub fn new() -> Self {
+    pub fn new(
+        local_state_store: Option<LocalStateStore>,
+        snapshot_mode: SnapshotMode,
+        resume_from: ResumeFrom,
+        backup: Option<Backup>,
+    ) -> Self {
         Self {
             cache: HashMap::new(),
             builders: HashMap::new(),
+            local_state_store,
+            snapshot_mode,
+            resume_from,
+            backup,
         }
     }
 
     pub fn add_step(&mut self, step_id: StepId, builder: LogicBuilder) {
         self.cache.insert(step_id.clone(), Default::default());
         self.builders.insert(step_id, builder);
+        // TODO larger_than_memory: Add to local_state_store too
     }
 
     pub fn contains_key(&self, step_id: &StepId, key: &StateKey) -> bool {
         self.cache.get(step_id).unwrap().contains_key(key)
+        // TODO larger_than_memory: If key is not in cache, check
+        //      local_state_store before returning False
     }
 
     pub fn insert(&mut self, py: Python, step_id: &StepId, key: StateKey, state: Option<PyObject>) {
         let logic = (self.builders.get(step_id).unwrap())(py, key.clone(), state).unwrap();
         self.cache.get_mut(step_id).unwrap().insert(key, logic);
+        // TODO larger_than_memory: check cache size, if it's too big unload
+        //      some data to the local_state_store
     }
 
     pub fn get(&self, step_id: &StepId, key: &StateKey) -> Option<&PyObject> {
         self.cache.get(step_id).unwrap().get(key)
+        // TODO larger_than_memory: If key is not in cache, check local_state_store too.
     }
 
     pub fn keys(&self, step_id: &StepId) -> impl Iterator<Item = &StateKey> {
         self.cache.get(step_id).unwrap().keys()
+        // TODO larger_than_memory: Always check in local_state_store here.
     }
 
     pub fn remove(&mut self, step_id: &StepId, key: &StateKey) -> Option<PyObject> {
         self.cache.get_mut(step_id).unwrap().remove(key)
+        // TODO larger_than_memory: Remove from local_state_store too if present.
     }
 
     pub fn snap(
@@ -163,8 +184,98 @@ impl StateStoreCache {
                 Ok(ser_snap)
             })
             .transpose()?;
+        let snap = SerializedSnapshot::new(step_id, key, epoch, ser_change);
 
-        Ok(SerializedSnapshot::new(step_id, key, epoch, ser_change))
+        // Recovery: write the snapshot to the local state store too if present
+        if let Some(lss) = self.local_state_store.as_ref() {
+            lss.write_snapshot(snap.clone())
+        }
+
+        Ok(snap)
+    }
+
+    pub fn batch_snap(
+        &mut self,
+        py: Python,
+        step_id: StepId,
+        keys: impl IntoIterator<Item = StateKey>,
+        epoch: u64,
+    ) -> PyResult<Vec<SerializedSnapshot>> {
+        let snaps = keys
+            .into_iter()
+            .map(|key| self.snap(py, step_id.clone(), key, epoch))
+            .collect::<PyResult<Vec<SerializedSnapshot>>>()?;
+        if let Some(lss) = self.local_state_store.as_mut() {
+            lss.write_snapshots(snaps.clone());
+        }
+        Ok(snaps)
+    }
+
+    pub fn hydrate(&mut self, py: Python, step_id: &StepId) -> PyResult<Vec<(StateKey, bool)>> {
+        if let Some(lss) = self.local_state_store.as_ref() {
+            let snaps = lss.get_snaps(py, step_id, &self.resume_from)?;
+            let keys = snaps
+                .iter()
+                .map(|(key, state)| (key.clone(), state.is_some()))
+                .collect();
+            for (state_key, state) in snaps {
+                if state.is_some() {
+                    self.insert(py, step_id, state_key, state);
+                }
+            }
+            Ok(keys)
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    pub fn resume_from(&self) -> ResumeFrom {
+        self.resume_from
+    }
+
+    pub fn snapshot_mode(&self) -> SnapshotMode {
+        self.snapshot_mode
+    }
+
+    pub fn local_state_dir(&self) -> Option<PathBuf> {
+        self.local_state_store
+            .as_ref()
+            .map(|lss| lss.db_dir.clone())
+    }
+
+    pub fn snapshot_writer(&self) -> Option<SnapshotWriter> {
+        self.local_state_store
+            .as_ref()
+            .map(|lss| lss.snapshot_writer(&self.resume_from))
+    }
+
+    pub fn frontier_writer(&self) -> Option<FrontierWriter> {
+        self.local_state_store
+            .as_ref()
+            .map(|lss| lss.frontier_writer(&self.resume_from))
+    }
+
+    pub fn backup(&self) -> Option<Backup> {
+        self.backup.clone()
+    }
+
+    pub(crate) fn upload_initial_execution_info(&self, py: Python, backup: &Backup) {
+        if let Some(lss) = self.local_state_store.as_ref() {
+            let epoch = self.resume_from.epoch().0;
+            let ex_num = self.resume_from.execution().0;
+            // Upload info even if epoch is > 1 in case this is not
+            // the first execution, so we also keep track of next
+            // executions that didn't complete their first epoch.
+            if epoch == 1 || ex_num > 0 {
+                let writer = lss.frontier_writer(&self.resume_from);
+                let file_name = writer.segment_filename(epoch);
+                let path = lss.db_dir.join(&file_name);
+                let conn = setup_conn(&path).unwrap();
+                writer.write(&conn, epoch).unwrap();
+                drop(conn);
+                backup.upload(py, path, file_name).unwrap();
+            }
+        }
     }
 }
 
@@ -173,20 +284,14 @@ impl StateStoreCache {
 /// to generate snapshot of each state and
 /// to manage the connection to the local db where the snapshots are saved.
 pub(crate) struct LocalStateStore {
-    resume_from: ResumeFrom,
     conn: Connection,
-    db_dir: PathBuf,
+    pub(crate) db_dir: PathBuf,
+    flow_id: String,
     worker_index: usize,
-    backup: Backup,
-    snapshot_mode: SnapshotMode,
+    worker_count: usize,
 
-    // Writers for snapshots and frontiers
-    frontier_writer: FrontierWriter,
+    // Writer for snapshots into the local db.
     snapshot_writer: SnapshotWriter,
-
-    // Segment handling internal data
-    current_epoch: u64,
-    seg_num: u64,
 }
 
 impl LocalStateStore {
@@ -194,131 +299,30 @@ impl LocalStateStore {
         flow_id: String,
         worker_index: usize,
         worker_count: usize,
-        recovery_config: &Bound<'_, RecoveryConfig>,
+        db_dir: PathBuf,
+        resume_from: ResumeFrom,
     ) -> PyResult<Self> {
         // Set local_state_dir and open main connection to the db.
-        let local_state_dir = recovery_config.borrow().local_state_dir.clone();
-        if !local_state_dir.is_dir() {
+        if !db_dir.is_dir() {
             return Err(PyFileNotFoundError::new_err(format!(
                 "local state directory {:?} does not exist; \
                 see the guide at `https://docs.bytewax.io/stable/guide/concepts/recovery.html` \
                 for more info",
-                local_state_dir
+                db_dir
             )));
         }
 
-        // Calculate resume_from.
-        // First we need to retrieve the latest frontier segment from the durable store,
-        // as we never store frontier info in the local store.
-        // Start with the default value, then if the durable store does have a frontier
-        // segment, update it with the fetched value.
-        let mut resume_from = ResumeFrom::default();
-
-        let backup = recovery_config.borrow().backup.clone();
-        let snapshot_mode = recovery_config.borrow().snapshot_mode;
-        // `keys` is the list of files in the durable store
-        let keys = Python::with_gil(|py| backup.list_keys(py).unwrap());
-        let mut frontier_segments: Vec<(u64, u64, String)> = keys
-            .into_iter()
-            // We are only interested in frontier segments, the convention is
-            // that the name of those starts with `frontier:`
-            .filter(|key| key.starts_with("frontier:"))
-            .filter_map(|key| {
-                // The filename is composed this way:
-                // "frontier:ex-{ex_num}:epoch-{epoch}:_:worker-{worker_index}.sqlite3"
-                // So strip the extension first:
-                let split: Vec<&str> = key.strip_suffix(".sqlite3").unwrap().split(':').collect();
-
-                // Filter current worker's segments
-                let worker = split[4]
-                    .strip_prefix("worker-")
-                    .unwrap()
-                    .parse::<usize>()
-                    .unwrap();
-                if worker != worker_index {
-                    return None;
-                }
-
-                // Extract execution_number and epoch
-                let ex_num = split[1]
-                    .strip_prefix("ex-")
-                    .unwrap()
-                    .parse::<u64>()
-                    .unwrap();
-                let epoch = split[2]
-                    .strip_prefix("epoch-")
-                    .unwrap()
-                    .parse::<u64>()
-                    .unwrap();
-                Some((ex_num, epoch, key))
-            })
-            .collect();
-        frontier_segments.sort_by_key(|&(ex_num, epoch, _)| (ex_num, epoch));
-
-        if let Some((_, _, frontier_segment)) = frontier_segments.last() {
-            let segment_file = local_state_dir.join(frontier_segment);
-            Python::with_gil(|py| {
-                backup
-                    .download(py, frontier_segment, segment_file.as_path())
-                    .unwrap()
-            });
-            let conn = setup_conn(segment_file)?;
-            let res = conn.query_row(
-                "SELECT ex_num, cluster_frontier, worker_count, worker_index \
-                FROM meta \
-                WHERE (ex_num, flow_id) IN (SELECT MAX(ex_num), flow_id FROM meta)",
-                (),
-                |row| {
-                    let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
-                    let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
-                    let worker_count = row.get::<_, Option<usize>>(2)?.map(WorkerCount);
-                    Ok((
-                        ex_num
-                            .zip(resume_epoch)
-                            // Advance the execution number here.
-                            .map(|(en, re)| ResumeFrom::new(en.next(), re)),
-                        worker_count,
-                    ))
-                },
-            );
-            match res {
-                // If no rows in the db, it was empty, so use the default.
-                Err(rusqlite::Error::QueryReturnedNoRows) => resume_from = ResumeFrom::default(),
-                // Any other error was an error reading from the db, we should stop here.
-                Err(err) => std::panic::panic_any(err),
-                Ok((resume, w_count)) => {
-                    resume_from = resume.unwrap_or_default();
-                    // TODO!
-                    if w_count.unwrap().0 != worker_count {
-                        panic!("Rescaling not supported yet!");
-                    }
-                }
-            };
-            tracing::info!(
-                "Resuming from execution: {}, epoch {}",
-                resume_from.execution(),
-                resume_from.epoch()
-            );
-        }
-
-        let frontier_writer = FrontierWriter::new(
-            flow_id.clone(),
-            resume_from.execution(),
-            worker_index,
-            worker_count,
-        );
-
         let file_name = format!("flow_{flow_id}_worker_{worker_index}.sqlite3");
-        // Now we need to check two conditions.
-        // The durable store tells us if this is the first execution.
-        // If that's not the case, but the file does not exist, we need
-        // to do a full resume.
+        // Check if this is the first execution.
+        // If that's not the case, but the file does not exist, we need to do a full resume.
         let is_first_execution = resume_from.execution().0 == 0;
-        let db_exists = local_state_dir.join(file_name.clone()).exists();
+        let db_exists = db_dir.join(file_name.clone()).exists();
+
         // TODO: full resume is not implemented yet, so we crash here.
         if !is_first_execution && !db_exists {
             return Err(PyErr::new::<PyRuntimeError, _>("Missing db file."));
         }
+
         // The other case is if this is the first execution, but the file is present.
         // This is not ok, but we don't want to automatically remove the file,
         // so crash and ask the user to take action instead.
@@ -328,52 +332,32 @@ impl LocalStateStore {
                 but durable backup indicates that this is the first execution. \
                 Please rename or remove the file before running the dataflow.",
                 file_name,
-                local_state_dir.to_string_lossy()
+                db_dir.to_string_lossy()
             )));
         }
 
         // Finally open or create the file.
-        let conn = setup_conn(local_state_dir.join(file_name))?;
+        let conn = setup_conn(&db_dir.join(file_name))?;
+        let snapshot_writer = SnapshotWriter {
+            ex_num: resume_from.execution(),
+            worker_index,
+        };
 
         Ok(Self {
             conn,
-            db_dir: local_state_dir,
-            backup,
-            current_epoch: resume_from.epoch().0,
+            db_dir,
+            flow_id,
             worker_index,
-            frontier_writer,
-            snapshot_writer: SnapshotWriter {},
-            resume_from,
-            snapshot_mode,
-            seg_num: 0,
+            worker_count,
+            snapshot_writer,
         })
     }
 
-    pub fn snapshot_mode(&self) -> &SnapshotMode {
-        &self.snapshot_mode
-    }
-
-    pub fn resume_from_epoch(&self) -> ResumeEpoch {
-        self.resume_from.epoch()
-    }
-
-    pub fn update_resume_epoch(&mut self, resume_epoch: ResumeEpoch) {
-        self.resume_from.1 = resume_epoch;
-    }
-
-    pub fn backup(&self) -> Backup {
-        // TODO: use clone_ref and Py<Backup> here?
-        self.backup.clone()
-    }
-
-    /// Hydrate the local cache with all the snapshots for a step_id.
-    /// Pass a builder function that turns a `(state_key, state)` tuple
-    /// into a `StatefulLogicKind`, and it will be called with data coming
-    /// from each deserialized snapshot.
     pub fn get_snaps(
         &self,
         py: Python,
         step_id: &StepId,
+        resume_from: &ResumeFrom,
     ) -> PyResult<Vec<(StateKey, Option<PyObject>)>> {
         // Get all the snapshots in the store for this specific step_id,
         // and deserialize them.
@@ -394,7 +378,7 @@ impl LocalStateStore {
                 WHERE epoch < ?1 AND step_id = ?2",
             )
             .reraise("Error preparing query for recovery db.")?
-            .query_map((&self.resume_from.1 .0, &step_id.0), |row| {
+            .query_map((&resume_from.epoch().0, &step_id.0), |row| {
                 Ok(SerializedSnapshot(
                     StepId(row.get(0)?),
                     StateKey(row.get(1)?),
@@ -422,41 +406,20 @@ impl LocalStateStore {
             .collect()
     }
 
-    pub(crate) fn write_snapshots_segment(
-        &mut self,
-        snaps: Vec<SerializedSnapshot>,
-        epoch: u64,
-    ) -> PyResult<PathBuf> {
-        if epoch > self.current_epoch {
-            self.current_epoch = epoch;
-            self.seg_num = 1;
-        } else {
-            self.seg_num += 1;
-        }
-        let file_name = format!(
-            "ex-{}:epoch-{}:segment-{}:_:worker-{}.sqlite3",
-            self.resume_from.execution(),
-            epoch,
-            self.seg_num,
-            self.worker_index
-        );
-        let path = self.db_dir.join(file_name);
-        let mut conn = setup_conn(path.clone())?;
-        self.snapshot_writer.write_batch(&mut conn, snaps)?;
-        Ok(path)
+    pub(crate) fn frontier_writer(&self, resume_from: &ResumeFrom) -> FrontierWriter {
+        FrontierWriter::new(
+            self.flow_id.clone(),
+            resume_from.execution(),
+            self.worker_index,
+            self.worker_count,
+        )
     }
 
-    pub(crate) fn write_frontier_segment(&mut self, epoch: u64) -> PyResult<PathBuf> {
-        let file_name = format!(
-            "frontier:ex-{}:epoch-{}:_:worker-{}.sqlite3",
-            self.resume_from.execution(),
-            epoch,
-            self.worker_index
-        );
-        let path = self.db_dir.join(file_name);
-        let conn = setup_conn(path.clone())?;
-        self.frontier_writer.write(&conn, epoch)?;
-        Ok(path)
+    pub(crate) fn snapshot_writer(&self, resume_from: &ResumeFrom) -> SnapshotWriter {
+        SnapshotWriter {
+            ex_num: resume_from.execution(),
+            worker_index: self.worker_index,
+        }
     }
 
     /// Write a vec of serialized snapshots to the local db.
@@ -465,9 +428,109 @@ impl LocalStateStore {
             .write_batch(&mut self.conn, snaps)
             .unwrap();
     }
+
+    /// Write a vec of serialized snapshots to the local db.
+    pub(crate) fn write_snapshot(&self, snap: SerializedSnapshot) {
+        self.snapshot_writer.write(&self.conn, snap).unwrap();
+    }
 }
 
-fn setup_conn(path: PathBuf) -> PyResult<Connection> {
+pub(crate) fn get_frontier_from_durable_store(
+    py: Python,
+    backup: &Backup,
+    local_state_dir: PathBuf,
+    worker_index: usize,
+    worker_count: usize,
+) -> ResumeFrom {
+    let mut resume_from = ResumeFrom::default();
+    let keys = backup.list_keys(py).unwrap();
+
+    let mut frontier_segments: Vec<(u64, u64, String)> = keys
+        .into_iter()
+        // We are only interested in frontier segments, the convention is
+        // that the name of those starts with `frontier:`
+        .filter(|key| key.starts_with("frontier:"))
+        .filter_map(|key| {
+            // The filename is composed this way:
+            // "frontier:ex-{ex_num}:epoch-{epoch}:worker-{worker_index}.sqlite3"
+            // So strip the extension first:
+            let split: Vec<&str> = key.strip_suffix(".sqlite3").unwrap().split(':').collect();
+
+            // Filter current worker's segments
+            let worker = split[3]
+                .strip_prefix("worker-")
+                .unwrap()
+                .parse::<usize>()
+                .unwrap();
+            if worker != worker_index {
+                return None;
+            }
+
+            // Extract execution_number and epoch
+            let ex_num = split[1]
+                .strip_prefix("ex-")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
+            let epoch = split[2]
+                .strip_prefix("epoch-")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
+            Some((ex_num, epoch, key))
+        })
+        .collect();
+    frontier_segments.sort_by_key(|&(ex_num, epoch, _)| (ex_num, epoch));
+    if let Some((_, _, frontier_segment)) = frontier_segments.last() {
+        let segment_file = local_state_dir.join(frontier_segment);
+        Python::with_gil(|py| {
+            backup
+                .download(py, frontier_segment, segment_file.as_path())
+                .unwrap()
+        });
+        let conn = setup_conn(&segment_file).unwrap();
+        let res = conn.query_row(
+            "SELECT ex_num, cluster_frontier, worker_count, worker_index \
+                FROM meta \
+                WHERE (ex_num, flow_id) IN (SELECT MAX(ex_num), flow_id FROM meta)",
+            (),
+            |row| {
+                let ex_num = row.get::<_, Option<u64>>(0)?.map(ExecutionNumber);
+                let resume_epoch = row.get::<_, Option<u64>>(1)?.map(ResumeEpoch);
+                let worker_count = row.get::<_, Option<usize>>(2)?.map(WorkerCount);
+                Ok((
+                    ex_num
+                        .zip(resume_epoch)
+                        // Advance the execution number here.
+                        .map(|(en, re)| ResumeFrom::new(en.next(), re)),
+                    worker_count,
+                ))
+            },
+        );
+        match res {
+            // If no rows in the db, it was empty, so use the default.
+            Err(rusqlite::Error::QueryReturnedNoRows) => resume_from = ResumeFrom::default(),
+            // Any other error was an error reading from the db, we should stop here.
+            Err(err) => std::panic::panic_any(err),
+            Ok((resume, w_count)) => {
+                resume_from = resume.unwrap_or_default();
+                // TODO!
+                if w_count.unwrap().0 != worker_count {
+                    panic!("Rescaling not supported yet!");
+                }
+            }
+        };
+        tracing::info!(
+            "Resuming from execution: {}, epoch {}",
+            resume_from.execution(),
+            resume_from.epoch()
+        );
+    }
+
+    resume_from
+}
+
+fn setup_conn(path: &PathBuf) -> PyResult<Connection> {
     let mut conn = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -511,7 +574,23 @@ pub(crate) trait DbWriter {
     }
 }
 
-struct SnapshotWriter {}
+pub(crate) struct SnapshotWriter {
+    ex_num: ExecutionNumber,
+    worker_index: usize,
+}
+
+impl SnapshotWriter {
+    pub fn segment_filename(&self, epoch: u64, seg_num: usize, compacted: bool) -> String {
+        format!(
+            "ex-{}:epoch-{}:segment-{}:{}:worker-{}.sqlite3",
+            self.ex_num,
+            epoch,
+            seg_num,
+            if compacted { "compacted" } else { "_" },
+            self.worker_index
+        )
+    }
+}
 
 impl DbWriter for SnapshotWriter {
     type Item = SerializedSnapshot;
@@ -530,7 +609,7 @@ impl DbWriter for SnapshotWriter {
     }
 }
 
-struct FrontierWriter {
+pub(crate) struct FrontierWriter {
     flow_id: String,
     ex_num: ExecutionNumber,
     worker_index: usize,
@@ -550,6 +629,13 @@ impl FrontierWriter {
             worker_index,
             worker_count,
         }
+    }
+
+    pub fn segment_filename(&self, epoch: u64) -> String {
+        format!(
+            "frontier:ex-{}:epoch-{}:worker-{}.sqlite3",
+            self.ex_num, epoch, self.worker_index
+        )
     }
 }
 
@@ -630,8 +716,13 @@ impl ResumeFrom {
     pub fn execution(&self) -> ExecutionNumber {
         self.0
     }
+
     pub fn epoch(&self) -> ResumeEpoch {
         self.1
+    }
+
+    pub fn update_epoch(&mut self, epoch: ResumeEpoch) {
+        self.1 = epoch;
     }
 }
 
@@ -724,8 +815,10 @@ impl fmt::Display for SerializedSnapshot {
 }
 
 #[pyclass(module = "bytewax.recovery")]
-#[derive(Copy, Clone, Debug)]
+#[derive(Default, Copy, Clone, Debug)]
 pub enum SnapshotMode {
+    #[default]
+    None,
     Immediate,
     Batch,
 }
@@ -737,6 +830,10 @@ impl SnapshotMode {
 
     pub fn batch(&self) -> bool {
         matches!(self, Self::Batch)
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
     }
 }
 
@@ -865,25 +962,26 @@ where
 
                 ncater.for_each(
                     input_frontiers,
-                    |_caps, ()| {},
                     |caps, ()| {
+                        // We only upload in the eager logic, because
+                        // even if we want to upload everything at once,
+                        // we'll just receive it at once, so no need
+                        // to differentiate between immediate and batch
+                        // upload
                         let cap = &caps[0];
                         let epoch = cap.time();
-                        Python::with_gil(|py| {
-                            if let Some(paths) = inbuffer.remove(epoch) {
+                        if let Some(paths) = inbuffer.remove(epoch) {
+                            Python::with_gil(|py| {
                                 for path in paths {
-                                    backup
-                                        .upload(
-                                            py,
-                                            path.clone(),
-                                            path.file_name().unwrap().to_string_lossy().to_string(),
-                                        )
-                                        .unwrap();
+                                    let file_name =
+                                        path.file_name().unwrap().to_string_lossy().to_string();
+                                    backup.upload(py, path, file_name).unwrap();
                                 }
-                            }
-                        });
+                            });
+                        }
                         output.activate().session(cap).give(());
                     },
+                    |_caps, ()| {},
                 )
             }
         });
@@ -891,51 +989,130 @@ where
     }
 }
 
-pub(crate) trait CompactorOp<S>
+pub(crate) trait CompactorOp<S, W>
 where
     S: Scope,
+    W: DbWriter,
 {
-    fn compactor(&self, local_state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf>;
+    fn compactor(
+        &self,
+        db_dir: PathBuf,
+        writer: W,
+        snapshot_mode: SnapshotMode,
+    ) -> Stream<S, PathBuf>;
 }
 
-impl<S> CompactorOp<S> for Stream<S, SerializedSnapshot>
+impl<S> CompactorOp<S, SnapshotWriter> for Stream<S, SerializedSnapshot>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn compactor(&self, local_state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
+    fn compactor(
+        &self,
+        db_dir: PathBuf,
+        writer: SnapshotWriter,
+        snapshot_mode: SnapshotMode,
+    ) -> Stream<S, PathBuf> {
         let mut op_builder = OperatorBuilder::new("compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
 
-        let (mut segments_output, segments) = op_builder.new_output();
+        let (segments_output, segments) = op_builder.new_output();
+        // Put segments_output into an Rc<RefCell> so we can share it between
+        // eager and closing logic.
+        let segments_output = Rc::new(RefCell::new(segments_output));
+
+        // Init the local state store
+        if !db_dir.is_dir() {
+            panic!(
+                "local state directory {:?} does not exist; \
+                see the guide at `https://docs.bytewax.io/stable/guide/concepts/recovery.html` \
+                for more info",
+                db_dir
+            );
+        }
 
         op_builder.build(move |init_caps| {
             let mut inbuffer = InBuffer::new();
-            let mut ncater = EagerNotificator::new(init_caps, ());
-            let paths = Rc::new(RefCell::new(Vec::new()));
+
+            // Buffer to keep track of paths that need to be compacted.
+            let paths: BTreeMap<u64, Vec<PathBuf>> = BTreeMap::new();
+            // Map to keep track of the next segment number for each epoch;
+            let seg_nums: BTreeMap<u64, usize> = BTreeMap::new();
+            // Vector to keep snapshots
+            let snaps: Vec<SerializedSnapshot> = Vec::new();
+
+            let mut ncater = EagerNotificator::new(init_caps, (paths, seg_nums, snaps));
 
             move |input_frontiers| {
                 input.buffer_notify(&mut inbuffer, &mut ncater);
 
                 ncater.for_each(
                     input_frontiers,
-                    |caps, ()| {
+                    |caps, (paths, seg_nums, snaps)| {
                         let cap = &caps[0];
                         let epoch = cap.time();
 
-                        if let Some(snaps) = inbuffer.remove(epoch) {
-                            let path = local_state_store
-                                .borrow_mut()
-                                .write_snapshots_segment(snaps, *epoch)
-                                .unwrap();
-                            paths.borrow_mut().push(path);
+                        if let Some(snapshots) = inbuffer.remove(epoch) {
+                            if snapshot_mode.immediate() {
+                                let seg_num = seg_nums.entry(*epoch).or_insert(0);
+                                *seg_num += 1;
+                                let file_name = writer.segment_filename(*epoch, *seg_num, false);
+                                let path = db_dir.join(file_name);
+                                let mut conn = setup_conn(&path).unwrap();
+                                writer.write_batch(&mut conn, snapshots).unwrap();
+                                paths.entry(*epoch).or_insert(Vec::new()).push(path);
+                            } else {
+                                snaps.extend(snapshots)
+                            }
+                        }
+
+                        if snapshot_mode.immediate() {
+                            // If we have no segments for this epoch, return early.
+                            if !paths.contains_key(epoch) {
+                                return;
+                            }
+                            let mut out = segments_output.borrow_mut();
+                            let mut handle = out.activate();
+                            let mut session = handle.session(cap);
+
+                            if let Some(mut paths) = paths.remove(epoch) {
+                                session.give_vec(&mut paths);
+                            }
                         }
                     },
-                    |caps, ()| {
+                    |caps, (paths, seg_nums, snaps)| {
                         let cap = &caps[0];
-                        let mut handle = segments_output.activate();
+                        let epoch = cap.time();
+
+                        // If we are in batch mode, the `snaps` vec will
+                        // be filled with snapshots that we need to write
+                        // to a single segment for this epoch.
+                        if !snaps.is_empty() {
+                            let seg_num = seg_nums.entry(*epoch).or_insert(0);
+                            *seg_num += 1;
+                            let file_name = writer.segment_filename(*epoch, *seg_num, false);
+                            let path = db_dir.join(file_name);
+                            let mut conn = setup_conn(&path).unwrap();
+                            writer
+                                .write_batch(&mut conn, std::mem::take(snaps))
+                                .unwrap();
+                            paths.entry(*epoch).or_insert(Vec::new()).push(path);
+                        }
+
+                        // Cleanup the map, this epoch is now closed.
+                        seg_nums.remove(epoch);
+
+                        // If we have no segments for this epoch, return early.
+                        if !paths.contains_key(epoch) {
+                            return;
+                        }
+
+                        let mut out = segments_output.borrow_mut();
+                        let mut handle = out.activate();
                         let mut session = handle.session(cap);
-                        // TODO: Actual compaction
-                        session.give_vec(&mut paths.borrow_mut());
+
+                        if let Some(mut paths) = paths.remove(epoch) {
+                            session.give_vec(&mut paths);
+                        }
                     },
                 )
             }
@@ -944,14 +1121,29 @@ where
     }
 }
 
-impl<S> CompactorOp<S> for ClockStream<S>
+impl<S> CompactorOp<S, FrontierWriter> for ClockStream<S>
 where
     S: Scope<Timestamp = u64>,
 {
-    fn compactor(&self, local_state_store: Rc<RefCell<LocalStateStore>>) -> Stream<S, PathBuf> {
+    fn compactor(
+        &self,
+        db_dir: PathBuf,
+        writer: FrontierWriter,
+        _snapshot_mode: SnapshotMode,
+    ) -> Stream<S, PathBuf> {
         let mut op_builder = OperatorBuilder::new("frontier_compactor".to_string(), self.scope());
         let mut input = op_builder.new_input(self, Pipeline);
         let (mut segments_output, segments) = op_builder.new_output();
+
+        // Init the local state store
+        if !db_dir.is_dir() {
+            panic!(
+                "local state directory {:?} does not exist; \
+                see the guide at `https://docs.bytewax.io/stable/guide/concepts/recovery.html` \
+                for more info",
+                db_dir
+            );
+        }
 
         op_builder.build(move |init_caps| {
             let mut inbuffer = InBuffer::new();
@@ -970,10 +1162,10 @@ where
                         let mut session = handle.session(cap);
 
                         inbuffer.remove(epoch);
-                        let path = local_state_store
-                            .borrow_mut()
-                            .write_frontier_segment(*epoch + 1)
-                            .unwrap();
+                        let file_name = writer.segment_filename(*epoch);
+                        let path = db_dir.join(file_name);
+                        let conn = setup_conn(&path).unwrap();
+                        writer.write(&conn, *epoch + 1).unwrap();
                         session.give(path);
                     },
                 )

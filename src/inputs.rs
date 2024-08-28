@@ -177,9 +177,6 @@ impl PartitionedPartState {
 
 pub(crate) struct InputState {
     step_id: StepId,
-
-    // References to LocalStateStore and StateStoreCache
-    local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
     // Internal state
@@ -198,7 +195,6 @@ impl InputState {
         py: Python,
         step_id: StepId,
         epoch_interval: EpochInterval,
-        local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         source: FixedPartitionedSource,
     ) -> PyResult<Self> {
@@ -226,30 +222,19 @@ impl InputState {
         state_store_cache
             .borrow_mut()
             .add_step(step_id.clone(), Box::new(builder));
+        // Hydrate the state if the state_store_cache has any data.
+        state_store_cache.borrow_mut().hydrate(py, &step_id)?;
 
-        // Initialize and hydrate the state if a local_state_store is present.
-        let mut this = Self {
+        Ok(Self {
             step_id,
             epoch_interval,
-            local_state_store,
             state_store_cache,
             current_time: Utc::now(),
             parts: BTreeMap::new(),
             eofd_parts_buffer: vec![],
             outs_buffer: vec![],
             serialized_snaps: BTreeMap::new(),
-        };
-
-        if let Some(lss) = this.local_state_store.as_ref() {
-            let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
-            for (state_key, state) in snaps {
-                if state.is_some() {
-                    this.insert(py, state_key, state);
-                }
-            }
-        }
-
-        Ok(this)
+        })
     }
 
     fn set_current_time(&mut self) {
@@ -257,11 +242,7 @@ impl InputState {
     }
 
     fn start_at(&self) -> ResumeEpoch {
-        if let Some(lss) = self.local_state_store.as_ref() {
-            lss.borrow().resume_from_epoch()
-        } else {
-            ResumeFrom::default().epoch()
-        }
+        self.state_store_cache.borrow().resume_from().epoch()
     }
 
     /// Returns the list of serialized snapshots taken during this activation.
@@ -272,11 +253,6 @@ impl InputState {
         while let Some((_key, (cap, snap))) = self.serialized_snaps.pop_first() {
             snaps.push(snap.clone());
             caps_and_snaps.push((cap, snap));
-        }
-
-        // Also save the snapshots in the local_state_store.
-        if let Some(lss) = self.local_state_store.as_ref() {
-            lss.borrow_mut().write_snapshots(snaps);
         }
 
         caps_and_snaps
@@ -328,21 +304,20 @@ impl InputState {
         // We snapshot on EOF so that we capture the offsets for this partition to
         // resume from; we produce the same behavior as if this partition would have
         // lived to the next epoch interval.
-        if let Some(lss) = self.local_state_store.as_ref() {
-            if lss.borrow().snapshot_mode().immediate()
-                || self.eofd_parts_buffer.contains(key)
-                || self.epoch_ended(key)
-            {
-                let epoch = *self.epoch_for(key);
-                let snap = self
-                    .state_store_cache
-                    .borrow()
-                    .snap(py, self.step_id.clone(), key.clone(), epoch)
-                    .reraise("Error snapshotting PartitionedInput")
-                    .unwrap();
-                let cap = self.parts.get(key).unwrap().snap_cap.clone();
-                self.serialized_snaps.insert(key.clone(), (cap, snap));
-            }
+        let snapshot_mode = self.state_store_cache.borrow().snapshot_mode();
+        if snapshot_mode.immediate()
+            || self.eofd_parts_buffer.contains(key)
+            || self.epoch_ended(key)
+        {
+            let epoch = *self.epoch_for(key);
+            let snap = self
+                .state_store_cache
+                .borrow()
+                .snap(py, self.step_id.clone(), key.clone(), epoch)
+                .reraise("Error snapshotting PartitionedInput")
+                .unwrap();
+            let cap = self.parts.get(key).unwrap().snap_cap.clone();
+            self.serialized_snaps.insert(key.clone(), (cap, snap));
         }
     }
 

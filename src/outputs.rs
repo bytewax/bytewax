@@ -161,9 +161,6 @@ impl PartitionFn<StateKey> for PartitionAssigner {
 
 pub(crate) struct OutputState {
     step_id: StepId,
-
-    /// Shared references to LocalStateStore and StateStoreCache
-    local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
     /// This is used to keep track of which keys needs to be snapshotted
@@ -179,7 +176,6 @@ impl OutputState {
     pub fn init(
         py: Python,
         step_id: StepId,
-        local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         sink: FixedPartitionedSink,
     ) -> PyResult<Self> {
@@ -208,24 +204,21 @@ impl OutputState {
             .borrow_mut()
             .add_step(step_id.clone(), Box::new(builder));
 
+        let keys = state_store_cache.borrow_mut().hydrate(py, &step_id)?;
+
         let mut this = Self {
             step_id,
-            local_state_store,
             state_store_cache,
             awoken: BTreeSet::new(),
             snaps_buf: vec![],
         };
 
-        if let Some(lss) = this.local_state_store.as_ref() {
-            let snaps = lss.borrow().get_snaps(py, &this.step_id)?;
-            for (state_key, state) in snaps {
-                if state.is_some() {
-                    this.insert(py, state_key, state)
-                } else if this.contains_key(&state_key) {
-                    this.remove(py, &state_key);
-                }
+        for (key, has_state) in keys {
+            if !has_state && this.contains_key(&key) {
+                this.remove(py, &key)
             }
         }
+
         Ok(this)
     }
 
@@ -274,25 +267,23 @@ impl OutputState {
         epoch: u64,
         is_closing_logic: bool,
     ) -> Vec<SerializedSnapshot> {
-        if let Some(lss) = self.local_state_store.as_ref() {
-            // We always snapshot if snapshot_mode is immediate,
-            // otherwise we only snapshot in the closing logic.
-            if lss.borrow().snapshot_mode().immediate() || is_closing_logic {
-                // Reuse the buffer vector, clone it for the local_state_store
-                // then immediately empty it again for the operator.
-                // This saves us a number of allocations every time this function
-                // is called.
-                self.snaps_buf
-                    .extend(std::mem::take(&mut self.awoken).into_iter().map(|key| {
-                        // Here is where we finally take the snapshot
-                        self.state_store_cache
-                            .borrow()
-                            .snap(py, self.step_id.clone(), key, epoch)
-                            .reraise("Error snapshotting FixedPartitionedSink")
-                            .unwrap()
-                    }));
-                lss.borrow_mut().write_snapshots(self.snaps_buf.clone());
-            }
+        let snapshot_mode = self.state_store_cache.borrow().snapshot_mode();
+        // We always snapshot if snapshot_mode is immediate,
+        // otherwise we only snapshot in the closing logic.
+        if snapshot_mode.immediate() || is_closing_logic {
+            // Reuse the buffer vector, clone it for the local_state_store
+            // then immediately empty it again for the operator.
+            // This saves us a number of allocations every time this function
+            // is called.
+            let keys = std::mem::take(&mut self.awoken);
+            self.snaps_buf.extend(
+                // Here is where we finally take the snapshot
+                self.state_store_cache
+                    .borrow_mut()
+                    .batch_snap(py, self.step_id.clone(), keys, epoch)
+                    .reraise("Error snapshotting FixedPartitionedSink")
+                    .unwrap(),
+            );
         }
         self.snaps_buf.drain(..).collect()
     }

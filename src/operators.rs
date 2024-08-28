@@ -512,9 +512,6 @@ impl StatefulBatchLogic {
 
 pub(crate) struct StatefulBatchState {
     step_id: StepId,
-
-    // Shared references to LocalStateStore and StateStoreCache
-    local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
     state_store_cache: Rc<RefCell<StateStoreCache>>,
 
     // Contains the last known return value for
@@ -538,7 +535,6 @@ impl StatefulBatchState {
     pub(crate) fn init(
         py: Python,
         step_id: StepId,
-        local_state_store: Option<Rc<RefCell<LocalStateStore>>>,
         state_store_cache: Rc<RefCell<StateStoreCache>>,
         logic_builder: TdPyCallable,
     ) -> PyResult<Self> {
@@ -552,10 +548,11 @@ impl StatefulBatchState {
         state_store_cache
             .borrow_mut()
             .add_step(step_id.clone(), Box::new(builder));
+        let hydrated_keys = state_store_cache.borrow_mut().hydrate(py, &step_id)?;
 
+        // Now initialize Self first
         let mut this = Self {
             step_id,
-            local_state_store,
             state_store_cache,
             sched_cache: BTreeMap::new(),
             awoken_keys_this_activation: BTreeSet::new(),
@@ -564,14 +561,12 @@ impl StatefulBatchState {
             outs_buf: vec![],
         };
 
-        if let Some(lss) = this.local_state_store.as_ref() {
-            let snaps = lss.borrow_mut().get_snaps(py, &this.step_id)?;
-            for (state_key, state) in snaps {
-                if state.is_some() {
-                    this.insert(py, state_key.clone(), state);
-                    if let Some(notify_at) = this.notify_at(py, &state_key)? {
-                        this.schedule(state_key, notify_at);
-                    }
+        // Then schedule all the keys that were just hydrated from
+        // the state_store_cache, if any.
+        for (key, has_state) in hydrated_keys {
+            if has_state {
+                if let Some(notify_at) = this.notify_at(py, &key)? {
+                    this.schedule(key, notify_at);
                 }
             }
         }
@@ -579,11 +574,7 @@ impl StatefulBatchState {
     }
 
     pub fn start_at(&self) -> ResumeEpoch {
-        if let Some(lss) = self.local_state_store.as_ref() {
-            lss.borrow().resume_from_epoch()
-        } else {
-            ResumeFrom::default().epoch()
-        }
+        self.state_store_cache.borrow().resume_from().epoch()
     }
 
     pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
@@ -837,26 +828,19 @@ impl StatefulBatchState {
         self.awoken_keys_this_epoch_buffer
             .extend(std::mem::take(&mut self.awoken_keys_this_activation));
 
-        if let Some(lss) = self.local_state_store.as_ref() {
-            if lss.borrow().snapshot_mode().immediate() || is_epoch_closed {
-                // Reuse the buffer vector, clone it for the local_state_store
-                // then immediately empty it again for the operator.
-                // This saves us a number of allocations every time this function
-                // is called.
-                self.snaps_buf.extend(
-                    std::mem::take(&mut self.awoken_keys_this_epoch_buffer)
-                        .into_iter()
-                        .map(|key| {
-                            // Here is where we finally take the snapshot
-                            self.state_store_cache
-                                .borrow()
-                                .snap(py, self.step_id.clone(), key, epoch)
-                                .reraise("Error snapshotting PartitionedInput")
-                                .unwrap()
-                        }),
-                );
-                lss.borrow_mut().write_snapshots(self.snaps_buf.clone());
-            }
+        let snapshot_mode = self.state_store_cache.borrow().snapshot_mode();
+        if snapshot_mode.immediate() || is_epoch_closed {
+            // Empty the keys buffer
+            let keys = std::mem::take(&mut self.awoken_keys_this_epoch_buffer);
+            // Actually take the snapshots
+            // Reuse the buffer vector, this saves us a number of
+            // allocations every time this function is called.
+            self.snaps_buf.extend(
+                self.state_store_cache
+                    .borrow_mut()
+                    .batch_snap(py, self.step_id.clone(), keys, epoch)
+                    .unwrap(),
+            );
         }
         // Using `.drain(..).collect()` allows us to keep the allocated space
         // for the `snaps_buf`, so we don't need to reallocate new space at
