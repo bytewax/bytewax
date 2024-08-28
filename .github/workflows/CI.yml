@@ -23,8 +23,8 @@ jobs:
       - uses: actions/setup-python@v3
         with:
           python-version: 3.12
-      - name: Install uv
-        run: pipx install uv
+      - name: Set up uv
+        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
       - uses: extractions/setup-just@v2
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
@@ -83,8 +83,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install uv
-        run: pipx install uv
+      - name: Set up uv
+        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -134,8 +134,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install uv
-        run: pipx install uv
+      - name: Set up uv
+        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -194,8 +194,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install uv
-        run: pipx install uv
+      - name: Set up uv
+        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         run: |
