@@ -222,7 +222,7 @@ impl OutputState {
         Ok(this)
     }
 
-    pub fn remove(&mut self, py: Python, key: &StateKey) {
+    fn remove(&mut self, py: Python, key: &StateKey) {
         let logic = self
             .state_store_cache
             .borrow_mut()
@@ -231,13 +231,13 @@ impl OutputState {
         logic.call_method0(py, "close").unwrap();
     }
 
-    pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
+    fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
         self.state_store_cache
             .borrow_mut()
             .insert(py, &self.step_id, state_key, state);
     }
 
-    pub fn contains_key(&self, key: &StateKey) -> bool {
+    fn contains_key(&self, key: &StateKey) -> bool {
         self.state_store_cache
             .borrow()
             .contains_key(&self.step_id, key)
@@ -270,20 +270,22 @@ impl OutputState {
         let snapshot_mode = self.state_store_cache.borrow().snapshot_mode();
         // We always snapshot if snapshot_mode is immediate,
         // otherwise we only snapshot in the closing logic.
-        if snapshot_mode.immediate() || is_closing_logic {
-            // Reuse the buffer vector, clone it for the local_state_store
-            // then immediately empty it again for the operator.
-            // This saves us a number of allocations every time this function
-            // is called.
-            let keys = std::mem::take(&mut self.awoken);
-            self.snaps_buf.extend(
-                // Here is where we finally take the snapshot
-                self.state_store_cache
-                    .borrow_mut()
-                    .batch_snap(py, self.step_id.clone(), keys, epoch)
-                    .reraise("Error snapshotting FixedPartitionedSink")
-                    .unwrap(),
-            );
+        if let Some(snapshot_mode) = snapshot_mode {
+            if snapshot_mode.immediate() || is_closing_logic {
+                // Reuse the buffer vector, clone it for the local_state_store
+                // then immediately empty it again for the operator.
+                // This saves us a number of allocations every time this function
+                // is called.
+                let keys = std::mem::take(&mut self.awoken);
+                self.snaps_buf.extend(
+                    // Here is where we finally take the snapshot
+                    self.state_store_cache
+                        .borrow_mut()
+                        .batch_snap(py, self.step_id.clone(), keys, epoch)
+                        .reraise("Error snapshotting FixedPartitionedSink")
+                        .unwrap(),
+                );
+            }
         }
         self.snaps_buf.drain(..).collect()
     }

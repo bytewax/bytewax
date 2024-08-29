@@ -305,19 +305,21 @@ impl InputState {
         // resume from; we produce the same behavior as if this partition would have
         // lived to the next epoch interval.
         let snapshot_mode = self.state_store_cache.borrow().snapshot_mode();
-        if snapshot_mode.immediate()
-            || self.eofd_parts_buffer.contains(key)
-            || self.epoch_ended(key)
-        {
-            let epoch = *self.epoch_for(key);
-            let snap = self
-                .state_store_cache
-                .borrow()
-                .snap(py, self.step_id.clone(), key.clone(), epoch)
-                .reraise("Error snapshotting PartitionedInput")
-                .unwrap();
-            let cap = self.parts.get(key).unwrap().snap_cap.clone();
-            self.serialized_snaps.insert(key.clone(), (cap, snap));
+        if let Some(snapshot_mode) = snapshot_mode {
+            if snapshot_mode.immediate()
+                || self.eofd_parts_buffer.contains(key)
+                || self.epoch_ended(key)
+            {
+                let epoch = *self.epoch_for(key);
+                let snap = self
+                    .state_store_cache
+                    .borrow()
+                    .snap(py, self.step_id.clone(), key.clone(), epoch)
+                    .reraise("Error snapshotting PartitionedInput")
+                    .unwrap();
+                let cap = self.parts.get(key).unwrap().snap_cap.clone();
+                self.serialized_snaps.insert(key.clone(), (cap, snap));
+            }
         }
     }
 
@@ -675,7 +677,7 @@ impl<'py> FromPyObject<'py> for StatefulSourcePartition {
     }
 }
 
-pub(crate) enum BatchResult {
+enum BatchResult {
     Eof,
     Abort,
     Batch(Vec<PyObject>),

@@ -32,12 +32,12 @@ def test_parse_args_environ(tmpdir):
 
 
 def test_prepare_import_file():
-    mod_str, attr_str = _prepare_import("examples/basic.py:flow")
+    mod_str, attr_str = _prepare_import("examples/basic.py:flow", "flow")
     assert mod_str == "examples.basic"
     assert attr_str == "flow"
 
 
 def test_prepare_import_package():
-    mod_str, attr_str = _prepare_import("examples.basic:flow")
+    mod_str, attr_str = _prepare_import("examples.basic:flow", "flow")
     assert mod_str == "examples.basic"
     assert attr_str == "flow"

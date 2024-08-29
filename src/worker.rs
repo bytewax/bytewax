@@ -120,7 +120,7 @@ where
     let mut resume_from = ResumeFrom::default();
     // If snapshot_mode is None, no snapshot will need to be taken, because
     // recovery was not configured.
-    let mut snapshot_mode = SnapshotMode::None;
+    let mut snapshot_mode = None;
 
     // Now, if recovery is configured, initialize everything we need.
     if let Some(rc) = recovery_config {
@@ -129,7 +129,7 @@ where
             let rc = rc.bind(py);
             let bkp = rc.borrow().backup.clone();
             let local_state_dir = rc.borrow().local_state_dir.clone();
-            snapshot_mode = rc.borrow().snapshot_mode;
+            snapshot_mode = Some(rc.borrow().snapshot_mode);
 
             // Get resume_from from durable store, using the backup instance.
             resume_from = get_frontier_from_durable_store(
@@ -537,12 +537,14 @@ where
         // If snapshot_mode is not None, we will take the snapshots and
         // configure the full recovery dataflow
         let snapshot_mode = state_store_cache.borrow().snapshot_mode();
-        if !snapshot_mode.is_none() {
+        if let Some(snapshot_mode) = snapshot_mode {
             // We can unwrap here because if snapshot_mode is not None,
             // the local_state_store and its db_dir will be initialized
             let db_dir = state_store_cache.borrow().local_state_dir().unwrap();
             let snapshot_writer = state_store_cache.borrow().snapshot_writer().unwrap();
+            let snapshot_backup = state_store_cache.borrow().backup().unwrap();
             let frontier_writer = state_store_cache.borrow().frontier_writer().unwrap();
+            let frontier_backup = state_store_cache.borrow().backup().unwrap();
 
             scope
                 // Concatenate all snapshot streams
@@ -552,7 +554,7 @@ where
                 // emit a stream of paths for the files.
                 .compactor(db_dir.clone(), snapshot_writer, snapshot_mode)
                 // Now save each segment from all workers into a durable backup storage.
-                .backup(state_store_cache.borrow().backup().unwrap())
+                .backup(snapshot_backup)
                 // Now that the snapshot data is safe, we can update the cluster
                 // frontier. Broadcast the stream since we want all workers to write
                 // the cluster frontier info, even if they have no new snapshot
@@ -561,7 +563,7 @@ where
                 // LocalStoreCompactor: Write the frontier into a temp segment
                 .compactor(db_dir.clone(), frontier_writer, snapshot_mode)
                 // Upload the segments to the durable backup
-                .backup(state_store_cache.borrow().backup().unwrap())
+                .backup(frontier_backup)
                 .probe_with(&mut probe);
         } else {
             scope.concatenate(outputs).probe_with(&mut probe);

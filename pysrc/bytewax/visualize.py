@@ -377,7 +377,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _visualize_main(import_str: str, output_format: _Formats, recursive: bool) -> None:
-    mod_str, attr_str = _prepare_import(import_str)
+    mod_str, attr_str = _prepare_import(import_str, "flow")
     flow = _locate_subclass(mod_str, attr_str, Dataflow)
 
     if output_format == "json":

@@ -17,10 +17,12 @@ use std::rc::Rc;
 use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
+use pyo3::types::PyString;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 use rusqlite_migration::Migrations;
@@ -100,14 +102,14 @@ pub(crate) struct StateStoreCache {
     // Recovery related fields
     resume_from: ResumeFrom,
     local_state_store: Option<LocalStateStore>,
-    snapshot_mode: SnapshotMode,
+    snapshot_mode: Option<SnapshotMode>,
     backup: Option<Backup>,
 }
 
 impl StateStoreCache {
     pub fn new(
         local_state_store: Option<LocalStateStore>,
-        snapshot_mode: SnapshotMode,
+        snapshot_mode: Option<SnapshotMode>,
         resume_from: ResumeFrom,
         backup: Option<Backup>,
     ) -> Self {
@@ -233,7 +235,7 @@ impl StateStoreCache {
         self.resume_from
     }
 
-    pub fn snapshot_mode(&self) -> SnapshotMode {
+    pub fn snapshot_mode(&self) -> Option<SnapshotMode> {
         self.snapshot_mode
     }
 
@@ -814,11 +816,8 @@ impl fmt::Display for SerializedSnapshot {
     }
 }
 
-#[pyclass(module = "bytewax.recovery")]
-#[derive(Default, Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum SnapshotMode {
-    #[default]
-    None,
     Immediate,
     Batch,
 }
@@ -827,13 +826,26 @@ impl SnapshotMode {
     pub fn immediate(&self) -> bool {
         matches!(self, Self::Immediate)
     }
+}
 
-    pub fn batch(&self) -> bool {
-        matches!(self, Self::Batch)
+impl<'py> FromPyObject<'py> for SnapshotMode {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        match ob.downcast::<PyString>()?.to_str()? {
+            "immediate" => Ok(Self::Immediate),
+            "batch" => Ok(Self::Batch),
+            x => Err(PyValueError::new_err(format!(
+                "SnapshotMode can only be 'immediate' or 'batch', got {x}"
+            ))),
+        }
     }
+}
 
-    pub fn is_none(&self) -> bool {
-        matches!(self, Self::None)
+impl IntoPy<PyObject> for SnapshotMode {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        match self {
+            Self::Immediate => "immediate".into_py(py),
+            Self::Batch => "batch".into_py(py),
+        }
     }
 }
 
@@ -872,9 +884,8 @@ impl RecoveryConfig {
     fn new(
         local_state_dir: PathBuf,
         backup: Backup,
-        snapshot_mode: Option<SnapshotMode>,
+        snapshot_mode: SnapshotMode,
     ) -> PyResult<Self> {
-        let snapshot_mode = snapshot_mode.unwrap_or(SnapshotMode::Immediate);
         Ok(Self {
             local_state_dir,
             snapshot_mode,
@@ -1177,6 +1188,5 @@ where
 
 pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RecoveryConfig>()?;
-    m.add_class::<SnapshotMode>()?;
     Ok(())
 }

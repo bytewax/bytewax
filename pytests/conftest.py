@@ -9,7 +9,7 @@ import shutil
 from datetime import datetime, timezone
 
 from bytewax.backup import file_system_backup
-from bytewax.recovery import RecoveryConfig, SnapshotMode
+from bytewax.recovery import RecoveryConfig
 from bytewax.testing import cluster_main, run_main
 from bytewax.tracing import setup_tracing
 from pytest import fixture
@@ -62,7 +62,7 @@ def recovery_config(tmp_path):
     yield RecoveryConfig(
         tmp_path,
         backup=file_system_backup(tmp_path / "backup"),
-        snapshot_mode=SnapshotMode.Immediate,
+        snapshot_mode="immediate",
     )
     shutil.rmtree(tmp_path)
 

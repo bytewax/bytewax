@@ -22,7 +22,7 @@ from typing import Tuple
 from bytewax._bytewax import cli_main
 from bytewax.backup import Backup
 from bytewax.dataflow import Dataflow
-from bytewax.recovery import RecoveryConfig, SnapshotMode
+from bytewax.recovery import RecoveryConfig
 
 __all__ = [
     "cli_main",
@@ -147,7 +147,7 @@ class _EnvDefault(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
-def _prepare_import(import_str: str, default_name: str = "flow") -> Tuple[str, str]:
+def _prepare_import(import_str: str, default_name: str) -> Tuple[str, str]:
     """Given a filename this will try to calculate the python path.
 
     Add it to the search path and return the actual module name that
@@ -340,11 +340,7 @@ if __name__ == "__main__":
     local_state_dir = kwargs.pop("local_state_dir")
     backup_import_str = kwargs.pop("backup")
     snapshot_mode = kwargs.pop("snapshot_mode")
-    if snapshot_mode == "immediate":
-        snapshot_mode = SnapshotMode.Immediate
-    elif snapshot_mode == "batch":
-        snapshot_mode = SnapshotMode.Batch
-    else:
+    if snapshot_mode not in ["immediate", "batch"]:
         msg = f"Invalid snapshot mode passed: {snapshot_mode}"
         raise ValueError(msg)
 
@@ -373,7 +369,7 @@ if __name__ == "__main__":
         kwargs["addresses"] = addresses.split(";")
 
     # Import the dataflow
-    mod_str, attrs_str = _prepare_import(kwargs.pop("import_str"))
+    mod_str, attrs_str = _prepare_import(kwargs.pop("import_str"), "flow")
     kwargs["flow"] = _locate_subclass(mod_str, attrs_str, Dataflow)
 
     cli_main(**kwargs)

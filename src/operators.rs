@@ -451,7 +451,7 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, SerializedSnapshot>)>;
 }
 
-pub(crate) struct StatefulBatchLogic(PyObject);
+struct StatefulBatchLogic(PyObject);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for StatefulBatchLogic {
@@ -470,7 +470,7 @@ impl<'py> FromPyObject<'py> for StatefulBatchLogic {
     }
 }
 
-pub(crate) enum IsComplete {
+enum IsComplete {
     Retain,
     Discard,
 }
@@ -573,32 +573,32 @@ impl StatefulBatchState {
         Ok(this)
     }
 
-    pub fn start_at(&self) -> ResumeEpoch {
+    fn start_at(&self) -> ResumeEpoch {
         self.state_store_cache.borrow().resume_from().epoch()
     }
 
-    pub fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
+    fn insert(&mut self, py: Python, state_key: StateKey, state: Option<PyObject>) {
         self.state_store_cache
             .borrow_mut()
             .insert(py, &self.step_id, state_key, state);
     }
 
-    pub fn remove(&mut self, key: &StateKey) {
+    fn remove(&mut self, key: &StateKey) {
         self.state_store_cache
             .borrow_mut()
             .remove(&self.step_id, key)
             .unwrap();
     }
 
-    pub fn schedule(&mut self, key: StateKey, time: DateTime<Utc>) {
+    fn schedule(&mut self, key: StateKey, time: DateTime<Utc>) {
         self.sched_cache.insert(key, time);
     }
 
-    pub fn unschedule(&mut self, key: &StateKey) {
+    fn unschedule(&mut self, key: &StateKey) {
         self.sched_cache.remove(key);
     }
 
-    pub fn activate_after(&self, now: DateTime<Utc>) -> Option<std::time::Duration> {
+    fn activate_after(&self, now: DateTime<Utc>) -> Option<std::time::Duration> {
         self.sched_cache
             .values()
             .map(|notify_at| {
@@ -609,7 +609,7 @@ impl StatefulBatchState {
             .min()
     }
 
-    pub fn contains_key(&self, key: &StateKey) -> bool {
+    fn contains_key(&self, key: &StateKey) -> bool {
         self.state_store_cache
             .borrow()
             .contains_key(&self.step_id, key)
@@ -829,18 +829,20 @@ impl StatefulBatchState {
             .extend(std::mem::take(&mut self.awoken_keys_this_activation));
 
         let snapshot_mode = self.state_store_cache.borrow().snapshot_mode();
-        if snapshot_mode.immediate() || is_epoch_closed {
-            // Empty the keys buffer
-            let keys = std::mem::take(&mut self.awoken_keys_this_epoch_buffer);
-            // Actually take the snapshots
-            // Reuse the buffer vector, this saves us a number of
-            // allocations every time this function is called.
-            self.snaps_buf.extend(
-                self.state_store_cache
-                    .borrow_mut()
-                    .batch_snap(py, self.step_id.clone(), keys, epoch)
-                    .unwrap(),
-            );
+        if let Some(snapshot_mode) = snapshot_mode {
+            if snapshot_mode.immediate() || is_epoch_closed {
+                // Empty the keys buffer
+                let keys = std::mem::take(&mut self.awoken_keys_this_epoch_buffer);
+                // Actually take the snapshots
+                // Reuse the buffer vector, this saves us a number of
+                // allocations every time this function is called.
+                self.snaps_buf.extend(
+                    self.state_store_cache
+                        .borrow_mut()
+                        .batch_snap(py, self.step_id.clone(), keys, epoch)
+                        .unwrap(),
+                );
+            }
         }
         // Using `.drain(..).collect()` allows us to keep the allocated space
         // for the `snaps_buf`, so we don't need to reallocate new space at
