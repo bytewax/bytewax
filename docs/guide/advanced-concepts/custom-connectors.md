@@ -49,7 +49,7 @@ class WSClient:
         ...
 
     async def recv(self) -> bytes:
-        """Get the next message, waiting until one is availible."""
+        """Get the next message, waiting until one is available."""
         ...
 ```
 
