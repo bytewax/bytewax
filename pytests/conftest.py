@@ -4,9 +4,12 @@ This sets up our fixtures and logging.
 
 """
 
+import os
+import shutil
 from datetime import datetime, timezone
 
-from bytewax.recovery import RecoveryConfig, init_db_dir
+from bytewax.backup import file_system_backup
+from bytewax.recovery import RecoveryConfig
 from bytewax.testing import cluster_main, run_main
 from bytewax.tracing import setup_tracing
 from pytest import fixture
@@ -54,13 +57,14 @@ def entry_point(entry_point_name):
 
 @fixture
 def recovery_config(tmp_path):
-    """Generate a recovery config.
-
-    It will point to a single partition recovery store.
-
-    """
-    init_db_dir(tmp_path, 1)
-    yield RecoveryConfig(str(tmp_path))
+    """Generate a recovery config."""
+    os.mkdir(tmp_path / "backup")
+    yield RecoveryConfig(
+        tmp_path,
+        backup=file_system_backup(tmp_path / "backup"),
+        snapshot_mode="immediate",
+    )
+    shutil.rmtree(tmp_path)
 
 
 @fixture

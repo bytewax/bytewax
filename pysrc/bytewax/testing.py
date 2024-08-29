@@ -115,6 +115,9 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
                     item._triggered = True
                     # Batch is done early.
                     break
+                else:
+                    # Let the snapshot know that we got here though
+                    self._start_idx += 1
             else:
                 batch.append(item)
                 if len(batch) >= self._batch_size:

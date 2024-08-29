@@ -36,6 +36,10 @@ impl Dataflow {
     pub(crate) fn substeps(&self, py: Python) -> PyResult<Vec<Operator>> {
         self.0.getattr(py, "substeps")?.extract(py)
     }
+
+    pub(crate) fn flow_id(&self, py: Python) -> PyResult<String> {
+        self.0.getattr(py, "flow_id")?.extract(py)
+    }
 }
 
 pub(crate) struct Operator(PyObject);

@@ -12,10 +12,11 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use timely::communication::Allocate;
-use timely::dataflow::operators::generic::operator::empty;
 use timely::dataflow::operators::Broadcast;
 use timely::dataflow::operators::Concatenate;
+use timely::dataflow::operators::Map;
 use timely::dataflow::operators::Probe;
+use timely::dataflow::operators::ToStream;
 use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -33,6 +34,7 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+use crate::unwrap_any;
 
 /// Bytewax worker.
 ///
@@ -107,47 +109,102 @@ pub(crate) fn worker_main<A>(
 where
     A: Allocate,
 {
+    let worker_index = worker.index();
+    let worker_count = worker.peers();
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
 
-    let recovery = recovery_config
-        .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))
-        .transpose()?;
+    // Init default values for recovery related stuff
+    let mut local_state_store = None;
+    let mut backup = None;
+    let mut resume_from = ResumeFrom::default();
+    // If snapshot_mode is None, no snapshot will need to be taken, because
+    // recovery was not configured.
+    let mut snapshot_mode = None;
 
-    let resume_from = recovery
-        .as_ref()
-        .map(|(bundle, _backup_interval)| -> PyResult<ResumeFrom> {
-            let resume_calc = Python::with_gil(|py| Rc::new(RefCell::new(ResumeCalc::new(py))));
-            let resume_calc_d = resume_calc.clone();
-            let probe = Python::with_gil(|py| {
-                build_resume_calc_dataflow(py, worker.worker, bundle.clone_ref(py), resume_calc_d)
-                    .reraise("error building progress load dataflow")
-            })?;
+    // Now, if recovery is configured, initialize everything we need.
+    if let Some(rc) = recovery_config {
+        // Instantiate the local_state_store
+        Python::with_gil(|py| {
+            let rc = rc.bind(py);
+            let bkp = rc.borrow().backup.clone();
+            let local_state_dir = rc.borrow().local_state_dir.clone();
+            snapshot_mode = Some(rc.borrow().snapshot_mode);
 
-            tracing::info_span!("resume_calc_dataflow").in_scope(|| {
-                worker.run(probe);
-            });
+            // Get resume_from from durable store, using the backup instance.
+            resume_from = get_frontier_from_durable_store(
+                py,
+                &bkp,
+                local_state_dir.clone(),
+                worker_index,
+                worker_count,
+            );
+            backup = Some(bkp);
+            let flow_id = flow.flow_id(py).unwrap();
 
-            let resume_from = resume_calc.borrow().resume_from()?;
-            tracing::info!("Calculated {resume_from:?}");
+            // This will fail if the number of workers changed, or if
+            // the local state store db can't be accessed.
+            // TODO: Do a full resume in this case.
+            local_state_store = Some(unwrap_any!(LocalStateStore::new(
+                flow_id,
+                worker_index,
+                worker_count,
+                local_state_dir.clone(),
+                resume_from,
+            )));
+        });
 
-            Ok(resume_from)
-        })
-        .transpose()?
-        .unwrap_or_default();
+        // Broadcast the worker's resume epoch to all other workers,
+        // and get the max of them all to get the cluster's resume epoch.
+        let worker_resume_epoch = resume_from.epoch().0;
+        let cluster_resume_epoch = Rc::new(RefCell::new(worker_resume_epoch));
+        let probe = build_resume_epoch_dataflow(
+            worker.worker,
+            worker_resume_epoch,
+            cluster_resume_epoch.clone(),
+        );
 
+        tracing::info_span!("resume_from exchange dataflow").in_scope(|| {
+            worker.run(probe);
+        });
+
+        // Now update resume_from that will be passed around
+        resume_from.update_epoch(ResumeEpoch(*cluster_resume_epoch.borrow()));
+    }
+
+    // Instantiate the state_store_cache. If recovery was configured, it will
+    // hold the local_state_store and the appropriate resume_from info.
+    let state_store_cache = Rc::new(RefCell::new(StateStoreCache::new(
+        local_state_store,
+        snapshot_mode,
+        resume_from,
+        backup,
+    )));
+
+    // Build the production dataflow.
     let probe = Python::with_gil(|py| {
         build_production_dataflow(
             py,
             worker.worker,
             flow,
+            state_store_cache.clone(),
             epoch_interval,
-            resume_from,
-            recovery,
             &worker.abort,
         )
         .reraise("error building production dataflow")
     })?;
+
+    // Write execution info to the durable store before starting
+    // the production dataflow if we never reached the second epoch.
+    // This way, if the dataflow crashes before the first epoch ended,
+    // a fast resume is still possible.
+    if let Some(backup) = state_store_cache.borrow().backup() {
+        Python::with_gil(|py| {
+            state_store_cache
+                .borrow()
+                .upload_initial_execution_info(py, &backup);
+        });
+    }
 
     tracing::info_span!("production_dataflow").in_scope(|| {
         worker.run(probe);
@@ -158,39 +215,32 @@ where
     Ok(())
 }
 
-/// Compile a dataflow which loads the progress data from the previous
-/// execution.
-///
-/// Read state out of the cell once the probe is done. Calculation of
-/// [`ResumeFrom`] is deterministic and so all workers will have
-/// converged to the same value.
-fn build_resume_calc_dataflow<A>(
-    _py: Python,
+fn build_resume_epoch_dataflow<A>(
     worker: &mut TimelyWorker<A>,
-    bundle: RecoveryBundle,
-    resume_calc: Rc<RefCell<ResumeCalc>>,
-) -> PyResult<ProbeHandle<u64>>
+    worker_resume_epoch: u64,
+    cluster_resume_epoch: Rc<RefCell<u64>>,
+) -> ProbeHandle<u64>
 where
     A: Allocate,
 {
     worker.dataflow(|scope| {
-        let mut probe = ProbeHandle::new();
-
-        let (parts, exs, fronts, commits) = bundle.read_progress(scope);
-        scope
-            .resume_from(
-                &parts.broadcast(),
-                &exs.broadcast(),
-                &fronts.broadcast(),
-                &commits.broadcast(),
-                resume_calc,
-            )
-            .probe_with(&mut probe);
-
-        Ok(probe)
+        // Turn this worker's resume_epoch into an input stream.
+        vec![worker_resume_epoch]
+            .to_stream(scope)
+            // Broadcast it to all other workers.
+            .broadcast()
+            // Then change the max epoch in `cluster_resume_epoch` if needed.
+            .map(move |val| {
+                let current = *cluster_resume_epoch.borrow();
+                let max = val.max(current);
+                if max > current {
+                    *cluster_resume_epoch.borrow_mut() = max;
+                }
+                max
+            })
+            .probe()
     })
 }
-
 struct StreamCache<S>(HashMap<StreamId, Stream<S, TdPyAny>>)
 where
     S: Scope;
@@ -256,9 +306,8 @@ fn build_production_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
     flow: Dataflow,
+    state_store_cache: Rc<RefCell<StateStoreCache>>,
     epoch_interval: EpochInterval,
-    resume_from: ResumeFrom,
-    recovery: Option<(RecoveryBundle, BackupInterval)>,
     abort: &Arc<AtomicBool>,
 ) -> PyResult<ProbeHandle<u64>>
 where
@@ -271,18 +320,9 @@ where
     worker.dataflow(|scope| {
         let mut probe = ProbeHandle::new();
 
-        let mut inputs = Vec::new();
+        let mut is_input_present = false;
         let mut outputs = Vec::new();
         let mut snaps = Vec::new();
-
-        let ResumeFrom(_ex, resume_epoch) = resume_from;
-
-        let loads = if let Some((bundle, _backup_interval)) = &recovery {
-            scope.load_snaps(resume_epoch, bundle.clone_ref(py))
-        } else {
-            // Load nothing from a previous execution.
-            empty(scope)
-        };
 
         // This contains steps we still need to compile. Starts with
         // the top-level steps in the dataflow.
@@ -290,6 +330,7 @@ where
         // Reverse since we want to pop substeps in added order.
         build_stack.reverse();
         let mut streams = StreamCache::new();
+
         while let Some(step) = build_stack.pop() {
             let step_id = step.step_id(py)?;
 
@@ -300,9 +341,7 @@ where
                         let up = streams
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `_noop` missing port")?;
-
                         // No-op op.
-
                         streams
                             .insert_downstream(py, &step, "down", up.clone())
                             .reraise("core operator `_noop` missing port")?;
@@ -340,26 +379,25 @@ where
                         let source = step.get_arg(py, "source")?.extract::<Source>(py)?;
 
                         if let Ok(source) = source.extract::<FixedPartitionedSource>(py) {
+                            let state = InputState::init(
+                                py,
+                                step_id.clone(),
+                                epoch_interval,
+                                state_store_cache.clone(),
+                                source.clone(),
+                            )?;
                             let (down, snap) = source
-                                .partitioned_input(
-                                    py,
-                                    scope,
-                                    step_id,
-                                    epoch_interval,
-                                    &probe,
-                                    abort,
-                                    resume_epoch,
-                                    &loads,
-                                )
+                                .partitioned_input(py, scope, step_id, &probe, abort, state)
                                 .reraise("error building FixedPartitionedSource")?;
 
-                            inputs.push(down.clone());
-                            snaps.push(snap);
+                            is_input_present = true;
 
+                            snaps.push(snap);
                             streams
                                 .insert_downstream(py, &step, "down", down)
                                 .reraise("core operator `input` missing port")?;
                         } else if let Ok(source) = source.extract::<DynamicSource>(py) {
+                            let resume_epoch = state_store_cache.borrow().resume_from().epoch();
                             let down = source
                                 .dynamic_input(
                                     py,
@@ -372,7 +410,7 @@ where
                                 )
                                 .reraise("error building DynamicSource")?;
 
-                            inputs.push(down.clone());
+                            is_input_present = true;
 
                             streams
                                 .insert_downstream(py, &step, "down", down)
@@ -416,8 +454,14 @@ where
                             .reraise("core operator `output` missing port")?;
 
                         if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
+                            let state = OutputState::init(
+                                py,
+                                step_id.clone(),
+                                state_store_cache.clone(),
+                                sink.clone(),
+                            )?;
                             let (clock, snap) = up
-                                .partitioned_output(py, step_id, sink, &loads)
+                                .partitioned_output(py, step_id, sink, state)
                                 .reraise("error building FixedPartitionedSink")?;
 
                             outputs.push(clock.clone());
@@ -447,11 +491,18 @@ where
                     "stateful_batch" => {
                         let builder = step.get_arg(py, "builder")?.extract(py)?;
 
+                        let state = StatefulBatchState::init(
+                            py,
+                            step_id.clone(),
+                            state_store_cache.clone(),
+                            builder,
+                        )?;
+
                         let up = streams
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `stateful_batch` missing port")?;
 
-                        let (down, snap) = up.stateful_batch(py, step_id, builder, resume_epoch, &loads)?;
+                        let (down, snap) = up.stateful_batch(py, step_id, state)?;
 
                         snaps.push(snap);
 
@@ -471,22 +522,48 @@ where
             }
         }
 
-        if inputs.is_empty() {
-            let msg =
-                "Dataflow needs to contain at least one input step; add with `bytewax.operators.input`";
+        if !is_input_present {
+            let msg = "Dataflow needs to contain at least one input step; \
+                add with `bytewax.operators.input`";
             return Err(tracked_err::<PyValueError>(msg));
         }
         if outputs.is_empty() {
-            let msg =
-                "Dataflow needs to contain at least one output or inspect step; add with `bytewax.operators.output` or `bytewax.operators.inspect`";
+            let msg = "Dataflow needs to contain at least one output or inspect step; \
+                add with `bytewax.operators.output` or `bytewax.operators.inspect`";
             return Err(tracked_err::<PyValueError>(msg));
         }
 
         // Attach the probe to the relevant final output.
-        if let Some((bundle, backup_interval)) = recovery {
+        // If snapshot_mode is not None, we will take the snapshots and
+        // configure the full recovery dataflow
+        let snapshot_mode = state_store_cache.borrow().snapshot_mode();
+        if let Some(snapshot_mode) = snapshot_mode {
+            // We can unwrap here because if snapshot_mode is not None,
+            // the local_state_store and its db_dir will be initialized
+            let db_dir = state_store_cache.borrow().local_state_dir().unwrap();
+            let snapshot_writer = state_store_cache.borrow().snapshot_writer().unwrap();
+            let snapshot_backup = state_store_cache.borrow().backup().unwrap();
+            let frontier_writer = state_store_cache.borrow().frontier_writer().unwrap();
+            let frontier_backup = state_store_cache.borrow().backup().unwrap();
+
             scope
+                // Concatenate all snapshot streams
                 .concatenate(snaps)
-                .write_recovery(resume_from, bundle, epoch_interval, backup_interval)
+                // SnapshotSegmentCompactor: Compact all of the snapshots of each
+                // worker into a temporary, local (to each worker) sqlite file, and
+                // emit a stream of paths for the files.
+                .compactor(db_dir.clone(), snapshot_writer, snapshot_mode)
+                // Now save each segment from all workers into a durable backup storage.
+                .backup(snapshot_backup)
+                // Now that the snapshot data is safe, we can update the cluster
+                // frontier. Broadcast the stream since we want all workers to write
+                // the cluster frontier info, even if they have no new snapshot
+                // to save.
+                .broadcast()
+                // LocalStoreCompactor: Write the frontier into a temp segment
+                .compactor(db_dir.clone(), frontier_writer, snapshot_mode)
+                // Upload the segments to the durable backup
+                .backup(frontier_backup)
                 .probe_with(&mut probe);
         } else {
             scope.concatenate(outputs).probe_with(&mut probe);
