@@ -184,6 +184,35 @@ def flat_map_batch(
 ) -> Stream[Y]:
     """Transform an entire batch of items 1-to-many.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("flat_map_batch_eg")
+    numbers = numbers = op.input("nums", flow, TestingSource([[1, 2], [3]]))
+
+    def batch_mapper(batch):
+        return [x * 10 for x in batch]
+
+    flat_mapped = op.flat_map_batch("batch_flat_map", numbers, batch_mapper)
+
+    op.inspect("out", flat_mapped)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    flat_map_batch_eg.out: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+    flat_map_batch_eg.out: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+    ```
+
     The batch size received here depends on the exact behavior of the
     upstream input sources and operators. It should be used as a
     performance optimization when processing multiple items at once
