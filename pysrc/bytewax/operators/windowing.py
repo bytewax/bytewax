@@ -1145,9 +1145,31 @@ class _WindowLogic(
 
     @override
     def notify_at(self) -> Optional[datetime]:
-        notify_at = self.windower.notify_at()
+        window_notify_at = self.windower.notify_at()
+
+        # If we're in ordered mode, where values are not played into
+        # the windower until they have been queued in timestamp order,
+        # we need to awaken once an item will become due in the queue.
+        # Otherwise if there's no incoming items, they get stuck in
+        # the buffer.
+        queue_notify_at = None
+        if self.ordered:
+            try:
+                _, queue_notify_at = self.queue[0]
+            except IndexError:
+                pass
+
+        if window_notify_at is None:
+            notify_at = queue_notify_at
+        elif queue_notify_at is None:
+            notify_at = window_notify_at
+        else:
+            # If we have both types of notifications, use the soonest.
+            notify_at = min(window_notify_at, queue_notify_at)
+
         if notify_at is not None:
             notify_at = self.clock.to_system_utc(notify_at)
+
         return notify_at
 
     @override
