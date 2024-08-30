@@ -9,6 +9,10 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes a bug where window closing will be delayed if using event time
+  and all values for a key fall into a single window and event
+  timestamps are within `wait_for_system_duration` of each other.
+
 ## v0.21.0
 
 - {py:obj}`~bytewax.inputs.SimplePollingSource` now allows you to
