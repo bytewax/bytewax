@@ -398,6 +398,35 @@ def merge(
 ) -> Stream[Any]:
     """Combine multiple streams together.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("merge_eg")
+    nums1 = op.input("nums1", flow, TestingSource([1, 2]))
+    nums2 = op.input("nums2", flow, TestingSource([3, 4]))
+
+    merged = op.merge("merged", nums1, nums2)
+
+    op.inspect("out", merged)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    merge_eg.out: 1
+    merge_eg.out: 3
+    merge_eg.out: 2
+    merge_eg.out: 4
+    ```
+
     :arg step_id: Unique ID.
 
     :arg *ups: Streams.
