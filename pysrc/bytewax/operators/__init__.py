@@ -245,6 +245,29 @@ def input(  # noqa: A001
 ) -> Stream[X]:
     """Introduce items into a dataflow.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("input_eg")
+    nums = op.input("nums", flow, TestingSource([10, 20, 30]))
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    op.inspect("out", nums)
+    ```
+
+    ```{testoutput}
+    input_eg.out: 10
+    input_eg.out: 20
+    input_eg.out: 30
+    ```
+
     See {py:obj}`bytewax.inputs` for more information on how input
     works. See {py:obj}`bytewax.connectors` for a buffet of our
     built-in connector types.
