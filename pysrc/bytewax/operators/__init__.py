@@ -611,7 +611,95 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
 
 
 class StatefulBatchLogic(ABC, Generic[V, W, S]):
-    """Abstract class to define a {py:obj}`stateful` operator.
+    r"""Abstract class to define a {py:obj}`stateful` operator.
+
+    ```{testcode}
+    # This dataflow will create the cumulative
+    # sum of values for each key.
+
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.operators import StatefulBatchLogic
+
+    class SumLogic(StatefulBatchLogic):
+        def __init__(self):
+            self.sum = 0
+
+        def on_batch(self, batch):
+
+            for event in batch:
+                key = event['key']
+                self.sum += event['val']
+
+            print(f"Current sum for key {key}: {self.sum}")
+            print("End of batch\n")
+
+            # Return the cumulative sum wrapped
+            # in an iterable and False to retain the logic
+            return [(key, self.sum)], False
+
+        def snapshot(self):
+            # Return the current state to be saved
+            return self.sum
+
+        def restore(self, snapshot):
+            # Restore the state from the snapshot
+            self.sum = snapshot
+
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2},
+        {"key": "a", "val": 3},
+        {"key": "b", "val": 4},
+    ]
+
+    flow = Dataflow("stateful_batch_eg")
+    nums = op.input("nums", flow, TestingSource(source))
+
+    # note - this step creates a tuple of the form
+    # ("a", {"key": "a", "val": 1})
+    # this is a pre-requisite for statetul operators
+    # such as stateful_batch
+    key_on = op.key_on("keys", nums, lambda x: x['key'])
+
+    op.inspect("mapping_items", key_on)
+
+    stateful = op.stateful_batch("stateful_batch", key_on, lambda _: SumLogic())
+
+    op.inspect("out", stateful)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    stateful_batch_eg.mapping_items: ('a', {'key': 'a', 'val': 1})
+    Current sum for key a: 1
+    End of batch
+
+    stateful_batch_eg.out: ('a', ('a', 1))
+    stateful_batch_eg.mapping_items: ('b', {'key': 'b', 'val': 2})
+    Current sum for key b: 2
+    End of batch
+
+    stateful_batch_eg.out: ('b', ('b', 2))
+    stateful_batch_eg.mapping_items: ('a', {'key': 'a', 'val': 3})
+    Current sum for key a: 4
+    End of batch
+
+    stateful_batch_eg.out: ('a', ('a', 4))
+    stateful_batch_eg.mapping_items: ('b', {'key': 'b', 'val': 4})
+    Current sum for key b: 6
+    End of batch
+
+    stateful_batch_eg.out: ('b', ('b', 6))
+    ```
 
     The operator will call these methods in order: {py:obj}`on_batch`
     once with all items queued, then {py:obj}`on_notify` if the
