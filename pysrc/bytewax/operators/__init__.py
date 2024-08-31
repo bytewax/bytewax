@@ -1881,6 +1881,36 @@ def filter_map_value(
     This is like a combination of {py:obj}`map_value` and then
     {py:obj}`filter_value` with a predicate removing `None` values.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("filter_map_value_eg")
+    source = [("key1", 1), ("key2", "2"), ("key3", 2)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    def to_even_str(val):
+        if isinstance(val, int) and val % 2 == 0:
+            return str(val)
+        return None
+
+    filtered_mapped = op.filter_map_value("filter_map_value", inp, to_even_str)
+
+    op.inspect("out", filtered_mapped)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    filter_map_value_eg.out: ('key3', '2')
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Stream.
