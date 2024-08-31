@@ -2417,8 +2417,8 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
     ```
 
     ```{testoutput}
-    collect_eg.out: ('a', [{'key': 'a', 'val': 1}])
-    collect_eg.out: ('b', [{'key': 'b', 'val': 2}])
+    collect_eg.out: ('a', {'key': 'a', 'val': 1})
+    collect_eg.out: ('b', {'key': 'b', 'val': 2})
     ```
 
     :arg step_id: Unique ID.
@@ -2456,6 +2456,41 @@ def key_rm(step_id: str, up: KeyedStream[X]) -> Stream[X]:
     {py:obj}`KeyedStream`s are 2-tuples of `(key, value)`. This will
     discard the key so you just have the values if you don't need the
     keys anymore.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from datetime import timedelta
+
+    flow = Dataflow("collect_eg")
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2}
+    ]
+    nums = op.input("nums", flow, TestingSource(source))
+
+    keyed = op.key_on("key", nums, lambda x: x['key'])
+
+    op.inspect("with_key", keyed)
+
+    remove_key = op.key_rm("no_key", keyed)
+
+    op.inspect("without_key", remove_key)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    collect_eg.with_key: ('a', {'key': 'a', 'val': 1})
+    collect_eg.without_key: {'key': 'a', 'val': 1}
+    collect_eg.with_key: ('b', {'key': 'b', 'val': 2})
+    collect_eg.without_key: {'key': 'b', 'val': 2}
+    ```
 
     :arg step_id: Unique ID.
 
