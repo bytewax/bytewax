@@ -2573,6 +2573,32 @@ def map_value(
 ) -> KeyedStream[W]:
     """Transform values one-by-one.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("map_eg")
+
+    nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+
+    mapped = op.map("double", nums, lambda x: x * 2)
+
+    op.inspect("out", mapped)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    map_eg.out: 2
+    map_eg.out: 4
+    map_eg.out: 6
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
