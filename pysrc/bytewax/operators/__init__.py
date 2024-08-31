@@ -450,6 +450,34 @@ def merge(
 def output(step_id: str, up: Stream[X], sink: Sink[X]) -> None:
     """Write items out of a dataflow.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.connectors.stdio import StdOutSink
+
+    flow = Dataflow("output_eg")
+    nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+
+    # This will print the items to stdout.
+    # You can replace this with any other sink.
+    op.output("sink", nums, StdOutSink())
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    1
+    2
+    3
+    ```
+
     See {py:obj}`bytewax.outputs` for more information on how output
     works. See {py:obj}`bytewax.connectors` for a buffet of our
     built-in connector types.
