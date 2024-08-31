@@ -2392,6 +2392,35 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
     This allows you to use all the keyed operators that require the
     upstream to be a {py:obj}`KeyedStream`.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from datetime import timedelta
+
+    flow = Dataflow("collect_eg")
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2}
+    ]
+    nums = op.input("nums", flow, TestingSource(source))
+
+    keyed = op.key_on("key", nums, lambda x: x['key'])
+
+    op.inspect("out", keyed)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    collect_eg.out: ('a', [{'key': 'a', 'val': 1}])
+    collect_eg.out: ('b', [{'key': 'b', 'val': 2}])
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Stream.
