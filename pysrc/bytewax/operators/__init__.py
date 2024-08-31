@@ -1335,6 +1335,43 @@ def enrich_cached(
 ) -> Stream[Y]:
     """Enrich / join items using a cached lookup.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    def mock_service(key):
+        return {"a": 10, "b": 20, "c": 30}.get(key)
+
+    flow = Dataflow("enrich_cached_eg")
+    keys = op.input("keys", flow, TestingSource(["a", "b", "a", "c", "a", "a"]))
+
+    def enrich_with_service(cache, item):
+        value = cache.get(item)
+        return {"key": item, "value": value}
+
+    enriched = op.enrich_cached("enrich", keys, mock_service, enrich_with_service)
+
+    op.inspect("out", enriched)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    enrich_cached_eg.out: {'key': 'a', 'value': 10}
+    enrich_cached_eg.out: {'key': 'b', 'value': 20}
+    enrich_cached_eg.out: {'key': 'a', 'value': 10}
+    enrich_cached_eg.out: {'key': 'c', 'value': 30}
+    enrich_cached_eg.out: {'key': 'a', 'value': 10}
+    enrich_cached_eg.out: {'key': 'a', 'value': 10}
+    ```
+
     Use this if you'd like to join items in the dataflow with
     unsychronized pulled / polled data from an external service. This
     assumes that the joined data is static and will not emit updates.
