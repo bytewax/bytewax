@@ -1172,30 +1172,38 @@ def collect(
     """Collect items into a list up to a size or a timeout.
 
     ```{testcode}
+    # This dataflow will collect items into lists of size 2 or
+    # every second, whichever comes first.
     from bytewax.dataflow import Dataflow
     import bytewax.operators as op
-    from bytewax.testing import run_main, TestingSource
+    from bytewax.testing import TestingSource
+    from datetime import timedelta
 
-    flow = Dataflow("count_final_eg")
-    source = ["apple", "banana", "apple", "banana", "banana"]
-    words = op.input("words", flow, TestingSource(source))
+    flow = Dataflow("collect_eg")
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2},
+        {"key": "a", "val": 3},
+        {"key": "b", "val": 4},
+        {"key": "a", "val": 5},
+        {"key": "b", "val": 6},
+        {"key": "a", "val": 7},
+        {"key": "b", "val": 8},
+    ]
+    nums = op.input("nums", flow, TestingSource(source))
 
-    counted = op.count_final("count", words, key=lambda x: x)
+    keyed = op.key_on("key", nums, lambda x: x['key'])
 
-    op.inspect("out", counted)
-    ```
+    collected = op.collect("collect", keyed, timedelta(seconds=1), max_size=2)
 
-    ```{testcode}
-    :hide:
-
-    from bytewax.testing import run_main
-
-    run_main(flow)
+    op.inspect("out", collected)
     ```
 
     ```{testoutput}
-    count_final_eg.out: ('apple', 2)
-    count_final_eg.out: ('banana', 3)
+    collect_eg.out: ('a', [{'key': 'a', 'val': 1}, {'key': 'a', 'val': 3}])
+    collect_eg.out: ('b', [{'key': 'b', 'val': 2}, {'key': 'b', 'val': 4}])
+    collect_eg.out: ('a', [{'key': 'a', 'val': 5}, {'key': 'a', 'val': 7}])
+    collect_eg.out: ('b', [{'key': 'b', 'val': 6}, {'key': 'b', 'val': 8}])
     ```
 
     See {py:obj}`bytewax.operators.windowing.collect_window` for more
@@ -1228,6 +1236,33 @@ def count_final(
     step_id: str, up: Stream[X], key: Callable[[X], str]
 ) -> KeyedStream[int]:
     """Count the number of occurrences of items in the entire stream.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("count_final_eg")
+    source = ["apple", "banana", "apple", "banana", "banana"]
+    words = op.input("words", flow, TestingSource(source))
+
+    counted = op.count_final("count", words, key=lambda x: x)
+
+    op.inspect("out", counted)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    count_final_eg.out: ('apple', 2)
+    count_final_eg.out: ('banana', 3)
+    ```
 
     This only works on finite data streams and only return counts once
     the upstream is EOF. You'll need to use
