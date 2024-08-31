@@ -2714,6 +2714,33 @@ def min_final(
     once the upstream is EOF. You'll need to use
     {py:obj}`bytewax.operators.windowing.min_window` on infinite data.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("max_final_eg")
+
+    source = [("key1", 1), ("key1", 3), ("key2", 2), ("key2",19)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    min_val = op.min_final("min", inp)
+
+    op.inspect("out", min_val)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    max_final_eg.out: ('key1', 1)
+    max_final_eg.out: ('key2', 2)
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
