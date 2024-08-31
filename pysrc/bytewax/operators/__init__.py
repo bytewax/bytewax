@@ -1971,6 +1971,39 @@ def fold_final(
     It is like {py:obj}`reduce_final` but uses a function to build the
     initial value.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("fold_final_eg")
+
+    source = [("key1", 1), ("key1", 2), ("key2", 3), ("key2",5)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    def build_accumulator():
+        return 0
+
+    def folder(acc, val):
+        return acc + val
+
+    folded = op.fold_final("fold", inp, build_accumulator, folder)
+
+    op.inspect("out", folded)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    fold_final_eg.out: ('key1', 3)
+    fold_final_eg.out: ('key2', 8)
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
