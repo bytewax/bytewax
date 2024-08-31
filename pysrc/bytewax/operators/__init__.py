@@ -1172,32 +1172,17 @@ def collect(
     """Collect items into a list up to a size or a timeout.
 
     ```{testcode}
-    # This dataflow will collect items into lists of size 2 or
-    # every second, whichever comes first.
-
     from bytewax.dataflow import Dataflow
     import bytewax.operators as op
-    from bytewax.testing import TestingSource
-    from datetime import timedelta
+    from bytewax.testing import run_main, TestingSource
 
-    flow = Dataflow("collect_eg")
-    source = [
-        {"key": "a", "val": 1},
-        {"key": "b", "val": 2},
-        {"key": "a", "val": 3},
-        {"key": "b", "val": 4},
-        {"key": "a", "val": 5},
-        {"key": "b", "val": 6},
-        {"key": "a", "val": 7},
-        {"key": "b", "val": 8},
-    ]
-    nums = op.input("nums", flow, TestingSource(source))
+    flow = Dataflow("count_final_eg")
+    source = ["apple", "banana", "apple", "banana", "banana"]
+    words = op.input("words", flow, TestingSource(source))
 
-    keyed = op.key_on("key", nums, lambda x: x['key'])
+    counted = op.count_final("count", words, key=lambda x: x)
 
-    collected = op.collect("collect", keyed, timedelta(seconds=1), max_size=3)
-
-    op.inspect("out", collected)
+    op.inspect("out", counted)
     ```
 
     ```{testcode}
@@ -1209,10 +1194,8 @@ def collect(
     ```
 
     ```{testoutput}
-    collect_eg.out: ('a', [{'key': 'a', 'val': 1}, {'key': 'a', 'val': 3}])
-    collect_eg.out: ('b', [{'key': 'b', 'val': 2}, {'key': 'b', 'val': 4}])
-    collect_eg.out: ('a', [{'key': 'a', 'val': 5}, {'key': 'a', 'val': 7}])
-    collect_eg.out: ('b', [{'key': 'b', 'val': 6}, {'key': 'b', 'val': 8}])
+    count_final_eg.out: ('apple', 2)
+    count_final_eg.out: ('banana', 3)
     ```
 
     See {py:obj}`bytewax.operators.windowing.collect_window` for more
