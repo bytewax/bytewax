@@ -730,9 +730,12 @@ def stateful_batch(
     up: KeyedStream[V],
     builder: Callable[[Optional[S]], StatefulBatchLogic[V, W, S]],
 ) -> KeyedStream[W]:
-    """Advanced generic stateful operator.
+    r"""Advanced generic stateful operator.
 
     ```{testcode}
+    # This dataflow will create the cumulative
+    # sum of values for each key.
+
     from bytewax.dataflow import Dataflow
     import bytewax.operators as op
     from bytewax.testing import TestingSource
@@ -743,14 +746,17 @@ def stateful_batch(
             self.sum = 0
 
         def on_batch(self, batch):
-            # Extract the 'val' from each dictionary in the batch
-            # and sum them
-            batch_sum = sum(item['val'] for item in batch)
-            self.sum += batch_sum
 
-            # Return a tuple: the list of items to emit and a
-            # boolean indicating if the batch is complete
-            return [self.sum], True
+            for event in batch:
+                key = event['key']
+                self.sum += event['val']
+
+            print(f"Current sum for key {key}: {self.sum}")
+            print("End of batch\n")
+
+            # Return the cumulative sum wrapped
+            # in an iterable and False to retain the logic
+            return [(key, self.sum)], False
 
         def snapshot(self):
             # Return the current state to be saved
@@ -769,7 +775,14 @@ def stateful_batch(
 
     flow = Dataflow("stateful_batch_eg")
     nums = op.input("nums", flow, TestingSource(source))
+
+    # note - this step creates a tuple of the form
+    # ("a", {"key": "a", "val": 1})
+    # this is a pre-requisite for statetul operators
+    # such as stateful_batch
     key_on = op.key_on("keys", nums, lambda x: x['key'])
+
+    op.inspect("mapping_items", key_on)
 
     stateful = op.stateful_batch("stateful_batch", key_on, lambda _: SumLogic())
 
@@ -785,11 +798,26 @@ def stateful_batch(
     ```
 
     ```{testoutput}
-    Task 1 started at 2024-08-31 00:12:11.629073 and took 2.00 seconds.
-    Task 4 started at 2024-08-31 00:12:11.630000 and took 0.00 seconds.
-    Task 2 started at 2024-08-31 00:12:11.629501 and took 2.00 seconds.
-    Task 5 started at 2024-08-31 00:12:11.631000 and took 0.00 seconds.
-    Task 3 started at 2024-08-31 00:12:11.629800 and took 2.00 seconds.
+    stateful_batch_eg.mapping_items: ('a', {'key': 'a', 'val': 1})
+    Current sum for key a: 1
+    End of batch
+
+    stateful_batch_eg.out: ('a', ('a', 1))
+    stateful_batch_eg.mapping_items: ('b', {'key': 'b', 'val': 2})
+    Current sum for key b: 2
+    End of batch
+
+    stateful_batch_eg.out: ('b', ('b', 2))
+    stateful_batch_eg.mapping_items: ('a', {'key': 'a', 'val': 3})
+    Current sum for key a: 4
+    End of batch
+
+    stateful_batch_eg.out: ('a', ('a', 4))
+    stateful_batch_eg.mapping_items: ('b', {'key': 'b', 'val': 4})
+    Current sum for key b: 6
+    End of batch
+
+    stateful_batch_eg.out: ('b', ('b', 6))
     ```
 
     This is the lowest-level operator Bytewax provides and gives you
@@ -804,7 +832,7 @@ def stateful_batch(
 
     :arg up: Keyed stream.
 
-    :arg builder: Called whenver a new key is encountered with the
+    :arg builder: Called whenever a new key is encountered with the
         resume state returned from
         {py:obj}`StatefulBatchLogic.snapshot` for this key, if any.
         This should close over any non-state configuration and combine
@@ -815,7 +843,6 @@ def stateful_batch(
         {py:obj}`StatefulBatchLogic.on_batch`,
         {py:obj}`StatefulBatchLogic.on_notify`, and
         {py:obj}`StatefulBatchLogic.on_eof`.
-
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
