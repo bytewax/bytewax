@@ -2809,6 +2809,31 @@ def reduce_final(
     It is like {py:obj}`fold_final` but the first value is the initial
     accumulator.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("reduce_final_eg")
+
+    inp = op.input("inp", flow, TestingSource([("key1", 1), ("key1", 2), ("key2", 3)]))
+
+    reduced = op.reduce_final("sum", inp, lambda acc, x: acc + x)
+
+    op.inspect("out", reduced)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    reduce_final_eg.out: ('key1', 3)
+    reduce_final_eg.out: ('key2', 3)
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
