@@ -1610,6 +1610,36 @@ def flatten(
 ) -> Stream[X]:
     """Move all sub-items up a level.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("flatten_eg")
+
+    inp = op.input("inp", flow, TestingSource([[1, 2], [3, 4, 5]]))
+
+    flattened = op.flatten("flatten", inp)
+
+    op.inspect("out", flattened)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    flatten_eg.out: 1
+    flatten_eg.out: 2
+    flatten_eg.out: 3
+    flatten_eg.out: 4
+    flatten_eg.out: 5
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Stream of iterables.
@@ -1711,6 +1741,34 @@ def filter_value(
     step_id: str, up: KeyedStream[V], predicate: Callable[[V], bool]
 ) -> KeyedStream[V]:
     """Selectively keep only some items from a keyed stream.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("filter_value_eg")
+
+    source = [("key1", 1), ("key2", 2), ("key3", 3), ("key4", 4), ("key5", 5)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    filtered = op.filter_value("filter_odd", inp, lambda x: x % 2 != 0)
+
+    op.inspect("out", filtered)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    filter_value_eg.out: ('key1', 1)
+    filter_value_eg.out: ('key3', 3)
+    filter_value_eg.out: ('key5', 5)
+    ```
 
     :arg step_id: Unique ID.
 
