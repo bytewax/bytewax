@@ -1544,6 +1544,38 @@ def flat_map_value(
 ) -> KeyedStream[W]:
     """Transform values one-to-many.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("flat_map_value_eg")
+    source = [("key1", "hello world"), ("key2", "hi")]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    def split_words(value):
+        return value.split()
+
+    flat_mapped = op.flat_map_value("split_words", inp, split_words)
+
+    op.inspect("out", flat_mapped)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    flat_map_value_eg.out: ('key1', 'hello')
+    flat_map_value_eg.out: ('key1', 'world')
+    flat_map_value_eg.out: ('key2', 'hi')
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
