@@ -732,6 +732,66 @@ def stateful_batch(
 ) -> KeyedStream[W]:
     """Advanced generic stateful operator.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.operators import StatefulBatchLogic
+
+    class SumLogic(StatefulBatchLogic):
+        def __init__(self):
+            self.sum = 0
+
+        def on_batch(self, batch):
+            # Extract the 'val' from each dictionary in the batch
+            # and sum them
+            batch_sum = sum(item['val'] for item in batch)
+            self.sum += batch_sum
+
+            # Return a tuple: the list of items to emit and a
+            # boolean indicating if the batch is complete
+            return [self.sum], True
+
+        def snapshot(self):
+            # Return the current state to be saved
+            return self.sum
+
+        def restore(self, snapshot):
+            # Restore the state from the snapshot
+            self.sum = snapshot
+
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2},
+        {"key": "a", "val": 3},
+        {"key": "b", "val": 4},
+    ]
+
+    flow = Dataflow("stateful_batch_eg")
+    nums = op.input("nums", flow, TestingSource(source))
+    key_on = op.key_on("keys", nums, lambda x: x['key'])
+
+    stateful = op.stateful_batch("stateful_batch", key_on, lambda _: SumLogic())
+
+    op.inspect("out", stateful)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    Task 1 started at 2024-08-31 00:12:11.629073 and took 2.00 seconds.
+    Task 4 started at 2024-08-31 00:12:11.630000 and took 0.00 seconds.
+    Task 2 started at 2024-08-31 00:12:11.629501 and took 2.00 seconds.
+    Task 5 started at 2024-08-31 00:12:11.631000 and took 0.00 seconds.
+    Task 3 started at 2024-08-31 00:12:11.629800 and took 2.00 seconds.
+    ```
+
     This is the lowest-level operator Bytewax provides and gives you
     full control over all aspects of the operator processing and
     lifecycle. Usualy you will want to use a higher-level operator
