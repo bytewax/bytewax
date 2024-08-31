@@ -498,6 +498,63 @@ def output(step_id: str, up: Stream[X], sink: Sink[X]) -> None:
 def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     """Redistribute items randomly across all workers.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.connectors.stdio import StdOutSink
+    import time
+    from datetime import datetime
+
+    # Create and configure the Dataflow
+    flow = Dataflow("redistribute_example")
+
+    # Simulate an uneven workload: the first half of the numbers
+    # are "heavy" tasks, the rest are "light"
+    # Heavy tasks take more time to process, simulating a bottleneck.
+    def simulate_task(task):
+        start_time = datetime.now()
+
+        if task <= 3:  # Simulate heavy task
+            time.sleep(2)
+
+        end_time = datetime.now()
+        elapsed_time = (end_time - start_time).total_seconds()
+
+        print(f"Task {task} started at {start_time} and \
+            took {elapsed_time:.2f} seconds.")
+
+        return task
+
+    # Input source for dataflow: unevenly distributed tasks
+    nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
+
+    # Map each number to simulate processing
+    processed = op.map("process_task", nums, simulate_task)
+
+    # Redistribute the workload across available workers
+    redistributed = op.redistribute("redistribute", processed)
+
+    # Output the results to the standard output
+    op.output("final_output", redistributed, StdOutSink())
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    Task 1 started at 2024-08-31 00:12:11.629073 and took 2.00 seconds.
+    Task 4 started at 2024-08-31 00:12:11.630000 and took 0.00 seconds.
+    Task 2 started at 2024-08-31 00:12:11.629501 and took 2.00 seconds.
+    Task 5 started at 2024-08-31 00:12:11.631000 and took 0.00 seconds.
+    Task 3 started at 2024-08-31 00:12:11.629800 and took 2.00 seconds.
+    ```
+
     Bytewax's execution model has workers executing all steps, but the
     state in each step is partitioned across workers by some key.
     Bytewax will only exchange an item between workers before stateful
