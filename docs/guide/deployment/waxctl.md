@@ -1,5 +1,5 @@
 (xref-waxctl)=
-# Using `Waxctl Pro` to Run your Dataflow on Kubernetes
+# Using `waxctl` to Run your Dataflow on Kubernetes
 
 Waxctl helps you run and manage your Bytewax dataflows in Kubernetes.
 It uses the current `kubectl` context configuration, so you need
@@ -12,9 +12,7 @@ have it installed yet.
 
 ## Installation
 
-Installing Waxctl is very simple. You just need to download the binary
-corresponding to your operating system and architecture
-[here](https://bytewax.io/downloads).
+To install Waxctl visit [here](https://bytewax.io/waxctl).
 
 ## Dataflow Lifecycle
 
@@ -339,7 +337,7 @@ run the following:
 $ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run | kubectl apply -f -
 ```
 
-### Using a Custom Image from a Private Registry
+### Using a Custom Image from a Private Registry - Requires Waxctl Pro
 
 In our <project:#xref-container-custom-deps> section we describe how
 to create your own Docker image using a Bytewax image as base.

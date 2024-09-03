@@ -1,14 +1,12 @@
 (xref-waxctlaws)=
-# Using `Waxctl Pro` to Run your Dataflow on AWS
+# Using `waxctl` to Run your Dataflow on AWS
 
 As well as facilitating deployment on Kubernetes, Waxctl provides an
 easy path to deploy dataflows on AWS EC2 instances.
 
 ## Installation
 
-To install Waxctl simply download the binary corresponding to your
-operating system and architecture
-[here](https://bytewax.io/downloads).
+To install Waxctl visit [here](https://bytewax.io/waxctl).
 
 ## Dataflow Lifecycle
 
@@ -451,7 +449,7 @@ running:
 systemctl restart bytewax-dataflow.service
 ```
 
-## A Production-like Example
+## A Production-like Example - Requires Waxctl Pro
 
 In case your dataflow needs access to other AWS managed services, like
 MKS, you will probably want to use your own Security Group and IAM

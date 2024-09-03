@@ -1,14 +1,12 @@
 (xref-waxctlgcp)=
-# Using `Waxctl Pro` to Run your Dataflow on GCP
+# Using `waxctl` to Run your Dataflow on GCP
 
 Waxctl allows you to deploy dataflows on Google Cloud Platform VM
 instances.
 
 ## Installation
 
-To install Waxctl simply download the binary corresponding to your
-operating system and architecture
-[here](https://bytewax.io/downloads).
+To install Waxctl visit [here](https://bytewax.io/waxctl).
 
 ## Dataflow Lifecycle
 
@@ -455,7 +453,7 @@ running:
 systemctl restart bytewax-dataflow.service
 ```
 
-## A Production-like Example
+## A Production-like Example - Requires Waxctl Pro
 
 In case your dataflow needs access to other GCP-managed services, like
 BigQuery, you will probably want to use your network tags, IAM
