@@ -521,8 +521,8 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
         end_time = datetime.now()
         elapsed_time = (end_time - start_time).total_seconds()
 
-        print(f"Task {task} started at {start_time} and \
-            took {elapsed_time:.2f} seconds.")
+        print(f"Task {task} started at {start_time} and "
+              f"took {elapsed_time:.2f} seconds.")
 
         return task
 
