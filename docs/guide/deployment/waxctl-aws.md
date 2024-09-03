@@ -1,5 +1,5 @@
 (xref-waxctlaws)=
-# Using `waxctl` to Run your Dataflow on AWS
+# Using `Waxctl Pro` to Run your Dataflow on AWS
 
 As well as facilitating deployment on Kubernetes, Waxctl provides an
 easy path to deploy dataflows on AWS EC2 instances.
@@ -41,9 +41,12 @@ Running `waxctl aws --help` will show further details for these.
 
 ```console
 $ waxctl aws --help
+Waxctl Pro version 0.12.0
+
 Manage dataflows running on AWS EC2 instances
 
 Usage:
+  waxctl aws [flags]
   waxctl aws [command]
 
 Available Commands:
@@ -98,14 +101,19 @@ start sessions through Systems Manager.
 We can see the complete list of available flags with the `waxctl aws deploy` help command.
 ```console
 $ waxctl aws deploy -h
+Waxctl Pro version 0.12.0
+
 Deploy a dataflow to a new EC2 instance.
 
-The deploy command expects one argument, which is the path of your python dataflow file.
+The deploy command expects one argument, which is the path or URI of your python dataflow file.
 By default, Waxctl creates a policy and a role that will allow the EC2 instance to store Cloudwatch logs and start sessions through Systems Manager.
 
 Examples:
   # The default command to deploy a dataflow named "bytewax" in a new EC2 instance running my-dataflow.py file.
   waxctl aws deploy my-dataflow.py
+
+  # Deploy a dataflow named "bytewax" in a new EC2 instance running dataflow.py file.
+  waxctl aws deploy https://raw.githubusercontent.com/my-user/my-repo/main/dataflow.py
 
   # Deploy a dataflow named "custom" using specific security groups and instance profile
   waxctl aws deploy dataflow.py --name custom \
@@ -118,19 +126,23 @@ Usage:
 Flags:
   -P, --associate-public-ip-address     associate a public IP address to the EC2 instance (default true)
   -m, --detailed-monitoring             specifies whether detailed monitoring is enabled for the EC2 instance
+  -E, --environment-variables strings   environment variables to set when running the python script. The format must be KEY=VALUE
   -e, --extra-tags strings              extra tags to apply to the EC2 instance. The format must be KEY=VALUE
   -h, --help                            help for deploy
   -t, --instance-type string            EC2 instance type to be created (default "t2.micro")
   -k, --key-name string                 name of an existing key pair
   -n, --name string                     name of the EC2 instance to deploy the dataflow (default "bytewax")
+  -o, --old-entrypoint                  needed if the version of Bytewax is previous than 0.16.0
   -p, --principal-arn string            principal ARN to assign to the EC2 instance
       --profile string                  AWS cli configuration profile
   -f, --python-file-name string         python script file to run. Only needed when [PATH] is a tar file
+      --python-package                  use this flag if your tarball file is a python package
       --region string                   AWS region
   -r, --requirements-file-name string   requirements.txt file if needed
       --save-cloud-config               save cloud-config file to disk for troubleshooting purposes
   -S, --security-groups-ids strings     security groups Ids to assign to the EC2 instance
   -s, --subnet-id string                the ID of the subnet to launch the EC2 instance into
+  -c, --system-setup-file-name string   sh script file to be run before the installation of the requirements
 
 Global Flags:
       --debug   enable verbose output
@@ -266,6 +278,8 @@ This is the help text of the `list` command:
 
 ```console
 $ waxctl aws ls --help
+Waxctl Pro version 0.12.0
+
 List EC2 instances created by waxctl.
 
 Examples:
@@ -464,13 +478,13 @@ $ waxctl aws deploy my-dataflow.py \
 The output of that deploy will be like this:
 
 ```
-2022/10/05 10:31:05 Analylics - information to send:
- {"waxctl_version":"0.5.1","platform":"amd64","os":"linux","command":"aws","subcommand":"deploy"}
-2022/10/05 10:31:05 Analylics - duration: 942.50645ms
-2022/10/05 10:31:05 Validating parameters...
-2022/10/05 10:31:05 Getting AWS region us-west-2 from default configuration
-2022/10/05 10:31:05 Getting AWS CLI configuration...
-2022/10/05 10:31:07 Creating cloud-init config file...
-2022/10/05 10:31:08 Selected AMI - Name: ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-20220924 - ImageId: ami-07eeacb3005b9beae
+2024/09/03 10:31:05 Analylics - information to send:
+ {"waxctl_version":"0.12.0","waxctl_tier":"Pro","platform":"amd64","os":"linux","command":"aws","subcommand":"deploy"}
+2024/09/03 10:31:05 Analylics - duration: 942.50645ms
+2024/09/03 10:31:05 Validating parameters...
+2024/09/03 10:31:05 Getting AWS region us-west-2 from default configuration
+2024/09/03 10:31:05 Getting AWS CLI configuration...
+2024/09/03 10:31:07 Creating cloud-init config file...
+2024/09/03 10:31:08 Selected AMI - Name: ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-20220924 - ImageId: ami-07eeacb3005b9beae
 Created production-dataflow instance with ID i-0409c71c2cc1b249f running my-dataflow.py script
 ```

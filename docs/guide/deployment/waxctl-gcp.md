@@ -1,5 +1,5 @@
 (xref-waxctlgcp)=
-# Using `waxctl` to Run your Dataflow on GCP
+# Using `Waxctl Pro` to Run your Dataflow on GCP
 
 Waxctl allows you to deploy dataflows on Google Cloud Platform VM
 instances.
@@ -45,6 +45,8 @@ Running `waxctl gcp --help` will show further details for these.
 
 ```console
 $ waxctl gcp --help
+Waxctl Pro version 0.12.0
+
 Manage dataflows running on GCP VM instances.
 
 Prerequisites:
@@ -146,9 +148,11 @@ deploy` help command.
 
 ```console
 $ waxctl gcp deploy --help
+Waxctl Pro version 0.12.0
+
 Deploy a dataflow to a new GCP VM instance.
 
-The deploy command expects one argument, which is the path of your python dataflow file.
+The deploy command expects one argument, which is the path or URI of your python dataflow file.
 By default, Waxctl creates a role and a service account that will allow the VM instance to store StackDriver logs.
 
 Examples:
@@ -165,16 +169,20 @@ Usage:
 
 Flags:
   -P, --associate-public-ip-address     associate a public IP address to the VM instance (If it's false, need to set up a Cloud NAT in the VPC because VM must access the internet) (default true)
+  -E, --environment-variables strings   environment variables to set when running the python script. The format must be KEY=VALUE
   -e, --extra-labels strings            extra labels to apply to the VM instance. The format must be key=value (both key and value can only contain lowercase letters, numeric characters, underscores and dashes.)
   -h, --help                            help for deploy
   -t, --machine-type string             VM instance machine type to be created (default "n1-standard-1")
   -n, --name string                     name of the VM instance to deploy the dataflow (must consist of lowercase letters (a-z), numbers, and hyphens) (default "bytewax")
+  -o, --old-entrypoint                  needed if the version of Bytewax is previous than 0.16.0
   -p, --project-id string               GCP project ID
   -f, --python-file-name string         python script file to run. Only needed when [PATH] is a tar file
+      --python-package                  use this flag if your tarball file is a python package
   -r, --requirements-file-name string   requirements.txt file if needed
       --save-cloud-config               save cloud-config file to disk for troubleshooting purposes
   -S, --service-account-email string    service account to assign to the VM instance
   -s, --subnetwork-link string          the link of the subnetwork to launch the VM instance into (The format must be: regions/<REGION>/subnetworks/<SUBNETWORK_NAME>)
+  -c, --system-setup-file-name string   sh script file to be run before the installation of the requirements
   -T, --tags strings                    network tags to assing to the VM instance (The format must be: tag1,tag2,tag3)
   -z, --zone string                     GCP zone
 
@@ -268,6 +276,8 @@ This is the help text of the `list` command:
 
 ```console
 $ waxctl gcp ls --help
+Waxctl Pro version 0.12.0
+
 List VM instances created by waxctl.
 
 Examples:
@@ -476,14 +486,14 @@ $ waxctl gcp deploy --associate-public-ip-address=false \
 The output of that deploy will be like this:
 
 ```
-2022/10/13 15:19:44 Analylics - information to send:
-{"waxctl_version":"0.5.1","platform":"amd64","os":"linux","command":"gcp","subcommand":"deploy"}
-2022/10/13 15:19:45 Analylics - duration: 861.582911ms
-2022/10/13 15:19:45 replace result: production-dataflow-2
-2022/10/13 15:19:45 Validating parameters...
-2022/10/13 15:19:45 No project ID specified, trying to get default project ID...
-2022/10/13 15:19:45 Using project ID found in application detault credencials: my-project
-2022/10/13 15:19:45 Filter: (labels.bytewax_io-managed_by = waxctl) AND (name = production-dataflow-2)
-2022/10/13 15:19:46 Creating cloud-init config file...
+2024/09/03 15:19:44 Analylics - information to send:
+{"waxctl_version":"0.12.0","waxctl_tier":"Pro","platform":"amd64","os":"linux","command":"gcp","subcommand":"deploy"}
+2024/09/03 15:19:45 Analylics - duration: 861.582911ms
+2024/09/03 15:19:45 replace result: production-dataflow-2
+2024/09/03 15:19:45 Validating parameters...
+2024/09/03 15:19:45 No project ID specified, trying to get default project ID...
+2024/09/03 15:19:45 Using project ID found in application detault credencials: my-project
+2024/09/03 15:19:45 Filter: (labels.bytewax_io-managed_by = waxctl) AND (name = production-dataflow-2)
+2024/09/03 15:19:46 Creating cloud-init config file...
 Created production-dataflow-2 instance in zone us-central1-a of project my-project running /var/bytewax/examples/production.py script.
 ```
