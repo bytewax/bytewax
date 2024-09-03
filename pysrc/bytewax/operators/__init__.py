@@ -184,6 +184,35 @@ def flat_map_batch(
 ) -> Stream[Y]:
     """Transform an entire batch of items 1-to-many.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("flat_map_batch_eg")
+    numbers = numbers = op.input("nums", flow, TestingSource([[1, 2], [3]]))
+
+    def batch_mapper(batch):
+        return [x * 10 for x in batch]
+
+    flat_mapped = op.flat_map_batch("batch_flat_map", numbers, batch_mapper)
+
+    op.inspect("out", flat_mapped)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    flat_map_batch_eg.out: [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2]
+    flat_map_batch_eg.out: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+    ```
+
     The batch size received here depends on the exact behavior of the
     upstream input sources and operators. It should be used as a
     performance optimization when processing multiple items at once
@@ -215,6 +244,29 @@ def input(  # noqa: A001
     source: Source[X],
 ) -> Stream[X]:
     """Introduce items into a dataflow.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("input_eg")
+    nums = op.input("nums", flow, TestingSource([10, 20, 30]))
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    op.inspect("out", nums)
+    ```
+
+    ```{testoutput}
+    input_eg.out: 10
+    input_eg.out: 20
+    input_eg.out: 30
+    ```
 
     See {py:obj}`bytewax.inputs` for more information on how input
     works. See {py:obj}`bytewax.connectors` for a buffet of our
@@ -346,6 +398,35 @@ def merge(
 ) -> Stream[Any]:
     """Combine multiple streams together.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("merge_eg")
+    nums1 = op.input("nums1", flow, TestingSource([1, 2]))
+    nums2 = op.input("nums2", flow, TestingSource([3, 4]))
+
+    merged = op.merge("merged", nums1, nums2)
+
+    op.inspect("out", merged)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    merge_eg.out: 1
+    merge_eg.out: 3
+    merge_eg.out: 2
+    merge_eg.out: 4
+    ```
+
     :arg step_id: Unique ID.
 
     :arg *ups: Streams.
@@ -369,6 +450,34 @@ def merge(
 def output(step_id: str, up: Stream[X], sink: Sink[X]) -> None:
     """Write items out of a dataflow.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.connectors.stdio import StdOutSink
+
+    flow = Dataflow("output_eg")
+    nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+
+    # This will print the items to stdout.
+    # You can replace this with any other sink.
+    op.output("sink", nums, StdOutSink())
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    1
+    2
+    3
+    ```
+
     See {py:obj}`bytewax.outputs` for more information on how output
     works. See {py:obj}`bytewax.connectors` for a buffet of our
     built-in connector types.
@@ -388,6 +497,63 @@ def output(step_id: str, up: Stream[X], sink: Sink[X]) -> None:
 @operator(_core=True)
 def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     """Redistribute items randomly across all workers.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.connectors.stdio import StdOutSink
+    import time
+    from datetime import datetime
+
+    # Create and configure the Dataflow
+    flow = Dataflow("redistribute_example")
+
+    # Simulate an uneven workload: the first half of the numbers
+    # are "heavy" tasks, the rest are "light"
+    # Heavy tasks take more time to process, simulating a bottleneck.
+    def simulate_task(task):
+        start_time = datetime.now()
+
+        if task <= 3:  # Simulate heavy task
+            time.sleep(2)
+
+        end_time = datetime.now()
+        elapsed_time = (end_time - start_time).total_seconds()
+
+        print(f"Task {task} started at {start_time} and "
+              f"took {elapsed_time:.2f} seconds.")
+
+        return task
+
+    # Input source for dataflow: unevenly distributed tasks
+    nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
+
+    # Map each number to simulate processing
+    processed = op.map("process_task", nums, simulate_task)
+
+    # Redistribute the workload across available workers
+    redistributed = op.redistribute("redistribute", processed)
+
+    # Output the results to the standard output
+    op.output("final_output", redistributed, StdOutSink())
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    Task 1 started at 2024-08-31 00:12:11.629073 and took 2.00 seconds.
+    Task 4 started at 2024-08-31 00:12:11.630000 and took 0.00 seconds.
+    Task 2 started at 2024-08-31 00:12:11.629501 and took 2.00 seconds.
+    Task 5 started at 2024-08-31 00:12:11.631000 and took 0.00 seconds.
+    Task 3 started at 2024-08-31 00:12:11.629800 and took 2.00 seconds.
+    ```
 
     Bytewax's execution model has workers executing all steps, but the
     state in each step is partitioned across workers by some key.
@@ -445,7 +611,95 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
 
 
 class StatefulBatchLogic(ABC, Generic[V, W, S]):
-    """Abstract class to define a {py:obj}`stateful` operator.
+    r"""Abstract class to define a {py:obj}`stateful` operator.
+
+    ```{testcode}
+    # This dataflow will create the cumulative
+    # sum of values for each key.
+
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.operators import StatefulBatchLogic
+
+    class SumLogic(StatefulBatchLogic):
+        def __init__(self):
+            self.sum = 0
+
+        def on_batch(self, batch):
+
+            for event in batch:
+                key = event['key']
+                self.sum += event['val']
+
+            print(f"Current sum for key {key}: {self.sum}")
+            print("End of batch\n")
+
+            # Return the cumulative sum wrapped
+            # in an iterable and False to retain the logic
+            return [(key, self.sum)], False
+
+        def snapshot(self):
+            # Return the current state to be saved
+            return self.sum
+
+        def restore(self, snapshot):
+            # Restore the state from the snapshot
+            self.sum = snapshot
+
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2},
+        {"key": "a", "val": 3},
+        {"key": "b", "val": 4},
+    ]
+
+    flow = Dataflow("stateful_batch_eg")
+    nums = op.input("nums", flow, TestingSource(source))
+
+    # note - this step creates a tuple of the form
+    # ("a", {"key": "a", "val": 1})
+    # this is a pre-requisite for statetul operators
+    # such as stateful_batch
+    key_on = op.key_on("keys", nums, lambda x: x['key'])
+
+    op.inspect("mapping_items", key_on)
+
+    stateful = op.stateful_batch("stateful_batch", key_on, lambda _: SumLogic())
+
+    op.inspect("out", stateful)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    stateful_batch_eg.mapping_items: ('a', {'key': 'a', 'val': 1})
+    Current sum for key a: 1
+    End of batch
+
+    stateful_batch_eg.out: ('a', ('a', 1))
+    stateful_batch_eg.mapping_items: ('b', {'key': 'b', 'val': 2})
+    Current sum for key b: 2
+    End of batch
+
+    stateful_batch_eg.out: ('b', ('b', 2))
+    stateful_batch_eg.mapping_items: ('a', {'key': 'a', 'val': 3})
+    Current sum for key a: 4
+    End of batch
+
+    stateful_batch_eg.out: ('a', ('a', 4))
+    stateful_batch_eg.mapping_items: ('b', {'key': 'b', 'val': 4})
+    Current sum for key b: 6
+    End of batch
+
+    stateful_batch_eg.out: ('b', ('b', 6))
+    ```
 
     The operator will call these methods in order: {py:obj}`on_batch`
     once with all items queued, then {py:obj}`on_notify` if the
@@ -564,7 +818,95 @@ def stateful_batch(
     up: KeyedStream[V],
     builder: Callable[[Optional[S]], StatefulBatchLogic[V, W, S]],
 ) -> KeyedStream[W]:
-    """Advanced generic stateful operator.
+    r"""Advanced generic stateful operator.
+
+    ```{testcode}
+    # This dataflow will create the cumulative
+    # sum of values for each key.
+
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from bytewax.operators import StatefulBatchLogic
+
+    class SumLogic(StatefulBatchLogic):
+        def __init__(self):
+            self.sum = 0
+
+        def on_batch(self, batch):
+
+            for event in batch:
+                key = event['key']
+                self.sum += event['val']
+
+            print(f"Current sum for key {key}: {self.sum}")
+            print("End of batch\n")
+
+            # Return the cumulative sum wrapped
+            # in an iterable and False to retain the logic
+            return [(key, self.sum)], False
+
+        def snapshot(self):
+            # Return the current state to be saved
+            return self.sum
+
+        def restore(self, snapshot):
+            # Restore the state from the snapshot
+            self.sum = snapshot
+
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2},
+        {"key": "a", "val": 3},
+        {"key": "b", "val": 4},
+    ]
+
+    flow = Dataflow("stateful_batch_eg")
+    nums = op.input("nums", flow, TestingSource(source))
+
+    # note - this step creates a tuple of the form
+    # ("a", {"key": "a", "val": 1})
+    # this is a pre-requisite for statetul operators
+    # such as stateful_batch
+    key_on = op.key_on("keys", nums, lambda x: x['key'])
+
+    op.inspect("mapping_items", key_on)
+
+    stateful = op.stateful_batch("stateful_batch", key_on, lambda _: SumLogic())
+
+    op.inspect("out", stateful)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    stateful_batch_eg.mapping_items: ('a', {'key': 'a', 'val': 1})
+    Current sum for key a: 1
+    End of batch
+
+    stateful_batch_eg.out: ('a', ('a', 1))
+    stateful_batch_eg.mapping_items: ('b', {'key': 'b', 'val': 2})
+    Current sum for key b: 2
+    End of batch
+
+    stateful_batch_eg.out: ('b', ('b', 2))
+    stateful_batch_eg.mapping_items: ('a', {'key': 'a', 'val': 3})
+    Current sum for key a: 4
+    End of batch
+
+    stateful_batch_eg.out: ('a', ('a', 4))
+    stateful_batch_eg.mapping_items: ('b', {'key': 'b', 'val': 4})
+    Current sum for key b: 6
+    End of batch
+
+    stateful_batch_eg.out: ('b', ('b', 6))
+    ```
 
     This is the lowest-level operator Bytewax provides and gives you
     full control over all aspects of the operator processing and
@@ -578,7 +920,7 @@ def stateful_batch(
 
     :arg up: Keyed stream.
 
-    :arg builder: Called whenver a new key is encountered with the
+    :arg builder: Called whenever a new key is encountered with the
         resume state returned from
         {py:obj}`StatefulBatchLogic.snapshot` for this key, if any.
         This should close over any non-state configuration and combine
@@ -589,7 +931,6 @@ def stateful_batch(
         {py:obj}`StatefulBatchLogic.on_batch`,
         {py:obj}`StatefulBatchLogic.on_notify`, and
         {py:obj}`StatefulBatchLogic.on_eof`.
-
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
@@ -830,6 +1171,41 @@ def collect(
 ) -> KeyedStream[List[V]]:
     """Collect items into a list up to a size or a timeout.
 
+    ```{testcode}
+    # This dataflow will collect items into lists of size 2 or
+    # every second, whichever comes first.
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from datetime import timedelta
+
+    flow = Dataflow("collect_eg")
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2},
+        {"key": "a", "val": 3},
+        {"key": "b", "val": 4},
+        {"key": "a", "val": 5},
+        {"key": "b", "val": 6},
+        {"key": "a", "val": 7},
+        {"key": "b", "val": 8},
+    ]
+    nums = op.input("nums", flow, TestingSource(source))
+
+    keyed = op.key_on("key", nums, lambda x: x['key'])
+
+    collected = op.collect("collect", keyed, timedelta(seconds=1), max_size=2)
+
+    op.inspect("out", collected)
+    ```
+
+    ```{testoutput}
+    collect_eg.out: ('a', [{'key': 'a', 'val': 1}, {'key': 'a', 'val': 3}])
+    collect_eg.out: ('b', [{'key': 'b', 'val': 2}, {'key': 'b', 'val': 4}])
+    collect_eg.out: ('a', [{'key': 'a', 'val': 5}, {'key': 'a', 'val': 7}])
+    collect_eg.out: ('b', [{'key': 'b', 'val': 6}, {'key': 'b', 'val': 8}])
+    ```
+
     See {py:obj}`bytewax.operators.windowing.collect_window` for more
     control over time.
 
@@ -860,6 +1236,33 @@ def count_final(
     step_id: str, up: Stream[X], key: Callable[[X], str]
 ) -> KeyedStream[int]:
     """Count the number of occurrences of items in the entire stream.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("count_final_eg")
+    source = ["apple", "banana", "apple", "banana", "banana"]
+    words = op.input("words", flow, TestingSource(source))
+
+    counted = op.count_final("count", words, key=lambda x: x)
+
+    op.inspect("out", counted)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    count_final_eg.out: ('apple', 2)
+    count_final_eg.out: ('banana', 3)
+    ```
 
     This only works on finite data streams and only return counts once
     the upstream is EOF. You'll need to use
@@ -931,6 +1334,43 @@ def enrich_cached(
     _now_getter: Callable[[], datetime] = _get_system_utc,
 ) -> Stream[Y]:
     """Enrich / join items using a cached lookup.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    def mock_service(key):
+        return {"a": 10, "b": 20, "c": 30}.get(key)
+
+    flow = Dataflow("enrich_cached_eg")
+    keys = op.input("keys", flow, TestingSource(["a", "b", "a", "c", "a", "a"]))
+
+    def enrich_with_service(cache, item):
+        value = cache.get(item)
+        return {"key": item, "value": value}
+
+    enriched = op.enrich_cached("enrich", keys, mock_service, enrich_with_service)
+
+    op.inspect("out", enriched)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    enrich_cached_eg.out: {'key': 'a', 'value': 10}
+    enrich_cached_eg.out: {'key': 'b', 'value': 20}
+    enrich_cached_eg.out: {'key': 'a', 'value': 10}
+    enrich_cached_eg.out: {'key': 'c', 'value': 30}
+    enrich_cached_eg.out: {'key': 'a', 'value': 10}
+    enrich_cached_eg.out: {'key': 'a', 'value': 10}
+    ```
 
     Use this if you'd like to join items in the dataflow with
     unsychronized pulled / polled data from an external service. This
@@ -1104,6 +1544,38 @@ def flat_map_value(
 ) -> KeyedStream[W]:
     """Transform values one-to-many.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("flat_map_value_eg")
+    source = [("key1", "hello world"), ("key2", "hi")]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    def split_words(value):
+        return value.split()
+
+    flat_mapped = op.flat_map_value("split_words", inp, split_words)
+
+    op.inspect("out", flat_mapped)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    flat_map_value_eg.out: ('key1', 'hello')
+    flat_map_value_eg.out: ('key1', 'world')
+    flat_map_value_eg.out: ('key2', 'hi')
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
@@ -1137,6 +1609,36 @@ def flatten(
     up: Stream[Iterable[X]],
 ) -> Stream[X]:
     """Move all sub-items up a level.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("flatten_eg")
+
+    inp = op.input("inp", flow, TestingSource([[1, 2], [3, 4, 5]]))
+
+    flattened = op.flatten("flatten", inp)
+
+    op.inspect("out", flattened)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    flatten_eg.out: 1
+    flatten_eg.out: 2
+    flatten_eg.out: 3
+    flatten_eg.out: 4
+    flatten_eg.out: 5
+    ```
 
     :arg step_id: Unique ID.
 
@@ -1239,6 +1741,34 @@ def filter_value(
     step_id: str, up: KeyedStream[V], predicate: Callable[[V], bool]
 ) -> KeyedStream[V]:
     """Selectively keep only some items from a keyed stream.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("filter_value_eg")
+
+    source = [("key1", 1), ("key2", 2), ("key3", 3), ("key4", 4), ("key5", 5)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    filtered = op.filter_value("filter_odd", inp, lambda x: x % 2 != 0)
+
+    op.inspect("out", filtered)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    filter_value_eg.out: ('key1', 1)
+    filter_value_eg.out: ('key3', 3)
+    filter_value_eg.out: ('key5', 5)
+    ```
 
     :arg step_id: Unique ID.
 
@@ -1351,6 +1881,36 @@ def filter_map_value(
     This is like a combination of {py:obj}`map_value` and then
     {py:obj}`filter_value` with a predicate removing `None` values.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("filter_map_value_eg")
+    source = [("key1", 1), ("key2", "2"), ("key3", 2)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    def to_even_str(val):
+        if isinstance(val, int) and val % 2 == 0:
+            return str(val)
+        return None
+
+    filtered_mapped = op.filter_map_value("filter_map_value", inp, to_even_str)
+
+    op.inspect("out", filtered_mapped)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    filter_map_value_eg.out: ('key3', '2')
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Stream.
@@ -1410,6 +1970,39 @@ def fold_final(
 
     It is like {py:obj}`reduce_final` but uses a function to build the
     initial value.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("fold_final_eg")
+
+    source = [("key1", 1), ("key1", 2), ("key2", 3), ("key2",5)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    def build_accumulator():
+        return 0
+
+    def folder(acc, val):
+        return acc + val
+
+    folded = op.fold_final("fold", inp, build_accumulator, folder)
+
+    op.inspect("out", folded)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    fold_final_eg.out: ('key1', 3)
+    fold_final_eg.out: ('key2', 8)
+    ```
 
     :arg step_id: Unique ID.
 
@@ -1799,6 +2392,35 @@ def key_on(step_id: str, up: Stream[X], key: Callable[[X], str]) -> KeyedStream[
     This allows you to use all the keyed operators that require the
     upstream to be a {py:obj}`KeyedStream`.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from datetime import timedelta
+
+    flow = Dataflow("collect_eg")
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2}
+    ]
+    nums = op.input("nums", flow, TestingSource(source))
+
+    keyed = op.key_on("key", nums, lambda x: x['key'])
+
+    op.inspect("out", keyed)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    collect_eg.out: ('a', {'key': 'a', 'val': 1})
+    collect_eg.out: ('b', {'key': 'b', 'val': 2})
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Stream.
@@ -1834,6 +2456,41 @@ def key_rm(step_id: str, up: KeyedStream[X]) -> Stream[X]:
     {py:obj}`KeyedStream`s are 2-tuples of `(key, value)`. This will
     discard the key so you just have the values if you don't need the
     keys anymore.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+    from datetime import timedelta
+
+    flow = Dataflow("collect_eg")
+    source = [
+        {"key": "a", "val": 1},
+        {"key": "b", "val": 2}
+    ]
+    nums = op.input("nums", flow, TestingSource(source))
+
+    keyed = op.key_on("key", nums, lambda x: x['key'])
+
+    op.inspect("with_key", keyed)
+
+    remove_key = op.key_rm("no_key", keyed)
+
+    op.inspect("without_key", remove_key)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    collect_eg.with_key: ('a', {'key': 'a', 'val': 1})
+    collect_eg.without_key: {'key': 'a', 'val': 1}
+    collect_eg.with_key: ('b', {'key': 'b', 'val': 2})
+    collect_eg.without_key: {'key': 'b', 'val': 2}
+    ```
 
     :arg step_id: Unique ID.
 
@@ -1916,6 +2573,32 @@ def map_value(
 ) -> KeyedStream[W]:
     """Transform values one-by-one.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("map_eg")
+
+    nums = op.input("nums", flow, TestingSource([1, 2, 3]))
+
+    mapped = op.map("double", nums, lambda x: x * 2)
+
+    op.inspect("out", mapped)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    map_eg.out: 2
+    map_eg.out: 4
+    map_eg.out: 6
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
@@ -1963,6 +2646,33 @@ def max_final(
     once the upstream is EOF. You'll need to use
     {py:obj}`bytewax.operators.windowing.max_window` on infinite data.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("max_final_eg")
+
+    source = [("key1", 1), ("key1", 3), ("key2", 2), ("key2",19)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    max_val = op.max_final("max", inp)
+
+    op.inspect("out", max_val)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    max_final_eg.out: ('key1', 3)
+    max_final_eg.out: ('key2', 19)
+    ```
+
     :arg step_id: Unique ID.
 
     :arg up: Keyed stream.
@@ -2003,6 +2713,33 @@ def min_final(
     This only works on finite data streams and only returns a result
     once the upstream is EOF. You'll need to use
     {py:obj}`bytewax.operators.windowing.min_window` on infinite data.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("max_final_eg")
+
+    source = [("key1", 1), ("key1", 3), ("key2", 2), ("key2",19)]
+
+    inp = op.input("inp", flow, TestingSource(source))
+
+    min_val = op.min_final("min", inp)
+
+    op.inspect("out", min_val)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    max_final_eg.out: ('key1', 1)
+    max_final_eg.out: ('key2', 2)
+    ```
 
     :arg step_id: Unique ID.
 
@@ -2071,6 +2808,31 @@ def reduce_final(
 
     It is like {py:obj}`fold_final` but the first value is the initial
     accumulator.
+
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("reduce_final_eg")
+
+    inp = op.input("inp", flow, TestingSource([("key1", 1), ("key1", 2), ("key2", 3)]))
+
+    reduced = op.reduce_final("sum", inp, lambda acc, x: acc + x)
+
+    op.inspect("out", reduced)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    reduce_final_eg.out: ('key1', 3)
+    reduce_final_eg.out: ('key2', 3)
+    ```
 
     :arg step_id: Unique ID.
 
