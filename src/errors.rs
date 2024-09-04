@@ -3,7 +3,6 @@ use std::panic::Location;
 
 use pyo3::exceptions::PyException;
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::types::PyAnyMethods;
 use pyo3::types::PyTracebackMethods;
 use pyo3::PyDowncastError;
 use pyo3::PyErr;
@@ -56,89 +55,47 @@ pub(crate) trait PythonException<T> {
         })
     }
 
-    /// Make the existing error part of the traceback and raise a new
-    /// exception with the same type and an additional message.
+    /// Create a new RuntimeError with a custom message, setting
+    /// the current exception as it's cause.
     ///
     /// Example:
     ///
     /// ```ignore
-    /// func().reraise("Reraise same exception adding this message")?;
+    /// func().reraise("Reraise a new RuntimeError with this message")?;
     /// ```
     #[track_caller]
     fn reraise(self, msg: &'static str) -> PyResult<T>
     where
         Self: Sized,
     {
-        let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             Python::with_gil(|py| {
-                // Python treats KeyError differently then others:
-                // the message is always quoted, so that in case the key
-                // is an empty string, you see:
-                //
-                //   KeyError: ''
-                //
-                // instead of:
-                //
-                //   KeyError:
-                //
-                // This means that our message will be quoted if we reraise
-                // it as it is. So in this case we raise a RuntimeError instead.
-                if err.get_type_bound(py).is(&pyo3::types::PyType::new_bound::<
-                    pyo3::exceptions::PyKeyError,
-                >(py))
-                {
-                    PyRuntimeError::new_err(build_message(py, caller, &err, msg))
-                } else {
-                    PyErr::from_type_bound(
-                        err.get_type_bound(py),
-                        build_message(py, caller, &err, msg),
-                    )
-                }
+                let new_err = PyRuntimeError::new_err(msg);
+                new_err.set_cause(py, Some(err));
+                new_err
             })
         })
     }
 
-    /// Make the existing error part of the traceback and raise a new
-    /// exception with the same type and an additional message.
+    /// Create a new RuntimeError with a custom message, setting
+    /// the current exception as it's cause.
     ///
     /// Example:
     ///
     /// ```ignore
-    /// func().reraise_with(|| format("Reraise same exception adding this message"))?;
+    /// func().reraise_with(|| format("Reraise a RuntimeError with this message"))?;
     /// ```
     #[track_caller]
     fn reraise_with(self, f: impl FnOnce() -> String) -> PyResult<T>
     where
         Self: Sized,
     {
-        let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             let msg = f();
             Python::with_gil(|py| {
-                // Python treats KeyError differently then others:
-                // the message is always quoted, so that in case the key
-                // is an empty string, you see:
-                //
-                //   KeyError: ''
-                //
-                // instead of:
-                //
-                //   KeyError:
-                //
-                // This means that our message will be quoted if we reraise
-                // it as it is. So in this case we raise a RuntimeError instead.
-                if err.get_type_bound(py).is(&pyo3::types::PyType::new_bound::<
-                    pyo3::exceptions::PyKeyError,
-                >(py))
-                {
-                    PyRuntimeError::new_err(build_message(py, caller, &err, &msg))
-                } else {
-                    PyErr::from_type_bound(
-                        err.get_type_bound(py),
-                        build_message(py, caller, &err, &msg),
-                    )
-                }
+                let new_err = PyRuntimeError::new_err(msg);
+                new_err.set_cause(py, Some(err));
+                new_err
             })
         })
     }

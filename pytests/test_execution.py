@@ -46,6 +46,36 @@ def test_reraises_exception(entry_point):
     assert len(out) < 3
 
 
+def test_reraises_custom_exception(entry_point):
+    class CustomException(Exception):
+        """A custom exception with more than one argument"""
+
+        def __init__(self, msg, b):
+            self.msg = msg
+            self.b = b
+
+    flow = Dataflow("test_df")
+    inp = range(3)
+    stream = op.input("inp", flow, TestingSource(inp))
+
+    def boom(item):
+        if item == 0:
+            msg = "BOOM"
+            raise CustomException(msg, 1)
+        else:
+            return item
+
+    stream = op.map("explode", stream, boom)
+    out = []
+    op.output("out", stream, TestingSink(out))
+
+    with raises(RuntimeError):
+        with raises(CustomException):
+            entry_point(flow)
+
+    assert len(out) < 3
+
+
 def _assert_can_be_ctrl_c(proc: subprocess.Popen, out_file: BinaryIO):
     try:
         # Wait for the file to contain at least a line to show the

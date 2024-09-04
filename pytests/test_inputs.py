@@ -31,8 +31,9 @@ def test_flow_requires_input():
     flow = Dataflow("test_df")
 
     expect = "at least one input"
-    with raises(ValueError, match=re.escape(expect)):
-        run_main(flow)
+    with raises(RuntimeError):
+        with raises(ValueError, match=re.escape(expect)):
+            run_main(flow)
 
 
 def test_dynamic_source_next_batch_iterator():
