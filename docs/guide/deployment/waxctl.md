@@ -12,9 +12,7 @@ have it installed yet.
 
 ## Installation
 
-Installing Waxctl is very simple. You just need to download the binary
-corresponding to your operating system and architecture
-[here](https://bytewax.io/downloads).
+To install Waxctl visit [here](https://bytewax.io/waxctl).
 
 ## Dataflow Lifecycle
 
@@ -49,13 +47,17 @@ Running `dataflow --help` will show further details for these:
 
 ```console
 $ waxctl dataflow --help
-Manage dataflows in Kubernetes.
+Waxctl Pro version 0.12.0
+
+Manage dataflows running on Kubernetes.
+Waxctl uses the current kubectl context configuration, so you need kubectl configured to access the desired Kubernetes cluster for your dataflows.
 
 Usage:
+  waxctl dataflow [flags]
   waxctl dataflow [command]
 
 Aliases:
-  dataflow, df
+  dataflow, df, k8s
 
 Available Commands:
   delete      delete a dataflow
@@ -103,18 +105,20 @@ help.
 
 ```console
 $ waxctl df deploy --help
+Waxctl Pro version 0.12.0
+
 Deploy a dataflow to Kubernetes using the Bytewax helm chart.
 
-The resources are going to be created if the dataflow doesn't exist or
-upgraded if the dataflow is already deployed in the Kubernetes cluster.
+The resources are going to be created if the dataflow doesn't exist or upgraded if the dataflow is already deployed in the Kubernetes cluster.
 
-The deploy command expects only one argument, a path of a file which could be a
-python script or a tar file which must contain your script file (and normally one
-or more files needed by your script):
+The deploy command expects only one argument, a path or URI of a file which could be a python script or a tar file which must contain your script file (and normally one or more files needed by your script):
 
 Examples:
   # Deploy a dataflow in current namespace running my-script.py file.
   waxctl dataflow deploy my-script.py
+
+  # Deploy a dataflow in current namespace running dataflow.py file.
+  waxctl dataflow deploy https://raw.githubusercontent.com/my-user/my-repo/main/dataflow.py
 
   # Deploy a dataflow in my-namespace namespace running my-script.py file.
   waxctl dataflow deploy my-script.py --namespace my-namespace
@@ -122,22 +126,46 @@ Examples:
   # Deploy a dataflow running my-script.py file contained in my-files.tar file.
   waxctl dataflow deploy my-files.tar -f my-script.py
 
+  # Deploy a dataflow in current namespace running my-script.py file with the environment variable 'SERVER'.
+  waxctl dataflow deploy my-script.py -e SERVER=localhost:1433
+
 Usage:
   waxctl dataflow deploy [PATH] [flags]
 
 Flags:
-      --create-namespace              create namespace if it does not exist (default true)
-      --dry-run                       output the manifests generated without installing them to Kubernetes
-  -h, --help                          help for deploy
-  -s, --image-pull-secret string      kubernetes secret name to pull custom image (default "default-credentials")
-  -i, --image-repository string       custom container image repository URI (default "bytewax/bytewax")
-  -t, --image-tag string              custom container image tag (default "latest")
-  -N, --name string                   name of the dataflow to deploy in Kubernetes (default "bytewax")
-  -n, --namespace string              namespace of Kubernetes resources to deploy
-  -o, --output-format output-format   output format for --dry-run; can be 'yaml' or 'json' (default yaml)
-  -p, --processes int                 number of processes to deploy. (default 1)
-  -f, --python-file-name string       python script file to run. Only needed when [PATH] is a tar file
-  -w, --workers int                   number of workers to run in each process (default 1)
+  -V, --chart-values-file string                          load Bytewax helm chart values from a file. See more at https://bytewax.github.io/helm-charts
+      --create-namespace                                  create namespace if it does not exist (default true)
+      --dry-run                                           output the manifests generated without installing them to Kubernetes
+  -e, --environment-variables strings                     environment variables to inject to dataflow container. The format must be KEY=VALUE
+  -h, --help                                              help for deploy
+  -l, --image-pull-policy string                          custom container image pull policy (the value must be Always, IfNotPresent or Never) (default "Always")
+  -s, --image-pull-secret string                          kubernetes secret name to pull custom image (default "default-credentials")
+  -i, --image-repository string                           custom container image repository URI (default "bytewax/bytewax")
+  -t, --image-tag string                                  custom container image tag (default "latest")
+      --job-mode                                          run a Job in Kubernetes instead of an Statefulset. Use this to batch processing
+      --keep-alive                                        keep the container alive after dataflow ends. It could be useful for troubleshooting purposes
+  -N, --name string                                       name of the dataflow to deploy in Kubernetes (default "bytewax")
+  -n, --namespace string                                  namespace of Kubernetes resources to deploy
+  -o, --output-format output-format                       output format for --dry-run; can be 'yaml' or 'json' (default yaml)
+      --platform                                          deploy the dataflow as a bytewax.io/dataflow Custom Resource (requires Bytewax Platform installed)
+  -p, --processes int                                     number of processes to deploy (default 1)
+  -f, --python-file-name string                           python script file to run. Only needed when [PATH] is a tar file
+      --recovery                                          stores recovery files in Kubernetes persistent volumes to allow resuming after a restart (your dataflow must have recovery enabled: https://bytewax.io/docs/getting-started/recovery)
+      --recovery-backup                                   back up worker state DBs to cloud storage (must have recovery flag present and provide S3 parameters)
+      --recovery-backup-interval int                      System time duration in seconds to keep extra state snapshots around
+      --recovery-backup-s3-aws-access-key-id string       AWS credentials access key id
+      --recovery-backup-s3-aws-secret-access-key string   AWS credentials secret access key
+      --recovery-backup-s3-k8s-secret string              name of the Kubernetes secret storing AWS credentials.
+      --recovery-backup-s3-url string                     s3 url to store state backups. For example, s3://mybucket/mydataflow-state-backups
+      --recovery-parts int                                number of recovery parts (default 1)
+      --recovery-single-volume                            use only one persistent volume for all dataflow's pods in Kubernetes
+      --recovery-size string                              size of the persistent volume claim to be assign to each dataflow pod in Kubernetes (default "10Gi")
+      --recovery-snapshot-interval int                    system time duration in seconds to snapshot state for recovery
+      --recovery-storageclass string                      storage class of the persistent volume claim to be assign to each dataflow pod in Kubernetes
+  -r, --requirements-file-name string                     requirements.txt file if needed
+  -v, --values string                                     load parameter values from a config file (supported formats: JSON, TOML, YAML, HCL, envfile and Java properties)
+  -w, --workers int                                       number of workers to run in each process (default 1)
+      --yes                                               confirm the update and restart of the dataflow in the Kubernetes cluster
 
 Global Flags:
       --debug   enable verbose output
@@ -151,25 +179,16 @@ find details about each dataflow as we can see in this example:
 
 ```console
 $ waxctl df ls
-[
-  {
-    "name": "my-dataflow",
-    "namespace": "bytewax",
-    "containerImage": "bytewax/bytewax:latest",
-    "containerImagePullSecret": "default-credentials",
-    "pythonScriptFile": "/var/bytewax/basic.py",
-    "processes": "1",
-    "processesReady": "1",
-    "workersPerProcess": "1",
-    "creationTimestamp": "2022-04-18T10:51:03-03:00"
-  }
-]
+Dataflow    Namespace Python File    Image                  Processes Source   Creation Time
+my-dataflow bytewax   basic.py       bytewax/bytewax:latest 1/1       waxctl   2024-08-20T08:32:40-03:00
 ```
 
 This is the help text of that command:
 
 ```console
 $ waxctl df list --help
+Waxctl Pro version 0.12.0
+
 List dataflows deployed.
 
 Examples:
@@ -189,9 +208,11 @@ Aliases:
   list, ls
 
 Flags:
-  -A, --all-namespaces     If present, list the Bytewax dataflows across all namespaces
+  -A, --all-namespaces     If present, list the Bytewax dataflows across all namespaces.
   -h, --help               help for list
-  -n, --namespace string   Namespace of the Bytewax dataflows to list
+  -N, --name string        name of the dataflow to display.
+  -n, --namespace string   Namespace of the Bytewax dataflows to list.
+  -v, --verbose            return detailed information of the dataflows.
 
 Global Flags:
       --debug   enable verbose output
@@ -206,7 +227,7 @@ Continuing with our example, we could set three processes instead of
 one running this:
 
 ```console
-$ waxctl df deploy --name my-dataflow /var/bytewax/examples/basic.py -p 3
+$ waxctl df deploy --name my-dataflow /var/bytewax/examples/basic.py -p 3 --yes
 Dataflow my-dataflow deployed in bytewax namespace.
 ```
 
@@ -215,19 +236,8 @@ configuration applied:
 
 ```console
 $ waxctl df ls
-[
-  {
-    "name": "my-dataflow",
-    "namespace": "bytewax",
-    "containerImage": "bytewax/bytewax:latest",
-    "containerImagePullSecret": "default-credentials",
-    "pythonScriptFile": "/var/bytewax/basic.py",
-    "processes": "3",
-    "processesReady": "3",
-    "workersPerProcess": "1",
-    "creationTimestamp": "2022-04-18T10:51:03-03:00"
-  }
-]
+Dataflow    Namespace Python File    Image                  Processes Source   Creation Time
+my-dataflow bytewax   basic.py       bytewax/bytewax:latest 3/3       waxctl   2024-08-20T08:32:40-03:00
 ```
 
 You can change any of the flags of your dataflow.
@@ -240,7 +250,7 @@ To remove the Kubernetes resources of a dataflow you need to run
 To run a dry-run delete of our dataflow example we can run this:
 
 ```console
-$ waxctl df rm --name my-dataflow
+$ waxctl df rm my-dataflow
 Dataflow my-dataflow found in bytewax namespace.
 
 Must specify --yes to delete it.
@@ -250,7 +260,7 @@ And if we want to actually delete the dataflow we need add the `--yes`
 flag:
 
 ```console
-$ waxctl df rm --name my-dataflow --yes
+$ waxctl df rm my-dataflow --yes
 Dataflow my-dataflow deleted.
 ```
 
@@ -327,7 +337,7 @@ run the following:
 $ waxctl df deploy ./basic.py -N dataflow -n new-namespace --dry-run | kubectl apply -f -
 ```
 
-### Using a Custom Image from a Private Registry
+### Using a Custom Image from a Private Registry - Requires Waxctl Pro
 
 In our <project:#xref-container-custom-deps> section we describe how
 to create your own Docker image using a Bytewax image as base.
