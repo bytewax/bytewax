@@ -14,6 +14,8 @@ This tutorial will teach you how to chain Bytewax operators to wrangle streams o
 ## Resources
 
 <gh-path:/docs/tutorials/introducing-operators/stateless_operators_dataflow.py>
+<gh-path:/docs/tutorials/introducing-operators/smoothie_orders.csv>
+
 
 ## Introduction to operators
 
@@ -110,6 +112,8 @@ init_smoothie.filter_results: {'order_id': '5', 'time': '2024-08-29 08:23:00', '
 init_smoothie.filter_results: {'order_id': '9', 'time': '2024-08-29 08:44:00', 'order_requested': 'Mocha Madness', 'ingredients': 'Coffee;Cocoa Powder;Almond Milk;Banana'}
 ```
 
+## Example 2: data augmentation through caching and mapping
+
 Let's now augment our data as a next example. We will use the Bytewax {py:obj}`~bytewax.operators.enrich_cached` operator. We will set up a `mock_price_service` function, although you may also choose to ping a remote service instead. We can use the cached price and augment the data.
 
 ```{literalinclude} stateless_operators_dataflow.py
@@ -150,6 +154,8 @@ init_smoothie.inspect_final: {'order_id': '48', 'time': '2024-08-29 12:21:00', '
 init_smoothie.inspect_final: {'order_id': '49', 'time': '2024-08-29 12:24:00', 'order_requested': 'Green Machine', 'ingredients': 'Spinach;Banana;Almond Milk;Chia Seeds', 'price': 5.99, 'total_price': 6.89}
 init_smoothie.inspect_final: {'order_id': '50', 'time': '2024-08-29 12:29:00', 'order_requested': 'Protein Power', 'ingredients': 'Peanut Butter;Banana;Protein Powder;Almond Milk', 'price': 8.99, 'total_price': 10.34}
 ```
+
+## Example 3: calculating total number of orders and total revenue per type of smoothie
 
 Let's now take a look at the total number of smoothies ordered on the dataset through the Bytewax {py:obj}`~bytewax.operators.count_final` operator
 
