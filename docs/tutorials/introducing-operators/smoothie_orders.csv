@@ -1,0 +1,51 @@
+order_id,time,order_requested,ingredients
+1,2024-08-29 08:00:00,Green Machine,Spinach;Banana;Almond Milk;Chia Seeds
+2,2024-08-29 08:05:00,Berry Blast,Strawberry;Blueberry;Greek Yogurt;Honey
+3,2024-08-29 08:10:00,Tropical Twist,Mango;Pineapple;Coconut Water;Flax Seeds
+4,2024-08-29 08:15:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
+5,2024-08-29 08:23:00,Green Machine,Spinach;Banana;Almond Milk;Chia Seeds
+6,2024-08-29 08:31:00,Berry Blast,Strawberry;Blueberry;Greek Yogurt;Honey
+7,2024-08-29 08:34:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+8,2024-08-29 08:38:00,Berry Blast,Strawberry;Blueberry;Greek Yogurt;Honey
+9,2024-08-29 08:44:00,Mocha Madness,Coffee;Cocoa Powder;Almond Milk;Banana
+10,2024-08-29 08:47:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+11,2024-08-29 08:51:00,Morning Glow,Carrot;Apple;Ginger;Lemon
+12,2024-08-29 08:56:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+13,2024-08-29 09:02:00,Mocha Madness,Coffee;Cocoa Powder;Almond Milk;Banana
+14,2024-08-29 09:07:00,Mocha Madness,Coffee;Cocoa Powder;Almond Milk;Banana
+15,2024-08-29 09:12:00,Green Machine,Spinach;Banana;Almond Milk;Chia Seeds
+16,2024-08-29 09:17:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+17,2024-08-29 09:22:00,Green Machine,Spinach;Banana;Almond Milk;Chia Seeds
+18,2024-08-29 09:28:00,Berry Blast,Strawberry;Blueberry;Greek Yogurt;Honey
+19,2024-08-29 09:36:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+20,2024-08-29 09:39:00,Green Machine,Spinach;Banana;Almond Milk;Chia Seeds
+21,2024-08-29 09:45:00,Tropical Twist,Mango;Pineapple;Coconut Water;Flax Seeds
+22,2024-08-29 09:51:00,Green Machine,Spinach;Banana;Almond Milk;Chia Seeds
+23,2024-08-29 09:58:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+24,2024-08-29 10:05:00,Mocha Madness,Coffee;Cocoa Powder;Almond Milk;Banana
+25,2024-08-29 10:09:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
+26,2024-08-29 10:14:00,Mocha Madness,Coffee;Cocoa Powder;Almond Milk;Banana
+27,2024-08-29 10:20:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+28,2024-08-29 10:28:00,Mocha Madness,Coffee;Cocoa Powder;Almond Milk;Banana
+29,2024-08-29 10:33:00,Berry Blast,Strawberry;Blueberry;Greek Yogurt;Honey
+30,2024-08-29 10:41:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
+31,2024-08-29 10:48:00,Berry Blast,Strawberry;Blueberry;Greek Yogurt;Honey
+32,2024-08-29 10:56:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+33,2024-08-29 11:02:00,Tropical Twist,Mango;Pineapple;Coconut Water;Flax Seeds
+34,2024-08-29 11:09:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
+35,2024-08-29 11:16:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+36,2024-08-29 11:19:00,Nutty Delight,Almond Butter;Dates;Oats;Soy Milk
+37,2024-08-29 11:25:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
+38,2024-08-29 11:28:00,Green Machine,Spinach;Banana;Almond Milk;Chia Seeds
+39,2024-08-29 11:36:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
+40,2024-08-29 11:41:00,Nutty Delight,Almond Butter;Dates;Oats;Soy Milk
+41,2024-08-29 11:48:00,Citrus Zing,Orange;Lemon;Ginger;Turmeric
+42,2024-08-29 11:56:00,Berry Blast,Strawberry;Blueberry;Greek Yogurt;Honey
+43,2024-08-29 12:01:00,Mocha Madness,Coffee;Cocoa Powder;Almond Milk;Banana
+44,2024-08-29 12:06:00,Tropical Twist,Mango;Pineapple;Coconut Water;Flax Seeds
+45,2024-08-29 12:09:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
+46,2024-08-29 12:14:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
+47,2024-08-29 12:17:00,Tropical Twist,Mango;Pineapple;Coconut Water;Flax Seeds
+48,2024-08-29 12:21:00,Mocha Madness,Coffee;Cocoa Powder;Almond Milk;Banana
+49,2024-08-29 12:24:00,Green Machine,Spinach;Banana;Almond Milk;Chia Seeds
+50,2024-08-29 12:29:00,Protein Power,Peanut Butter;Banana;Protein Powder;Almond Milk
