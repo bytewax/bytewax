@@ -88,7 +88,7 @@ python -m bytewax.run stateless_operators_dataflow:flow
 we can see the stream of processed information (showing first few entries):
 
 ```console
-nit_smoothie.see_data: {'order_id': '1', 'time': '2024-08-29 08:00:00', 'order_requested': 'Green Machine', 'ingredients': 'Spinach;Banana;Almond Milk;Chia Seeds'}
+init_smoothie.see_data: {'order_id': '1', 'time': '2024-08-29 08:00:00', 'order_requested': 'Green Machine', 'ingredients': 'Spinach;Banana;Almond Milk;Chia Seeds'}
 init_smoothie.see_data: {'order_id': '2', 'time': '2024-08-29 08:05:00', 'order_requested': 'Berry Blast', 'ingredients': 'Strawberry;Blueberry;Greek Yogurt;Honey'}
 init_smoothie.see_data: {'order_id': '3', 'time': '2024-08-29 08:10:00', 'order_requested': 'Tropical Twist', 'ingredients': 'Mango;Pineapple;Coconut Water;Flax Seeds'}
 ```
