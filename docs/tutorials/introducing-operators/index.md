@@ -1,5 +1,7 @@
 # Processing smoothie orders with Bytewax operators
 
+![Currency symbol](smoothie-orders.svg)
+
 In this example we are going to walk through how you can combine operators to wrangle data through a streaming approach.
 
 
