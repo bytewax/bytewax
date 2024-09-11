@@ -6,6 +6,7 @@ from pathlib import Path
 import bytewax.operators as op
 from bytewax.connectors.files import CSVSource
 from bytewax.dataflow import Dataflow
+from bytewax.operators import StatefulBatchLogic
 
 # end-imports
 
@@ -86,7 +87,7 @@ counted_orders = op.count_final(
     "count_smoothies", total_price_orders, key=lambda x: x["order_requested"]
 )
 
-op.inspect("inspect_final_count", counted_orders)
+# op.inspect("inspect_final_count", counted_orders)
 # end-count-final
 
 
@@ -108,5 +109,49 @@ total_revenue_orders = op.map(
 )
 
 # Inspect the final total revenue per smoothie type
-op.inspect("inspect_total_revenue", total_revenue_orders)
+# op.inspect_debug("inspect_total_revenue", total_revenue_orders)
 # end-total-revenue
+
+
+# start-stateful
+class PriceSumLogic(StatefulBatchLogic):
+    """Stateful logic to sum the total price of smoothies."""
+
+    def __init__(self):
+        """Initialize the total price."""
+        self.total_price = 0
+
+    def on_batch(self, batch):
+        """Sum the total price of smoothies in the batch."""
+        for event in batch:
+            key = event["order_requested"]
+            self.total_price += event["total_price"]
+
+        return [(key, round(self.total_price, ndigits=2))], False
+
+    def snapshot(self):
+        """Snapshot the total price."""
+        return self.total_price
+
+    def restore(self, snapshot):
+        """Restore the total price from the snapshot."""
+        self.total_price = snapshot
+
+
+# Extract the smoothie name as key for stateful logic
+keyed_orders = op.key_on(
+    "key_smoothie", total_price_orders, lambda x: x["order_requested"]
+)
+
+op.inspect("keyed_orders", keyed_orders)
+
+# Apply stateful batch processing
+stateful_orders = op.stateful_batch(
+    "stateful_batch_price", keyed_orders, lambda _: PriceSumLogic()
+)
+
+# # Redistribute after stateful processing
+# redistributed_orders = op.redistribute("redistribute", stateful_orders)
+
+op.inspect_debug("stateful_output", stateful_orders)
+# end-stateful

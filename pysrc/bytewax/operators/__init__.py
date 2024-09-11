@@ -520,6 +520,15 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     or the workload already spawns enough threads to use all available cores,
     redistributing can introduce unnecessary overhead and regress performance.
 
+    **IMPORTANT**
+    `redistribute` only helps increase utilization when placed immediately before
+    stateless operators, e.g. `{py:obj}~bytewax.operators.map`,
+    `{py:obj}~bytewax.operators.filter`, `{py:obj}~bytewax.operators.flat_map`, etc.
+    It has no effect or
+    a detrimental effect when placed immediately before stateful operators,
+    e.g. `{py:obj}~bytewax.operators.stateful_map`,
+    `{py:obj}~bytewax.operators.copllect_window`, etc.
+
     :arg step_id: Unique ID.
 
     :arg up: Stream.
