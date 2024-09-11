@@ -252,14 +252,14 @@ def input(  # noqa: A001
 
     flow = Dataflow("input_eg")
     nums = op.input("nums", flow, TestingSource([10, 20, 30]))
+    op.inspect("out", nums)
     ```
 
     ```{testcode}
     :hide:
-
     from bytewax.testing import run_main
 
-    op.inspect("out", nums)
+    run_main(flow)
     ```
 
     ```{testoutput}
@@ -496,109 +496,39 @@ def output(step_id: str, up: Stream[X], sink: Sink[X]) -> None:
 
 @operator(_core=True)
 def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
-    """Redistribute items randomly across all workers.
+    """Redistributes data across workers in a Bytewax dataflow.
 
-    ```{testcode}
-    from bytewax.dataflow import Dataflow
-    import bytewax.operators as op
-    from bytewax.testing import TestingSource
-    from bytewax.connectors.stdio import StdOutSink
-    import time
-    from datetime import datetime
+    The `{py:obj}~bytewax.operators.redistribute` operator is
+    useful for redistributing work to
+    achieve better parallelization in a distributed dataflow.
+    It moves each incoming item to a random worker to balance the workload,
+    especially in cases where a prior step concentrates data on only a
+    few workers, leading to poor utilization of CPU resources across the cluster.
 
-    # Create and configure the Dataflow
-    flow = Dataflow("redistribute_example")
+    Bytewax will exchange an item between workers before stateful steps
+    to ensure correctness, but stateless operators like
+    `{py:obj}~bytewax.operators.filter` are run
+    on all workers without any data exchange before or after they are executed.
+    This means that without redistribution, certain CPU-intensive steps
+    may run only on a subset of workers if previous steps concentrated
+    items on just a few workers.
 
-    # Simulate an uneven workload: the first half of the numbers
-    # are "heavy" tasks, the rest are "light"
-    # Heavy tasks take more time to process, simulating a bottleneck.
-    def simulate_task(task):
-        start_time = datetime.now()
+    Use cases for `redistribute`:
+    - **Good Use**: When you have an IO-bound or CPU-heavy workload that needs
+    to be distributed across multiple workers in a cluster, such as a network
+    request or CPU-bound tasks on a machine with multiple workers and CPU cores.
+    - **Bad Use**: If the operation you want to parallelize is already fast
+    or the workload already spawns enough threads to use all available cores,
+    redistributing can introduce unnecessary overhead and regress performance.
 
-        if task <= 3:  # Simulate heavy task
-            time.sleep(2)
-
-        end_time = datetime.now()
-        elapsed_time = (end_time - start_time).total_seconds()
-
-        print(f"Task {task} started at {start_time} and "
-              f"took {elapsed_time:.2f} seconds.")
-
-        return task
-
-    # Input source for dataflow: unevenly distributed tasks
-    nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
-
-    # Map each number to simulate processing
-    processed = op.map("process_task", nums, simulate_task)
-
-    # Redistribute the workload across available workers
-    redistributed = op.redistribute("redistribute", processed)
-
-    # Output the results to the standard output
-    op.output("final_output", redistributed, StdOutSink())
-    ```
-
-    ```{testcode}
-    :hide:
-
-    from bytewax.testing import run_main
-
-    run_main(flow)
-    ```
-
-    ```{testoutput}
-    Task 1 started at 2024-08-31 00:12:11.629073 and took 2.00 seconds.
-    Task 4 started at 2024-08-31 00:12:11.630000 and took 0.00 seconds.
-    Task 2 started at 2024-08-31 00:12:11.629501 and took 2.00 seconds.
-    Task 5 started at 2024-08-31 00:12:11.631000 and took 0.00 seconds.
-    Task 3 started at 2024-08-31 00:12:11.629800 and took 2.00 seconds.
-    ```
-
-    Bytewax's execution model has workers executing all steps, but the
-    state in each step is partitioned across workers by some key.
-    Bytewax will only exchange an item between workers before stateful
-    steps in order to ensure correctness, that they interact with the
-    correct state for that key. Stateless operators (like
-    {py:obj}`filter`) are run on all workers and do not result in
-    exchanging items before or after they are run.
-
-    This can result in certain ordering of operators to result in poor
-    parallelization across an entire execution cluster. If the
-    previous step (like a
-    {py:obj}`bytewax.operators.windowing.reduce_window` or
-    {py:obj}`input` with a
-    {py:obj}`~bytewax.inputs.FixedPartitionedSource`) concentrated
-    items on a subset of workers in the cluster, but the next step is
-    a CPU-intensive stateless step (like a {py:obj}`map`), it's
-    possible that not all workers will contribute to processing the
-    CPU-intesive step.
-
-    This operation has a overhead, since it will need to serialize,
-    send, and deserialize the items, so while it can significantly
-    speed up the execution in some cases, it can also make it slower.
-
-    A good use of this operator is to parallelize an IO bound step,
-    like a network request, or a heavy, single-cpu workload, on a
-    machine with multiple workers and multiple cpu cores that would
-    remain unused otherwise.
-
-    A bad use of this operator is if the operation you want to
-    parallelize is already really fast as it is, as the overhead can
-    overshadow the advantages of distributing the work. Another case
-    where you could see regressions in performance is if the heavy CPU
-    workload already spawns enough threads to use all the available
-    cores. In this case multiple processes trying to compete for the
-    cpu can end up being slower than doing the work serially. If the
-    workers run on different machines though, it might again be a
-    valuable use of the operator.
-
-    Use this operator with caution, and measure whether you get an
-    improvement out of it.
-
-    Once the work has been spread to another worker, it will stay on
-    those workers unless other operators explicitely move the item
-    again (usually on output).
+    **IMPORTANT**
+    `redistribute` only helps increase utilization when placed immediately before
+    stateless operators, e.g. `{py:obj}~bytewax.operators.map`,
+    `{py:obj}~bytewax.operators.filter`, `{py:obj}~bytewax.operators.flat_map`, etc.
+    It has no effect or
+    a detrimental effect when placed immediately before stateful operators,
+    e.g. `{py:obj}~bytewax.operators.stateful_map`,
+    `{py:obj}~bytewax.operators.copllect_window`, etc.
 
     :arg step_id: Unique ID.
 
@@ -606,6 +536,56 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
 
     :returns: Stream unmodified.
 
+    ```{testcode}
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("redistribute_eg")
+    nums = op.input("nums", flow, TestingSource([1, 2, 3, 4, 5]))
+
+    redistributed = op.redistribute("redistribute", nums)
+
+    op.inspect_debug("out", redistributed)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    In this example, if you run it with one worker, all the items will
+    be processed by that single worker,
+    assuming your file is named `redistribute_eg.py`
+
+    ```console
+    python -m bytewax.run redistribute:flow
+    ```
+
+    Output:
+
+    ```{testoutput}
+    redistribute_eg.out W0 @1: 1
+    redistribute_eg.out W0 @1: 2
+    redistribute_eg.out W0 @1: 3
+    redistribute_eg.out W0 @1: 4
+    redistribute_eg.out W0 @1: 5
+    ```
+
+    However, if you run it with two workers, the items will be
+    distributed randomly across the two workers:
+
+    ```console
+    python -m bytewax.run -w2 redistribute:flow
+
+    redistribute_eg.inspect W0 @1: 1
+    redistribute_eg.inspect W1 @1: 2
+    redistribute_eg.inspect W1 @1: 4
+    redistribute_eg.inspect W0 @1: 3
+    redistribute_eg.inspect W0 @1: 5
+    ```
     """
     return Stream(f"{up._scope.parent_id}.down", up._scope)
 
@@ -1197,6 +1177,13 @@ def collect(
     collected = op.collect("collect", keyed, timedelta(seconds=1), max_size=2)
 
     op.inspect("out", collected)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+
+    run_main(flow)
     ```
 
     ```{testoutput}
