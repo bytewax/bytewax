@@ -499,7 +499,8 @@ def redistribute(step_id: str, up: Stream[X]) -> Stream[X]:
     """Redistributes data across workers in a Bytewax dataflow.
 
     The `redistribute` operator is useful for redistributing work to
-    achieve better parallelization in a distributed dataflow. It moves each incoming item to a random worker to balance the workload,
+    achieve better parallelization in a distributed dataflow.
+    It moves each incoming item to a random worker to balance the workload,
     especially in cases where a prior step concentrates data on only a
     few workers, leading to poor utilization of CPU resources across the cluster.
 
