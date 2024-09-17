@@ -1478,10 +1478,6 @@ def collect_window(
             datetime(2023, 1, 1, 12, 20, tzinfo=timezone.utc)),
     ]
 
-    def input_builder(worker_index, worker_count):
-        for item in data:
-            yield item
-
     up = op.input("input", flow, TestingSource(data))
 
     # Key the stream
@@ -1658,6 +1654,86 @@ def fold_window(
 
     It is like {py:obj}`reduce_window` but uses a function to build
     the initial value.
+
+    In the example below, we will create a window of 10 minutes that
+    starts at 12:00. We will sum the values in the window.
+
+    Time Axis (UTC):
+    |-----------------|-----------------|-----------------|
+    12:00          12:10             12:20             12:30
+            Window 0         Window 1          Window 2
+
+    ```{testcode}
+    from datetime import datetime, timedelta, timezone
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.operators.windowing import (TumblingWindower,
+                                            EventClock,
+                                            fold_window)
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("fold_window_example")
+
+    # Sample data with timestamps
+    data = [
+        ("key1", 1,
+        datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)),
+        ("key1", 2,
+        datetime(2023, 1, 1, 12, 5, tzinfo=timezone.utc)),
+        ("key2", 3,
+        datetime(2023, 1, 1, 12, 10, tzinfo=timezone.utc)),
+        ("key2", 4,
+        datetime(2023, 1, 1, 12, 15, tzinfo=timezone.utc)),
+        ("key1", 5,
+        datetime(2023, 1, 1, 12, 20, tzinfo=timezone.utc)),
+    ]
+
+    up = op.input("input", flow, TestingSource(data))
+
+    # Key the stream
+    keyed = op.key_on("key_on", up, lambda x: x[0])
+
+    # Define the clock and windower
+    def extract_timestamp(x):
+        return x[2]
+
+    clock = EventClock(
+        ts_getter=extract_timestamp,
+        wait_for_system_duration=timedelta(seconds=0),
+    )
+
+    windower = TumblingWindower(
+        length=timedelta(minutes=10),
+        align_to=datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+    )
+
+    # Fold the values by summing them
+    windowed = fold_window(
+        "fold_window",
+        keyed,
+        clock,
+        windower,
+        builder=lambda: 0,
+        folder=lambda acc, x: acc + x[1],
+        merger=lambda a, b: a + b,
+    )
+
+    # Inspect the output
+    op.inspect("output", windowed.down)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    fold_window_example.output: ('key1', (0, 3))
+    fold_window_example.output: ('key1', (2, 5))
+    fold_window_example.output: ('key2', (1, 7))
+    ```
 
     :arg step_id: Unique ID.
 
