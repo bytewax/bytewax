@@ -1438,7 +1438,9 @@ def collect_window(
     """Collect items in a window into a container.
 
     In the example below, we will create a window of 10 minutes that
-    starts at 12:00. We will collect items into a list per window.
+    starts at 12:00. We will apply a map function to uppercase the
+    strings and flatten the windowed data. The output windows will be
+    as follows:
 
     Time Axis (UTC):
     |-----------------|-----------------|-----------------|
