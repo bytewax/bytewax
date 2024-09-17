@@ -1444,6 +1444,102 @@ def collect_window(
 ) -> WindowOut[V, Any]:
     """Collect items in a window into a container.
 
+    In the example below, we will create a window of 10 minutes that
+    starts at 12:00. We will collect items into a list per window.
+
+    Time Axis (UTC):
+    |-----------------|-----------------|-----------------|
+    12:00          12:10             12:20             12:30
+            Window 0         Window 1          Window 2
+
+    ```{testcode}
+    from datetime import datetime, timedelta, timezone
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.operators.windowing import (TumblingWindower,\
+        EventClock, collect_window)
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("collect_window_example")
+
+    # Sample data with timestamps
+    data = [
+        ("key1", "apple",
+            datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)),
+        ("key1", "banana",
+            datetime(2023, 1, 1, 12, 5, tzinfo=timezone.utc)),
+        ("key2", "cherry",
+            datetime(2023, 1, 1, 12, 10, tzinfo=timezone.utc)),
+        ("key1", "date",
+            datetime(2023, 1, 1, 12, 15, tzinfo=timezone.utc)),
+        ("key2", "elderberry",
+            datetime(2023, 1, 1, 12, 20, tzinfo=timezone.utc)),
+    ]
+
+    def input_builder(worker_index, worker_count):
+        for item in data:
+            yield item
+
+    up = op.input("input", flow, TestingSource(data))
+
+    # Key the stream
+    keyed = op.key_on("key_on", up, lambda x: x[0])
+
+    # Define the clock and windower
+    def extract_timestamp(x):
+        return x[2]  # Extract the timestamp from the data
+
+    clock = EventClock(
+        ts_getter=extract_timestamp,
+        wait_for_system_duration=timedelta(seconds=0),
+    )
+
+    windower = TumblingWindower(
+        length=timedelta(minutes=10),
+        align_to=datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+    )
+
+    # Collect items into a list per window
+    windowed = collect_window("collect_window", keyed, clock, windower)
+
+    # Transform to uppercase and flatten the windowed data
+    def to_uppercase_and_flatten(item):
+        key, (window_id, values) = item
+        for k, s, ts in values:
+            s_upper = s.upper()
+            ts_str = ts.strftime("%H:%M")
+            yield ((k, s_upper, ts_str), window_id)
+
+    uppercased_flattened = op.flat_map("to_uppercase_and_flatten",\
+                                    windowed.down, to_uppercase_and_flatten)
+
+    # Format the output
+    def format_output(item):
+        (k, s_upper, ts_str), window_id = item
+        return f"({k!r}, {s_upper!r}, {ts_str}) => Window {window_id}"
+
+    formatted = op.map("format_output", uppercased_flattened, format_output)
+
+    # Inspect the output
+    op.inspect("output", formatted)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    collect_window_example.output: "('key1', 'APPLE', 12:00) => Window 0"
+    collect_window_example.output: "('key1', 'BANANA', 12:05) => Window 0"
+    collect_window_example.output: "('key2', 'CHERRY', 12:10) => Window 1"
+    collect_window_example.output: "('key1', 'DATE', 12:15) => Window 1"
+    collect_window_example.output: "('key2', 'ELDERBERRY', 12:20) => Window 2"
+    ```
+
     See {py:obj}`bytewax.operators.collect` for the ability to set a
     max size.
 
