@@ -7,6 +7,7 @@ from typing import BinaryIO
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
+from bytewax.errors import BytewaxRuntimeError
 from bytewax.testing import TestingSink, TestingSource
 from pytest import mark, raises
 
@@ -46,7 +47,8 @@ def test_reraises_exception(entry_point):
     assert len(out) < 3
 
 
-def test_reraises_custom_exception(entry_point):
+@mark.parametrize("entry_point_name", ["run_main"])
+def test_reraises_custom_exception_run_main(entry_point):
     class CustomException(Exception):
         """A custom exception with more than one argument"""
 
@@ -69,7 +71,7 @@ def test_reraises_custom_exception(entry_point):
     out = []
     op.output("out", stream, TestingSink(out))
 
-    with raises(RuntimeError):
+    with raises(BytewaxRuntimeError):
         with raises(CustomException):
             entry_point(flow)
 

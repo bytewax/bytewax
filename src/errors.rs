@@ -1,14 +1,16 @@
-use std::fmt::Write;
 use std::panic::Location;
 
 use pyo3::exceptions::PyException;
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::import_exception;
+use pyo3::prelude::*;
 use pyo3::types::PyTracebackMethods;
 use pyo3::PyDowncastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
 use pyo3::Python;
+
+import_exception!(bytewax.errors, BytewaxRuntimeError);
 
 /// A trait to build a python exception with a custom stacktrace from
 /// anything that can be converted into a PyResult.
@@ -55,29 +57,30 @@ pub(crate) trait PythonException<T> {
         })
     }
 
-    /// Create a new RuntimeError with a custom message, setting
+    /// Create a new BytewaxRuntimeError with a custom message, setting
     /// the current exception as it's cause.
     ///
     /// Example:
     ///
     /// ```ignore
-    /// func().reraise("Reraise a new RuntimeError with this message")?;
+    /// func().reraise("Reraise a new BytewaxRuntimeError with this message")?;
     /// ```
     #[track_caller]
     fn reraise(self, msg: &'static str) -> PyResult<T>
     where
         Self: Sized,
     {
+        let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             Python::with_gil(|py| {
-                let new_err = PyRuntimeError::new_err(msg);
+                let new_err = BytewaxRuntimeError::new_err(format!("({caller}): {msg}"));
                 new_err.set_cause(py, Some(err));
                 new_err
             })
         })
     }
 
-    /// Create a new RuntimeError with a custom message, setting
+    /// Create a new BytewaxRuntimeError with a custom message, setting
     /// the current exception as it's cause.
     ///
     /// Example:
@@ -90,10 +93,11 @@ pub(crate) trait PythonException<T> {
     where
         Self: Sized,
     {
+        let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             let msg = f();
             Python::with_gil(|py| {
-                let new_err = PyRuntimeError::new_err(msg);
+                let new_err = BytewaxRuntimeError::new_err(format!("({caller}): {msg}"));
                 new_err.set_cause(py, Some(err));
                 new_err
             })
@@ -172,17 +176,4 @@ fn get_traceback(py: Python, err: &PyErr) -> Option<String> {
 /// Prepend '({caller}) ' to the message
 fn prepend_caller(caller: &Location, msg: &str) -> String {
     format!("({caller}) {msg}")
-}
-
-/// Prepend the name of the current thread to each line,
-/// if present.
-pub(crate) fn prepend_tname(msg: String) -> String {
-    let tname = std::thread::current()
-        .name()
-        .unwrap_or("unnamed-thread")
-        .to_string();
-    msg.lines().fold(String::new(), |mut buf, line| {
-        let _ = writeln!(buf, "<{tname}> {line}");
-        buf
-    })
 }

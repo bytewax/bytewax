@@ -19,7 +19,6 @@ use pyo3::types::PyType;
 use tokio::runtime::Runtime;
 
 use crate::dataflow::Dataflow;
-use crate::errors::prepend_tname;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
@@ -279,7 +278,7 @@ pub(crate) fn cluster_main(
         std::panic::set_hook(Box::new(move |info| {
             should_shutdown_p.store(true, Ordering::Relaxed);
 
-            let msg = if let Some(err) = info.payload().downcast_ref::<PyErr>() {
+            let err = if let Some(err) = info.payload().downcast_ref::<PyErr>() {
                 // Panics with PyErr as payload should come from bytewax.
                 Python::with_gil(|py| err.clone_ref(py))
             } else {
@@ -287,13 +286,9 @@ pub(crate) fn cluster_main(
                 // and show the user what we have.
                 tracked_err::<PyRuntimeError>(&format!("{info}"))
             };
-            // Prepend the name of the thread to each line
-            let msg = prepend_tname(msg.to_string());
-            // Acquire stdout lock and write the string as bytes,
-            // so we avoid interleaving outputs from different threads (i think?).
-            let mut stderr = std::io::stderr().lock();
-            std::io::Write::write_all(&mut stderr, msg.as_bytes())
-                .unwrap_or_else(|err| eprintln!("Error printing error (that's not good): {err}"));
+
+            // TODO: Print the thread name?
+            Python::with_gil(|py| err.print(py));
         }));
 
         let guards = timely::execute::execute_from::<_, (), _>(
@@ -314,7 +309,7 @@ pub(crate) fn cluster_main(
                 ))
             },
         )
-        .raise::<PyRuntimeError>("error during execution")?;
+        .reraise("error during execution")?;
 
         let cooldown = Duration::from_millis(1);
         // Recreating what Python does in Thread.join() to "block"
