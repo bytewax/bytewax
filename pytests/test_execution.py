@@ -25,30 +25,7 @@ def test_run(entry_point):
     assert sorted(out) == sorted([1, 2, 3])
 
 
-def test_reraises_exception(entry_point):
-    flow = Dataflow("test_df")
-    inp = range(3)
-    stream = op.input("inp", flow, TestingSource(inp))
-
-    def boom(item):
-        if item == 0:
-            msg = "BOOM"
-            raise RuntimeError(msg)
-        else:
-            return item
-
-    stream = op.map("explode", stream, boom)
-    out = []
-    op.output("out", stream, TestingSink(out))
-
-    with raises(RuntimeError):
-        entry_point(flow)
-
-    assert len(out) < 3
-
-
-@mark.parametrize("entry_point_name", ["run_main"])
-def test_reraises_custom_exception_run_main(entry_point):
+def test_reraises_custom_exception(entry_point):
     class CustomException(Exception):
         """A custom exception with more than one argument"""
 

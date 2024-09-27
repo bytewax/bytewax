@@ -8,6 +8,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::sync::mpsc;
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -273,8 +276,10 @@ pub(crate) fn cluster_main(
         let should_shutdown = Arc::new(AtomicBool::new(false));
         let should_shutdown_p = should_shutdown.clone();
         let should_shutdown_w = should_shutdown.clone();
-        // Custom hook to print the proper stacktrace to stderr
-        // before panicking if possible.
+        let (tx, rx): (Sender<PyErr>, Receiver<PyErr>) = mpsc::channel();
+        let panic_tx = tx.clone();
+        // Custom hook to push the panic error into a channel
+        // before panicking.
         std::panic::set_hook(Box::new(move |info| {
             should_shutdown_p.store(true, Ordering::Relaxed);
 
@@ -286,9 +291,19 @@ pub(crate) fn cluster_main(
                 // and show the user what we have.
                 tracked_err::<PyRuntimeError>(&format!("{info}"))
             };
-
-            // TODO: Print the thread name?
-            Python::with_gil(|py| err.print(py));
+            // TODO: This block handles an unfortunate interaction
+            // with our test suite.
+            //
+            // When multiple entry point calls are made for a test
+            // this panic hook is set during runs with `cluster_main`,
+            // but can be invoked during subsequent invocations of
+            // `run_main`, crashing the test suite.
+            Python::with_gil(|py| {
+                let channel_err = err.clone_ref(py);
+                panic_tx.send(channel_err).unwrap_or_else(|_| {
+                    err.print(py);
+                });
+            });
         }));
 
         let guards = timely::execute::execute_from::<_, (), _>(
@@ -329,13 +344,9 @@ pub(crate) fn cluster_main(
             })?;
         }
         for maybe_worker_panic in guards.join() {
-            // TODO: See if we can PR Timely to not cast panic info to
-            // String. Then we could re-raise Python exception in main
-            // thread and not need to print in panic::set_hook above,
-            // although we still need it to tell the other workers to
-            // do graceful shutdown.
             maybe_worker_panic.map_err(|_| {
-                tracked_err::<PyRuntimeError>("Worker thread died; look for errors above")
+                rx.try_recv()
+                    .expect("unable to receive panic error from channel")
             })?;
         }
 
