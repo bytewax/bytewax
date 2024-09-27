@@ -94,25 +94,36 @@ late. We will effectively wait for up to
 {py:obj}`~bytewax.operators.windowing.EventClock.wait_for_system_duration`
 real-time for late data, then move on if we don't see any.
 
-In the following table, **system time** represents the real clock time
-receive an item or are updating the watermark, **system time of max**
-is the system timestamp of the item with the latest timestamp seen
-thus far, **current watermark** is the most recent fast-forwarded
-watermark plus the amount of system time since the item that caused
-the fast-forwarding, **item timestamp** is the timestamp on the
-incoming item, **item late** is if the item is before the current
-watermark, **watermark candidate** is the item's timestamp minus the
-`wait_for_system_duration` if the item wasn't late, **FFWD accepted**
-is the new watermark if the candidate would push forward the
-watermark.
+In the following table:
 
-| System Time | System Time of Max | Current Watermark | Item Timestamp | Item Late? | Watermark Candidate | FFWD Accepted? |
-| ----------- | ------------------ | ----------------- | -------------- | ---------- | ------------------- | -------------- |
-| 10:32:00    | None               | None              | 10:35:00       | No         | 10:30:00            | 10:30:00       |
-| 10:33:00    | 10:32:00           | 10:31:00          |                |            |                     |                |
-| 10:34:00    | 10:32:00           | 10:32:00          | 10:38:00       | No         | 10:33:00            | 10:33:00       |
-| 10:36:00    | 10:34:00           | 10:35:00          | 10:39:00       | No         | 10:34:00            |                |
-| 10:38:00    | 10:34:00           | 10:37:00          | 10:36:00       | Yes        |                     |                |
+- **System Time** represents the real clock time receive an item or
+are updating the watermark.
+
+- **System Time of Max** is the system timestamp of the item with the
+latest timestamp seen thus far.
+
+- **Current Watermark** is the most recent fast-forwarded watermark
+plus the amount of system time since the item that caused the
+fast-forwarding.
+
+- **Item Timestamp** is the timestamp on the incoming item.
+
+- **Item Late** is if the item is before the current watermark.
+
+- **Watermark Candidate** is the item's timestamp minus the
+`wait_for_system_duration` if the item wasn't late.
+
+- **Accepted Watermark** is the new watermark if the candidate would
+push forward the watermark. If not, the watermark continues to
+progress due to system time.
+
+| System Time | System Time of Max | Current Watermark | Item Timestamp | Item Late? | Watermark Candidate | Accepted Watermark? |
+| ----------- | ------------------ | ----------------- | -------------- | ---------- | ------------------- | ------------------- |
+| 10:32:00    | None               | None              | 10:35:00       | No         | 10:30:00            | 10:30:00            |
+| 10:33:00    | 10:32:00           | 10:31:00          |                |            |                     |                     |
+| 10:34:00    | 10:32:00           | 10:32:00          | 10:38:00       | No         | 10:33:00            | 10:33:00            |
+| 10:36:00    | 10:34:00           | 10:35:00          | 10:39:00       | No         | 10:34:00            |                     |
+| 10:38:00    | 10:34:00           | 10:37:00          | 10:36:00       | Yes        |                     |                     |
 
 In the batch replay case, values will be being ingested much faster
 than real-time, thus the watermark will almost never advance on its
