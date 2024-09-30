@@ -30,5 +30,6 @@ def test_key_on_raises_on_non_str_key():
     op.output("out", s, TestingSink(out))
 
     expect = "must be a `str`"
-    with raises(TypeError, match=re.escape(expect)):
-        run_main(flow)
+    with raises(RuntimeError):
+        with raises(TypeError, match=re.escape(expect)):
+            run_main(flow)

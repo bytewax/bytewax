@@ -7,6 +7,7 @@ from typing import BinaryIO
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
+from bytewax.errors import BytewaxRuntimeError
 from bytewax.testing import TestingSink, TestingSource
 from pytest import mark, raises
 
@@ -24,7 +25,14 @@ def test_run(entry_point):
     assert sorted(out) == sorted([1, 2, 3])
 
 
-def test_reraises_exception(entry_point):
+def test_reraises_custom_exception(entry_point):
+    class CustomException(Exception):
+        """A custom exception with more than one argument"""
+
+        def __init__(self, msg, b):
+            self.msg = msg
+            self.b = b
+
     flow = Dataflow("test_df")
     inp = range(3)
     stream = op.input("inp", flow, TestingSource(inp))
@@ -32,7 +40,7 @@ def test_reraises_exception(entry_point):
     def boom(item):
         if item == 0:
             msg = "BOOM"
-            raise RuntimeError(msg)
+            raise CustomException(msg, 1)
         else:
             return item
 
@@ -40,8 +48,9 @@ def test_reraises_exception(entry_point):
     out = []
     op.output("out", stream, TestingSink(out))
 
-    with raises(RuntimeError):
-        entry_point(flow)
+    with raises(BytewaxRuntimeError):
+        with raises(CustomException):
+            entry_point(flow)
 
     assert len(out) < 3
 

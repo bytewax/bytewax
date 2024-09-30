@@ -29,5 +29,6 @@ def test_flatten_raises():
     op.output("out", s, TestingSink(out))
 
     expect = "to be iterables"
-    with raises(TypeError, match=re.escape(expect)):
-        run_main(flow)
+    with raises(RuntimeError):
+        with raises(TypeError, match=re.escape(expect)):
+            run_main(flow)

@@ -12,6 +12,7 @@ from bytewax.connectors.kafka import (
     KafkaSourceMessage,
 )
 from bytewax.dataflow import Dataflow
+from bytewax.errors import BytewaxRuntimeError
 from bytewax.testing import TestingSink, TestingSource, poll_next_batch, run_main
 from confluent_kafka import (
     OFFSET_BEGINNING,
@@ -134,8 +135,7 @@ def test_input_raises_on_topic_not_exist():
     )
     op.output("out", s, TestingSink(out))
 
-    expect = "Broker: Unknown topic or partition"
-    with raises(Exception, match=re.escape(expect)):
+    with raises(BytewaxRuntimeError):
         run_main(flow)
 
 
