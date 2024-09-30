@@ -67,14 +67,16 @@ can use event time in your windowing definition. This is more nuanced.
 
 1. The callback function
    {py:obj}`~bytewax.operators.windowing.EventClock.ts_getter` is used
-   to extract and assign the timestamp within each value. If this
-   timestamp is the largest ever seen, that and the current system
-   time are stored internally. (System time never affects the
-   timestamp assigned to an item.)
+   to extract the timestamp within each value. If this timestamp is
+   the largest ever seen, that and the current system time are stored
+   internally. (System time never affects the timestamp assigned to an
+   item when using the event clock.)
 
-2. The watermark is `max_ts - wait_for_system_duration +
-   system_time_of_max` but the watermark can never go backwards. It is
-   the latest timestamp with a waiting buffer.
+2. The watermark is the largest timestamp seen minus a buffer in which
+   the system waits for out-of-order events. Even in the absence of
+   incoming items, the watermark progresses forward as the waiting
+   period for out-of-order items elapses and the system can close
+   windows.
 
 This definition of the watermark is a way to allow processing of
 out-of-order data, but in a bounded way that supports both streaming
@@ -94,35 +96,78 @@ late. We will effectively wait for up to
 {py:obj}`~bytewax.operators.windowing.EventClock.wait_for_system_duration`
 real-time for late data, then move on if we don't see any.
 
-In the following table:
+In the following tables:
 
-- **System Time** represents the real clock time receive an item or
-are updating the watermark.
+- **System Time** - the current real clock time as a new item
+  is received or if the watermark is being updated in isolation
+  without a new item.
 
-- **System Time of Max** is the system timestamp of the item with the
-latest timestamp seen thus far.
+- **System Time of Max** - the system timestamp when we saw the item
+  with the largest timestamp thus far.
 
-- **Current Watermark** is the most recent fast-forwarded watermark
-plus the amount of system time since the item that caused the
-fast-forwarding.
+- **Current Watermark** - the most recent fast-forwarded watermark
+  plus the amount of system time since the item that caused the
+  fast-forwarding.
 
-- **Item Timestamp** is the timestamp on the incoming item.
+- **Item Timestamp** - the timestamp on the incoming item.
 
-- **Item Late** is if the item is before the current watermark.
+- **Item Late** - if the item is before the current watermark.
 
-- **Watermark Candidate** is the item's timestamp minus the
-`wait_for_system_duration` if the item wasn't late.
+- **Watermark Candidate** - the item's timestamp minus the
+  `wait_for_system_duration` if the item wasn't late.
 
-- **Accepted Watermark** is the new watermark if the candidate would
-push forward the watermark. If not, the watermark continues to
-progress due to system time.
+- **Accepted Watermark** - the new watermark if the candidate would
+  push forward the watermark. If not, the watermark continues to
+  progress due to system time.
+
+In this example, first let's ingest an item with the timestamp
+`10:35:00`. This results in setting the initial watermark.
 
 | System Time | System Time of Max | Current Watermark | Item Timestamp | Item Late? | Watermark Candidate | Accepted Watermark? |
 | ----------- | ------------------ | ----------------- | -------------- | ---------- | ------------------- | ------------------- |
 | 10:32:00    | None               | None              | 10:35:00       | No         | 10:30:00            | 10:30:00            |
+
+Then let's say a minute passes, and we want to check how the flow of
+system time has affected the watermark. Because the watermark is
+"physical" if a minute passes with no items, the watermark advances by
+a minute from the accepted watermark above of `10:30:00` to
+`10:31:00`.
+
+| System Time | System Time of Max | Current Watermark | Item Timestamp | Item Late? | Watermark Candidate | Accepted Watermark? |
+| ----------- | ------------------ | ----------------- | -------------- | ---------- | ------------------- | ------------------- |
 | 10:33:00    | 10:32:00           | 10:31:00          |                |            |                     |                     |
+
+Now a new item is encountered with a timestamp of `10:38:00`. Because
+of slight fluctuations in this stream of events, it is "earlier" than
+expected (just based on the first observed timestamp and how much
+system time elapsed), but there's nothing unexpected about that as
+perhaps there were ephemeral network or processing delays previously.
+It ends up advancing the watermark because the candidate it creates is
+later than the current watermark.
+
+| System Time | System Time of Max | Current Watermark | Item Timestamp | Item Late? | Watermark Candidate | Accepted Watermark? |
+| ----------- | ------------------ | ----------------- | -------------- | ---------- | ------------------- | ------------------- |
 | 10:34:00    | 10:32:00           | 10:32:00          | 10:38:00       | No         | 10:33:00            | 10:33:00            |
+
+Another new item is encountered, but this one is slightly "later" than
+expected (again just based on if all items arrived exactly the system
+time between their timestamps which is practically impossible). Since
+accepting the candidate timestamp would result in the watermark going
+backwards, it is rejected. The watermark continues to progress via
+system time only.
+
+| System Time | System Time of Max | Current Watermark | Item Timestamp | Item Late? | Watermark Candidate | Accepted Watermark? |
+| ----------- | ------------------ | ----------------- | -------------- | ---------- | ------------------- | ------------------- |
 | 10:36:00    | 10:34:00           | 10:35:00          | 10:39:00       | No         | 10:34:00            |                     |
+
+Finally a new item comes in, but it's timestamp is so late it is
+before the watermark. This causes it to be marked as late and
+otherwise ignored in watermark calculations. Late events can be
+processed in other ways, but that's completely outside the scope of
+the windowing model.
+
+| System Time | System Time of Max | Current Watermark | Item Timestamp | Item Late? | Watermark Candidate | Accepted Watermark? |
+| ----------- | ------------------ | ----------------- | -------------- | ---------- | ------------------- | ------------------- |
 | 10:38:00    | 10:34:00           | 10:37:00          | 10:36:00       | Yes        |                     |                     |
 
 In the batch replay case, values will be being ingested much faster
