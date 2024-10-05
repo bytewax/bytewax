@@ -1114,7 +1114,7 @@ class _CollectLogic(StatefulLogic[V, List[V], _CollectState[V]]):
     step_id: str
     now_getter: Callable[[], datetime]
     timeout: timedelta
-    max_size: int
+    max_size: int | Callable
     state: _CollectState[V]
 
     @override
@@ -1122,6 +1122,12 @@ class _CollectLogic(StatefulLogic[V, List[V], _CollectState[V]]):
         self.state.timeout_at = self.now_getter() + self.timeout
 
         self.state.acc.append(value)
+
+        if isinstance(self.max_size, Callable):
+            max_size = self.max_size(value)
+        else:
+            max_size = self.max_size
+
         if len(self.state.acc) >= self.max_size:
             # No need to deepcopy because we are discarding the state.
             return ((self.state.acc,), StatefulLogic.DISCARD)
@@ -1147,7 +1153,7 @@ class _CollectLogic(StatefulLogic[V, List[V], _CollectState[V]]):
 
 @operator
 def collect(
-    step_id: str, up: KeyedStream[V], timeout: timedelta, max_size: int
+    step_id: str, up: KeyedStream[V], timeout: timedelta, max_size: int | Callable
 ) -> KeyedStream[List[V]]:
     """Collect items into a list up to a size or a timeout.
 
@@ -1209,6 +1215,8 @@ def collect(
     :returns: A stream of upstream items gathered into lists.
 
     """
+    if not isinstance(max_size, (int, Callable)):
+        raise ValueError(f"Invalid type for max_size ({type(max_size)}), it should be either int or Callable")
 
     def shim_builder(resume_state: Optional[_CollectState[V]]) -> _CollectLogic[V]:
         now_getter = lambda: datetime.now(timezone.utc)
