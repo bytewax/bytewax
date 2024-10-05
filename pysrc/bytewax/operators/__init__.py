@@ -1114,7 +1114,7 @@ class _CollectLogic(StatefulLogic[V, List[V], _CollectState[V]]):
     step_id: str
     now_getter: Callable[[], datetime]
     timeout: timedelta
-    max_size: int | Callable
+    max_size: int | Callable[[V], int]
     state: _CollectState[V]
 
     @override
