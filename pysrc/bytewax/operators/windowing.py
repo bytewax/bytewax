@@ -1846,6 +1846,7 @@ def join_window(
 
         clock = EventClock(
             ts_getter=shim_getter,
+            now_getter=clock.now_getter,
             wait_for_system_duration=clock.wait_for_system_duration,
         )
 
