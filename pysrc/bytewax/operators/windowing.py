@@ -250,8 +250,15 @@ class _EventClockLogic(ClockLogic[V, _EventClockState]):
     @override
     def before_batch(self) -> None:
         system_now = self.now_getter()
-        assert system_now >= self._system_now
-        self._system_now = system_now
+        # Don't let now go backwards. This can happen due to all
+        # manner of things: NTP synchronization, updating the system
+        # clock, negative leap seconds. This is especially prevalent
+        # on M1 Macs for unclear reasons.
+        if system_now > self._system_now:
+            self._system_now = system_now
+        # Even if this happens, the dataflow will continue to process
+        # items, but the watermark will hold steady until the system
+        # clock catches up.
 
     @override
     def on_item(self, value: V) -> Tuple[datetime, datetime]:
