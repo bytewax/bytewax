@@ -13,6 +13,9 @@ notes on GitHub when we make a new release.__
   and all values for a key fall into a single window and event
   timestamps are within `wait_for_system_duration` of each other.
 
+- Fixes a bug where using `EventClock` on macOS systems would randomly
+  assert.
+
 ## v0.21.0
 
 - {py:obj}`~bytewax.inputs.SimplePollingSource` now allows you to
