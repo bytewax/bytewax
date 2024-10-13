@@ -1854,6 +1854,8 @@ def join_window(
         clock = EventClock(
             ts_getter=shim_getter,
             wait_for_system_duration=clock.wait_for_system_duration,
+            now_getter=clock.now_getter,
+            to_system_utc=clock.to_system_utc,
         )
 
     def shim_builder(
