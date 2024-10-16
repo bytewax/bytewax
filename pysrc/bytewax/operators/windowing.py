@@ -1662,6 +1662,7 @@ def join_window(
     *,
     insert_mode: JoinInsertMode = ...,
     emit_mode: Literal["complete"],
+    ordered: bool = ...,
 ) -> WindowOut[V, Tuple[V]]: ...
 
 
@@ -1676,6 +1677,7 @@ def join_window(
     *,
     insert_mode: JoinInsertMode = ...,
     emit_mode: Literal["complete"],
+    ordered: bool = ...,
 ) -> WindowOut[Union[U, V], Tuple[U, V]]: ...
 
 
@@ -1691,6 +1693,7 @@ def join_window(
     *,
     insert_mode: JoinInsertMode = ...,
     emit_mode: Literal["complete"],
+    ordered: bool = ...,
 ) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]: ...
 
 
@@ -1707,6 +1710,7 @@ def join_window(
     *,
     insert_mode: JoinInsertMode = ...,
     emit_mode: Literal["complete"],
+    ordered: bool = ...,
 ) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]: ...
 
 
@@ -1720,6 +1724,7 @@ def join_window(
     *,
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
+    ordered: bool = ...,
 ) -> WindowOut[V, Tuple[Optional[V]]]: ...
 
 
@@ -1734,6 +1739,7 @@ def join_window(
     *,
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
+    ordered: bool = ...,
 ) -> WindowOut[Union[U, V], Tuple[Optional[U], Optional[V]]]: ...
 
 
@@ -1749,6 +1755,7 @@ def join_window(
     *,
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
+    ordered: bool = ...,
 ) -> WindowOut[Union[U, V, W], Tuple[Optional[U], Optional[V], Optional[W]]]: ...
 
 
@@ -1765,6 +1772,7 @@ def join_window(
     *,
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
+    ordered: bool = ...,
 ) -> WindowOut[
     Union[U, V, W, X], Tuple[Optional[U], Optional[V], Optional[W], Optional[X]]
 ]: ...
@@ -1778,6 +1786,7 @@ def join_window(
     *sides: KeyedStream[V],
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
+    ordered: bool = ...,
 ) -> WindowOut[V, Tuple[Optional[V], ...]]: ...
 
 
@@ -1789,6 +1798,7 @@ def join_window(
     *sides: KeyedStream[Any],
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
+    ordered: bool = ...,
 ) -> WindowOut[Any, Tuple]: ...
 
 
@@ -1800,6 +1810,7 @@ def join_window(
     *sides: KeyedStream[Any],
     insert_mode: JoinInsertMode = "last",
     emit_mode: JoinEmitMode = "final",
+    ordered: bool = True,
 ) -> WindowOut[Any, Tuple]:
     """Gather together the value for a key on multiple streams.
 
@@ -1821,6 +1832,10 @@ def join_window(
         {py:obj}`~bytewax.operators.JoinEmitMode` for more info.
         Defaults to `"final"`.
 
+    :arg ordered: Whether to apply values to the logic in timestamp
+        order. If not, they'll be in upstream order. There is a
+        performance and latency penalty to ordering by timestamp.
+        Defaults to `True`.
 
     :returns: Window result streams. Downstream contains tuples with
         the value from each stream in the order of the argument list.
@@ -1873,6 +1888,7 @@ def join_window(
         clock,
         windower,
         shim_builder,
+        ordered=ordered,
     )
 
 
