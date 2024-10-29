@@ -1444,6 +1444,101 @@ def collect_window(
 ) -> WindowOut[V, Any]:
     """Collect items in a window into a container.
 
+    In the example below, we will create a tumbling window
+    of 10 minutes that
+    starts at 12:00. We will apply a map function to uppercase the
+    strings and flatten the windowed data. The output windows will be
+    as follows:
+
+    Time Axis (UTC):
+    |-----------------|-----------------|-----------------|
+    12:00          12:10             12:20             12:30
+            Window 0         Window 1          Window 2
+
+    ```{testcode}
+    from datetime import datetime, timedelta, timezone
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.operators.windowing import (TumblingWindower,\
+        EventClock, collect_window)
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("collect_window_example")
+
+    # Sample data with timestamps
+    data = [
+        ("key1", "apple",
+            datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)),
+        ("key1", "banana",
+            datetime(2023, 1, 1, 12, 5, tzinfo=timezone.utc)),
+        ("key2", "cherry",
+            datetime(2023, 1, 1, 12, 10, tzinfo=timezone.utc)),
+        ("key1", "date",
+            datetime(2023, 1, 1, 12, 15, tzinfo=timezone.utc)),
+        ("key2", "elderberry",
+            datetime(2023, 1, 1, 12, 20, tzinfo=timezone.utc)),
+    ]
+
+    up = op.input("input", flow, TestingSource(data))
+
+    # Key the stream
+    keyed = op.key_on("key_on", up, lambda x: x[0])
+
+    # Define the clock and windower
+    def extract_timestamp(x):
+        return x[2]  # Extract the timestamp from the data
+
+    clock = EventClock(
+        ts_getter=extract_timestamp,
+        wait_for_system_duration=timedelta(seconds=0),
+    )
+
+    windower = TumblingWindower(
+        length=timedelta(minutes=10),
+        align_to=datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+    )
+
+    # Collect items into a list per window
+    windowed = collect_window("collect_window", keyed, clock, windower)
+
+    # Transform to uppercase and flatten the windowed data
+    def to_uppercase_and_flatten(item):
+        key, (window_id, values) = item
+        for k, s, ts in values:
+            s_upper = s.upper()
+            ts_str = ts.strftime("%H:%M")
+            yield ((k, s_upper, ts_str), window_id)
+
+    uppercased_flattened = op.flat_map("to_uppercase_and_flatten",\
+                                    windowed.down, to_uppercase_and_flatten)
+
+    # Format the output
+    def format_output(item):
+        (k, s_upper, ts_str), window_id = item
+        return f"({k!r}, {s_upper!r}, {ts_str}) => Window {window_id}"
+
+    formatted = op.map("format_output", uppercased_flattened, format_output)
+
+    # Inspect the output
+    op.inspect("output", formatted)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    collect_window_example.output: "('key1', 'APPLE', 12:00) => Window 0"
+    collect_window_example.output: "('key1', 'BANANA', 12:05) => Window 0"
+    collect_window_example.output: "('key2', 'CHERRY', 12:10) => Window 1"
+    collect_window_example.output: "('key1', 'DATE', 12:15) => Window 1"
+    collect_window_example.output: "('key2', 'ELDERBERRY', 12:20) => Window 2"
+    ```
+
     See {py:obj}`bytewax.operators.collect` for the ability to set a
     max size.
 
@@ -1490,6 +1585,80 @@ def count_window(
     key: Callable[[X], str],
 ) -> WindowOut[X, int]:
     """Count the number of occurrences of items in a window.
+
+    ```{testcode}
+    from datetime import datetime, timedelta, timezone
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.operators.windowing import EventClock, TumblingWindower, count_window
+    from bytewax.testing import TestingSource, run_main
+
+    # Create a new dataflow
+    flow = Dataflow("count_window_example")
+
+    # Sample data with timestamps
+    data = [
+        ("apple", datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)),
+        ("banana", datetime(2023, 1, 1, 12, 5, tzinfo=timezone.utc)),
+        ("apple", datetime(2023, 1, 1, 12, 10, tzinfo=timezone.utc)),
+        ("banana", datetime(2023, 1, 1, 12, 15, tzinfo=timezone.utc)),
+        ("apple", datetime(2023, 1, 1, 12, 20, tzinfo=timezone.utc)),
+        ("cherry", datetime(2023, 1, 1, 12, 25, tzinfo=timezone.utc)),
+    ]
+
+    # Input stream
+    up = op.input("input", flow, TestingSource(data))
+
+    # Define the clock using event timestamps
+    def extract_timestamp(x):
+        return x[1]
+
+    clock = EventClock(
+        ts_getter=extract_timestamp,
+        wait_for_system_duration=timedelta(seconds=0),
+    )
+
+    # Define the windowing strategy
+    windower = TumblingWindower(
+        length=timedelta(minutes=15),
+        align_to=datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    # Use count_window to count occurrences of each item in each window
+    windowed = count_window(
+        step_id="count_window",
+        up=up,
+        clock=clock,
+        windower=windower,
+        key=lambda x: x[0],  # Use the item name as the key
+    )
+
+    # Format and output the results
+    def format_output(item):
+        key, (window_id, count) = item
+        return f"Item '{key}' occurred {count} times in Window {window_id}"
+
+    formatted = op.map("format_output", windowed.down, format_output)
+
+    # Inspect the output
+    op.inspect("output", formatted)
+    ```
+
+    ```{testcode}
+    :hide:
+
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    count_window_example.output: "Item 'banana' occurred 1 times in Window 0"
+    count_window_example.output: "Item 'apple' occurred 2 times in Window 0"
+    count_window_example.output: "Item 'apple' occurred 1 times in Window 1"
+    count_window_example.output: "Item 'banana' occurred 1 times in Window 1"
+    count_window_example.output: "Item 'cherry' occurred 1 times in Window 1"
+    ```
 
     :arg step_id: Unique ID.
 
@@ -1560,6 +1729,87 @@ def fold_window(
 
     It is like {py:obj}`reduce_window` but uses a function to build
     the initial value.
+
+    In the example below, we will create a tumbling window of 10
+    minutes that
+    starts at 12:00. We will sum the values in the window.
+
+    Time Axis (UTC):
+    |-----------------|-----------------|-----------------|
+    12:00          12:10             12:20             12:30
+            Window 0         Window 1          Window 2
+
+    ```{testcode}
+    from datetime import datetime, timedelta, timezone
+    from bytewax.dataflow import Dataflow
+    import bytewax.operators as op
+    from bytewax.operators.windowing import (TumblingWindower,
+                                            EventClock,
+                                            fold_window)
+    from bytewax.testing import TestingSource
+
+    flow = Dataflow("fold_window_example")
+
+    # Sample data with timestamps
+    data = [
+        ("key1", 1,
+        datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)),
+        ("key1", 2,
+        datetime(2023, 1, 1, 12, 5, tzinfo=timezone.utc)),
+        ("key2", 3,
+        datetime(2023, 1, 1, 12, 10, tzinfo=timezone.utc)),
+        ("key2", 4,
+        datetime(2023, 1, 1, 12, 15, tzinfo=timezone.utc)),
+        ("key1", 5,
+        datetime(2023, 1, 1, 12, 20, tzinfo=timezone.utc)),
+    ]
+
+    up = op.input("input", flow, TestingSource(data))
+
+    # Key the stream
+    keyed = op.key_on("key_on", up, lambda x: x[0])
+
+    # Define the clock and windower
+    def extract_timestamp(x):
+        return x[2]
+
+    clock = EventClock(
+        ts_getter=extract_timestamp,
+        wait_for_system_duration=timedelta(seconds=0),
+    )
+
+    windower = TumblingWindower(
+        length=timedelta(minutes=10),
+        align_to=datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+    )
+
+    # Fold the values by summing them
+    windowed = fold_window(
+        "fold_window",
+        keyed,
+        clock,
+        windower,
+        builder=lambda: 0,
+        folder=lambda acc, x: acc + x[1],
+        merger=lambda a, b: a + b,
+    )
+
+    # Inspect the output
+    op.inspect("output", windowed.down)
+    ```
+
+    ```{testcode}
+    :hide:
+    from bytewax.testing import run_main
+
+    run_main(flow)
+    ```
+
+    ```{testoutput}
+    fold_window_example.output: ('key1', (0, 3))
+    fold_window_example.output: ('key1', (2, 5))
+    fold_window_example.output: ('key2', (1, 7))
+    ```
 
     :arg step_id: Unique ID.
 
