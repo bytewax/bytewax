@@ -20,5 +20,7 @@ recoverable-shopping-cart/index.md
 ```{toctree}
 :titlesonly:
 :caption: Windowing
+
+introducing-windowing/index.md
 profiling-time-series-data/index.md
 ```
