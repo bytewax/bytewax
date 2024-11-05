@@ -76,6 +76,7 @@ op.inspect("windowed_count_orders", windowed.down)
 # start-format-1
 # Format and output the results
 def format_output(item):
+    """Format the output for each window."""
     key, (window_id, count) = item
     window_start = windower.align_to + timedelta(minutes=30 * window_id)
     window_end = window_start + timedelta(minutes=30)
