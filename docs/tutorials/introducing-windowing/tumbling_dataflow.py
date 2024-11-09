@@ -7,7 +7,11 @@ from pathlib import Path
 import bytewax.operators as op
 from bytewax.connectors.files import CSVSource
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import EventClock, TumblingWindower, count_window
+from bytewax.operators.windowing import (
+    EventClock,
+    TumblingWindower,
+    count_window,
+)
 
 # end-imports
 
@@ -20,7 +24,7 @@ flow = Dataflow("windowing_operators_examples")
 # Input stream
 csv_file_path = Path("smoothie_order_l.csv")
 up = op.input("orders", flow, CSVSource(csv_file_path))
-op.inspect("see_data", up)
+# op.inspect("see_data", up)
 # end-input
 
 
@@ -85,8 +89,8 @@ def format_output(item):
     - {window_end.strftime('%H:%M')}): {count} orders"
 
 
-formatted = op.map("format_output_1", windowed.down, format_output)
+formatted = op.map("format_output", windowed.down, format_output)
 
 # Inspect the output
-op.inspect("formatted_objective_1", formatted)
+op.inspect("output", formatted)
 # end-format-1
