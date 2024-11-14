@@ -1,6 +1,6 @@
 # Introducing Windowing: Processing smoothie orders using windowing operators
 
-![Currency symbol](smoothie-orders.svg)
+![Currency symbol](windowing-smoothie.svg)
 
 In this example we are going to walk through how you can incorporate windowing in your Bytewax dataflow through Bytewax windowing operators. This is part II in our operator introductory tutorial series, for the first part visit [Processing smoothie orders with Bytewax operators](../introducing-operators/index.md).
 
