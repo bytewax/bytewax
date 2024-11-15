@@ -101,7 +101,7 @@ For each of our three objectives, we will choose to work with a specific type of
 
 | Objective| Type of Window| Specifications| Aggregation or computation |
 |-|-|-|-|
-| Count number of orders every 30 minutes from 8 to 12:30 | Tumbling Window | Length of window is 30 minutes, aligned to the date of the events | Counting |
+| Count number of orders every 30 minutes from 8:00am to 12:30pm | Tumbling Window | Length of window is 30 minutes, aligned to the date of the events | Counting |
 | Track smoothie orders using overlapping windows for moving number of orders | Sliding Window | Length of window can be chosen depending on the desired window size | Counting|
 |  Group smoothie orders that occur closely together in time into dynamic session windows, windows close after inactivity | Session Window | Period if inactivity can be defined by the user |Collecting |
 
