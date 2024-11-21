@@ -9,6 +9,17 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+## v0.21.1
+
+- `join_window` operator now supports using stream-order via the
+  `ordered` parameter.
+
+- Windowing operators now correctly respect `now_getter` and
+  `to_system_utc` in `EventClock`.
+
+- Fixes an issue where the runtime would not properly report the
+  correct exception being raised by dataflow code.
+
 - Fixes a bug where window closing will be delayed if using event time
   and all values for a key fall into a single window and event
   timestamps are within `wait_for_system_duration` of each other.
