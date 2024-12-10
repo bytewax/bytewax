@@ -1,19 +1,22 @@
 # Bytewax: Python Stateful Stream Processing Framework
 
 <div align='center'>
+ <a href="https://bytewax.io/">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/bytewax/bytewax/assets/53014647/cd47293b-72c9-423c-b010-2c4990206c60" width="350">
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/bytewax/bytewax/assets/53014647/f376c9e8-5bd4-4563-ba40-3df8761b13fc" width="350">
   <img alt="Bytewax" src="https://github.com/bytewax/bytewax/assets/53014647/f376c9e8-5bd4-4563-ba40-3df8761b13fc" width="350">
 </picture>
+</a>
 </div>
 
-
-[![Actions Status](https://github.com/bytewax/bytewax/workflows/CI/badge.svg)](https://github.com/bytewax/bytewax/actions)
+<p align='center'>
+<a href="https://github.com/bytewax/bytewax/actions"><img src="https://github.com/bytewax/bytewax/workflows/CI/badge.svg"></a>
+<br>
 [![PyPI](https://img.shields.io/pypi/v/bytewax.svg?style=flat-square)](https://pypi.org/project/bytewax/)
 [![User Guide](https://img.shields.io/badge/user-guide-brightgreen?style=flat-square)](https://docs.bytewax.io/stable/guide/index.html)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/bytewax/bytewax/blob/main/LICENSE)
-
+</p>
 
 
 **Bytewax** is a Python framework and Rust-based distributed processing engine for stateful event and stream processing. Inspired by capabilities found in tools like Apache Flink, Spark, and Kafka Streams, Bytewax makes stream processing simpler and more accessible by integrating directly with the Python ecosystem you already know and trust.
