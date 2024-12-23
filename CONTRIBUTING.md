@@ -4,7 +4,7 @@ Thank you for investing your time in contributing to our project! Any
 contribution you make will be included in future Bytewax releases ✨.
 
 To get an overview of the project, read the
-[README](https://github.com/bytewax/bytewax/README.md)
+[README](https://github.com/bytewax/bytewax/blob/main/README.md)
 
 Read our [Code of
 Conduct](https://github.com/bytewax/bytewax/blob/main/CODE_OF_CONDUCT.md) to
