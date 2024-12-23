@@ -126,7 +126,7 @@ $ python -m bytewax.run -w3 simple
 ### Adding workers with waxctl
 
 ```console
-$ waxctl run simple.py --workers=4
+$ waxctl run simple.py --workers=3
 ```
 
 (xref-cluster)=

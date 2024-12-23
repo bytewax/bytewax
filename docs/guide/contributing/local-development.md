@@ -58,6 +58,15 @@ but I recommend installing it through either
 [`brew`](https://brew.sh/) on macOS or
 [`pipx`](https://pipx.pypa.io/stable/).
 
+### Install `cbfmt`
+
+We use [`cbfmt`](https://github.com/lukas-reineke/cbfmt) as a formatter for codeblocks
+within markdown files. If you have installed the Rust toolchain it can be installed by running
+
+```console
+cargo install cbfmt
+```
+
 (xref-dev-venv)=
 ## Setup the Reproducible Development Virtual Environment
 

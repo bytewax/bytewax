@@ -78,7 +78,6 @@ In our example data, we'll use the `user_id` field.
 ```{testcode}
 from bytewax import operators as op
 
-from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSource
 
