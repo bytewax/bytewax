@@ -1,307 +1,212 @@
-[![Actions Status](https://github.com/bytewax/bytewax/workflows/CI/badge.svg)](https://github.com/bytewax/bytewax/actions)
-[![PyPI](https://img.shields.io/pypi/v/bytewax.svg?style=flat-square)](https://pypi.org/project/bytewax/)
-[![Bytewax User Guide](https://img.shields.io/badge/user-guide-brightgreen?style=flat-square)](https://docs.bytewax.io/stable/guide/index.html)
+# Bytewax: Python Stateful Stream Processing Framework
 
+<div align='center'>
+ <a href="https://bytewax.io/">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/bytewax/bytewax/assets/53014647/cd47293b-72c9-423c-b010-2c4990206c60" width="350">
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/bytewax/bytewax/assets/53014647/f376c9e8-5bd4-4563-ba40-3df8761b13fc" width="350">
-  <img alt="Bytewax">
+  <img alt="Bytewax" src="https://github.com/bytewax/bytewax/assets/53014647/f376c9e8-5bd4-4563-ba40-3df8761b13fc" width="350">
 </picture>
+</a>
+</div>
 
-## Python Stateful Stream Processing Framework
+<p align='center'>
+<a href="https://github.com/bytewax/bytewax/actions"><img src="https://github.com/bytewax/bytewax/workflows/CI/badge.svg"></a>
+<a href="https://pypi.org/project/bytewax/"><img src="https://img.shields.io/pypi/v/bytewax.svg?style=flat-square"></a>
+<a href="https://docs.bytewax.io/stable/guide/index.html"><img src="https://img.shields.io/badge/user-guide-brightgreen?style=flat-square"></a>
+<a href="https://github.com/bytewax/bytewax/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+</p>
 
-Bytewax is a Python framework that simplifies event and stream processing. Because Bytewax couples the stream and event processing capabilities of Flink, Spark, and Kafka Streams with the friendly and familiar interface of Python, you can re-use the Python libraries you already know and love. Connect data sources, run stateful transformations and write to various different downstream systems with built-in connectors or existing Python libraries.
-<img width="1303" alt="Bytewax Dataflow Animation" src="https://github.com/bytewax/bytewax/assets/156834296/4e314f17-38ab-4e72-9268-a48ddee7a201">
 
-### How it all works
+**Bytewax** is a Python framework and Rust-based distributed processing engine for stateful event and stream processing. Inspired by capabilities found in tools like Apache Flink, Spark, and Kafka Streams, Bytewax makes stream processing simpler and more accessible by integrating directly with the Python ecosystem you already know and trust.
 
-Bytewax is a Python framework and Rust distributed processing engine that uses a dataflow computational model to provide parallelizable stream processing and event processing capabilities similar to Flink, Spark, and Kafka Streams. You can use Bytewax for a variety of workloads from moving data à la Kafka Connect style all the way to advanced online machine learning workloads. Bytewax is not limited to streaming applications but excels anywhere that data can be distributed at the input and output.
-
-Bytewax has an accompanying command line interface, [waxctl](https://docs.bytewax.io/stable/guide/deployment/waxctl.html), which supports the deployment of dataflows on cloud servers or Kubernetes. You can download it [here](https://bytewax.io/waxctl).
+**Key Features:**
+- **Python-first:** Leverage your existing Python libraries, frameworks, and tooling.
+- **Stateful Stream Processing:** Maintain and recover state automatically, enabling advanced online machine learning and complex event-driven applications.
+- **Scalable & Distributed:** Easily scale from local development to multi-node, multi-worker deployments on Kubernetes or other infrastructures.
+- **Rich Connector Ecosystem:** Ingest data from sources like Kafka, filesystems, or WebSockets, and output to data lakes, key-value stores, or other systems.
+- **Flexible Dataflow API:** Compose pipelines using operators (e.g., `map`, `filter`, `join`, `fold_window`) to express complex logic.
 
 ---
 
-### Getting Started with Bytewax
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [How Bytewax Works](#how-bytewax-works)
+- [Operators Overview](#operators-overview)
+- [Connectors (Module Hub)](#connectors-module-hub)
+- [Local Development, Testing, and Production](#local-development-testing-and-production)
+- [Deployment Options](#deployment-options)
+  - [Running Locally](#running-locally)
+  - [Containerized Execution](#containerized-execution)
+  - [Scaling on Kubernetes](#scaling-on-kubernetes)
+- [Examples](#examples)
+- [Community and Contributing](#community-and-contributing)
+- [License](#license)
+
+---
+
+## Quick Start
+
+Install Bytewax from PyPI:
 
 ```sh
 pip install bytewax
 ```
 
-[_Install waxctl_](https://bytewax.io/waxctl)
+[Install `waxctl`](https://bytewax.io/waxctl) to manage deployments at scale.
 
-#### Dataflow, Input and Operators
-
-A Bytewax dataflow is Python code that will represent an input, a series of processing steps, and an output. The inputs could range from a Kafka stream to a WebSocket and the outputs could vary from a data lake to a key-value store.
+**Minimal Example:**
 
 ```python
-import json
-
+from bytewax.dataflow import Dataflow
 from bytewax import operators as op
-from bytewax.connectors.kafka import operators as kop
-from bytewax.dataflow import Dataflow
-```
-
-Bytewax has input and output helpers for common input and output data sources but you can also create your own with the [Sink and Source API](https://docs.bytewax.io/stable/guide/advanced-concepts/custom-connectors.html).
-
-At a high-level, the dataflow compute model is one in which a program execution is conceptualized as data flowing through a series of operator-based steps. Operators like `map` and `filter` are the processing primitives of Bytewax. Each of them gives you a “shape” of data transformation, and you give them regular Python functions to customize them to a specific task you need. See the documentation for a list of the [available operators](https://docs.bytewax.io/stable/api/bytewax/bytewax.operators.html)
-
-```python
-BROKERS = ["localhost:19092"]
-IN_TOPICS = ["in_topic"]
-OUT_TOPIC = "out_topic"
-ERR_TOPIC = "errors"
-
-
-def deserialize(kafka_message):
-    return json.loads(kafka_message.value)
-
-
-def anonymize_email(event_data):
-    event_data["email"] = "@".join(["******", event_data["email"].split("@")[-1]])
-    return event_data
-
-
-def remove_bytewax(event_data):
-    return "bytewax" not in event_data["email"]
-
-
-flow = Dataflow("kafka_in_out")
-stream = kop.input("inp", flow, brokers=BROKERS, topics=IN_TOPICS)
-# we can inspect the stream coming from the kafka topic to view the items within on std out for debugging
-op.inspect("inspect-oks", stream.oks)
-# we can also inspect kafka errors as a separate stream and raise an exception when one is encountered
-errs = op.inspect("errors", stream.errs).then(op.raises, "crash-on-err")
-deser_msgs = op.map("deserialize", stream.oks, deserialize)
-anon_msgs = op.map("anon", deser_msgs, anonymize_email)
-filtered_msgs = op.filter("filter_employees", anon_msgs, remove_bytewax)
-processed = op.map("map", anon_msgs, lambda m: KafkaSinkMessage(None, json.dumps(m)))
-# and finally output the cleaned data to a new topic
-kop.output("out1", processed, brokers=BROKERS, topic=OUT_TOPIC)
-```
-
-#### Windowing, Reducing and Aggregating
-
-Bytewax is a stateful stream processing framework, which means that some operations remember information across multiple events. Windows and aggregations are also stateful, and can be reconstructed in the event of failure. Bytewax can be configured with different [state recovery mechanisms](https://docs.bytewax.io/stable/api/bytewax/bytewax.recovery.html) to durably persist state in order to recover from failure.
-
-There are multiple stateful operators available like `reduce`, `stateful_map` and `fold_window`. The complete list can be found in the [API documentation for all operators](https://docs.bytewax.io/stable/api/bytewax/bytewax.operators.html). Below we use the `fold_window` operator with a tumbling window based on system time to gather events and calculate the number of times events have occurred on a per-user basis.
-
-```python
-from datetime import datetime, timedelta, timezone
-
-from bytewax.dataflow import Dataflow
-import bytewax.operators.windowing as win
-from bytewax.operators.windowing import EventClock, TumblingWindower
 from bytewax.testing import TestingSource
 
-flow = Dataflow("window_eg")
+flow = Dataflow("quickstart")
 
-src = [
-    {"user_id": "123", "value": 5, "time": "2023-1-1T00:00:00Z"},
-    {"user_id": "123", "value": 7, "time": "2023-1-1T00:00:01Z"},
-    {"user_id": "123", "value": 2, "time": "2023-1-1T00:00:07Z"},
-]
-inp = op.input("inp", flow, TestingSource(src))
-keyed_inp = op.key_on("keyed_inp", inp, lambda x: x["user_id"])
+# Input: Local test source for demonstration
+inp = op.input("inp", flow, TestingSource([1, 2, 3, 4, 5]))
 
+# Transform: Filter even numbers and multiply by 10
+filtered = op.filter("keep_even", inp, lambda x: x % 2 == 0)
+results = op.map("multiply_by_10", filtered, lambda x: x * 10)
 
-# This function instructs the event clock on how to retrieve the
-# event's datetime from the input.
-# Note that the datetime MUST be UTC. If the datetime is using a different
-# representation, we would have to convert it here.
-def get_event_time(event):
-    return datetime.fromisoformat(event["time"])
-
-
-# Configure the `fold_window` operator to use the event time.
-clock = EventClock(get_event_time, wait_for_system_duration=timedelta(seconds=10))
-
-# And a 5 seconds tumbling window
-align_to = datetime(2023, 1, 1, tzinfo=timezone.utc)
-windower = TumblingWindower(align_to=align_to, length=timedelta(seconds=5))
-
-five_sec_buckets_win_out = win.collect_window(
-    "five_sec_buckets", keyed_inp, clock, windower
-)
-
-
-def calc_avg(bucket):
-    values = [event["value"] for event in bucket]
-    if len(values) > 0:
-        return sum(values) / len(values)
-    else:
-        return None
-
-
-five_sec_avgs = op.map_value("avg_in_bucket", five_sec_buckets_win_out.down, calc_avg)
+# Output: Print results to stdout
+op.inspect("print_results", results)
 ```
 
-#### Merges and Joins
-
-Merging or Joining multiple input streams is a common task for stream processing, Bytewax enables different types of joins to facilitate different patters.
-
-##### Merging Streams
-
-Merging streams is like concatenating, there is no logic and the resulting stream will potentially include heterogeneous records.
-
-```python
-from bytewax import operators as op
-
-from bytewax.connectors.stdio import StdOutSink
-from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource
-
-flow = Dataflow("merge")
-
-src_1 = [
-    {"user_id": "123", "name": "Bumble"},
-]
-inp1 = op.input("inp1", flow, TestingSource(src_1))
-
-src_2 = [
-    {"user_id": "123", "email": "bee@bytewax.com"},
-    {"user_id": "456", "email": "hive@bytewax.com"},
-]
-inp2 = op.input("inp2", flow, TestingSource(src_2))
-merged_stream = op.merge("merge", inp1, inp2)
-op.inspect("debug", merged_stream)
-```
-
-##### Joining Streams
-
-Joining streams is different than merging because it uses logic to join the records in the streams together. The joins in Bytewax can be running or not. A regular join in streaming is more closely related to an inner join in SQL in that the dataflow will emit data downstream from a join when all of the sides of the join have matched on the key.
-
-```python
-from bytewax import operators as op
-
-from bytewax.connectors.stdio import StdOutSink
-from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource
-
-flow = Dataflow("join")
-
-src_1 = [
-    {"user_id": "123", "name": "Bumble"},
-]
-inp1 = op.input("inp1", flow, TestingSource(src_1))
-keyed_inp_1 = op.key_on("key_stream_1", inp1, lambda x: x["user_id"])
-src_2 = [
-    {"user_id": "123", "email": "bee@bytewax.com"},
-    {"user_id": "456", "email": "hive@bytewax.com"},
-]
-inp2 = op.input("inp2", flow, TestingSource(src_2))
-keyed_inp_2 = op.key_on("key_stream_2", inp2, lambda x: x["user_id"])
-
-merged_stream = op.join("join", keyed_inp_1, keyed_inp_2)
-op.inspect("debug", merged_stream)
-```
-
-#### Output
-
-Output in Bytewax is described as a sink and these are grouped into [connectors](https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.html). There are a number of basic connectors in the Bytewax repo to help you during development. In addition to the built-in connectors, it is possible to use the input and output API to build a custom sink and source. There is also a hub for connectors built by the community, partners and Bytewax. Below is an example of a custom connector for Postgres using the psycopg2 library.
-
-% skip: next
-
-```python
-import psycopg2
-
-from bytewax import operators as op
-from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
-
-
-class PsqlSink(StatefulSinkPartition):
-    def __init__(self):
-        self.conn = psycopg2.connect("dbname=website user=bytewax")
-        self.conn.set_session(autocommit=True)
-        self.cur = self.conn.cursor()
-
-    def write_batch(self, values):
-        query_string = """
-            INSERT INTO events (user_id, data)
-            VALUES (%s, %s)
-            ON CONFLICT (user_id)
-            DO UPDATE SET data = %s;
-        """
-        self.cur.execute_values(query_string, values)
-
-    def snapshot(self):
-        pass
-
-    def close(self):
-        self.conn.close()
-
-
-class PsqlOutput(FixedPartitionedSink):
-    def list_parts(self):
-        return ["single"]
-
-    def build_part(step_id, for_part, resume_state):
-        return PsqlSink()
-```
-
-#### Execution
-
-Bytewax dataflows can be executed in a single Python process, or on multiple processes on multiple hosts with multiple worker threads. When processing data in a distributed fashion, Bytewax uses routing keys to ensure your state is updated in a correct way automatically.
+Run it locally:
 
 ```sh
-# a single worker locally
-python -m bytewax.run my_dataflow:flow
-
-# Start two worker threads in a single process.
-python -m bytewax.run my_dataflow -w 2
-
-# Start a process on two separate machines to form a Bytewax cluster.
-# Start the first process with two worker threads on `machine_one`.
-machine_one$ python -m bytewax.run my_dataflow -w 2 -i0 -a "machine_one:2101;machine_two:2101"
-
-# Then start the second process with three worker threads on `machine_two`.
-machine_two$ python -m bytewax.run my_dataflow -w 3 -i1 -a "machine_one:2101;machine_two:2101"
+python -m bytewax.run quickstart.py
 ```
 
-It can also be run in a Docker container as described further in the [documentation](https://docs.bytewax.io/stable/guide/deployment/container.html).
+---
 
-#### Kubernetes
+## How Bytewax Works
 
-The recommended way to run dataflows at scale is to leverage the [kubernetes ecosystem](https://docs.bytewax.io/stable/guide/deployment/waxctl.html). To help manage deployment, we built [waxctl](https://docs.bytewax.io/stable/guide/deployment/waxctl.html), which allows you to easily deploy dataflows that will run at huge scale across multiple compute nodes.
+Bytewax uses a **dataflow computational model**, similar to systems like Flink or Spark, but with a Pythonic interface. You define a dataflow graph of operators and connectors:
+
+1. **Input:** Data sources (Kafka, file systems, S3, WebSockets, custom connectors)
+2. **Operators:** Stateful transformations (map, filter, fold_window, join) defined in Python.
+3. **Output:** Data sinks (databases, storage systems, message queues).
+
+<img width="1303" alt="Bytewax Dataflow Animation" src="https://github.com/bytewax/bytewax/assets/156834296/4e314f17-38ab-4e72-9268-a48ddee7a201">
+
+**Stateful operations:** Bytewax maintains distributed state, allows for fault tolerance and state recovery, and supports event-time windowing for advanced analytics and machine learning workloads.
+
+**`waxctl`:** Bytewax’s CLI tool for deploying and managing dataflows on cloud servers or Kubernetes clusters. [Download `waxctl` here](https://bytewax.io/waxctl).
+
+---
+
+## Operators Overview
+
+Operators are the building blocks of Bytewax dataflows:
+
+- **Stateless Operators:** `map`, `filter`, `inspect`
+- **Stateful Operators:** `reduce`, `fold_window`, `stateful_map`
+- **Windowing & Aggregations:** Event-time, processing-time windows, tumbling, sliding, and session windows.
+- **Joins & Merges:** Combine multiple input streams with `merge`, `join`, or advanced join patterns.
+- **Premium Operators:**
+
+For a comprehensive list, see the [Operators API Documentation](https://docs.bytewax.io/stable/api/bytewax/bytewax.operators.html).
+
+---
+
+## Connectors
+
+Bytewax provides built-in connectors for common data sources and sinks such as Kafka, files, and stdout. You can also write your own [custom connectors](https://docs.bytewax.io/stable/guide/advanced-concepts/custom-connectors.html).
+
+**Examples of Built-in Connectors:**
+- **Kafka:** `bytewax.connectors.kafka`
+- **StdIn/StdOut:** `bytewax.connectors.stdio`
+- **Redis, S3, and More:** See [Bytewax connectors](https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.html).
+
+**Community & Partner Connectors:** Check out the [Bytewax Module Hub](https://docs.bytewax.io/stable/guide/connectors-hub.html) for additional connectors contributed by the community.
+
+---
+
+## Local Development, Testing, and Production
+
+**Local Development:**
+- Use `TestingSource` and `inspect` operators for debugging.
+- Iterate quickly by running your flow with `python -m bytewax.run my_flow.py`.
+- Develop custom connectors and sinks locally with Python tooling you already know.
+
+**Testing:**
+- Integration tests: Use `TestingSource` and run flows directly in CI environments.
+- Unit tests: Test individual functions and operators as normal Python code.
+- [More on Testing](https://docs.bytewax.io/stable/guide/contributing/testing.html)
+
+**Production:**
+- Scale horizontally by running multiple workers on multiple machines.
+- Integrate with Kubernetes for dynamic scaling, monitoring, and resilience.
+- Utilize `waxctl` for standardized deployments and lifecycle management.
+
+---
+
+## Deployment Options
+
+### Running Locally
+
+For experimentation and small-scale jobs:
+
+```sh
+python -m bytewax.run my_dataflow.py
+```
+
+Multiple workers and threads:
+
+```sh
+python -m bytewax.run my_dataflow.py -w 2
+```
+
+### Containerized Execution
+
+Run Bytewax inside Docker containers for easy integration with container platforms. See the [Bytewax Container Guide](https://docs.bytewax.io/stable/guide/deployment/container.html).
+
+### Scaling on Kubernetes
+
+Use `waxctl` to package and deploy Bytewax dataflows to Kubernetes clusters for production workloads:
 
 ```sh
 waxctl df deploy my_dataflow.py --name my-dataflow
 ```
 
-## Why Bytewax?
+[Learn more about Kubernetes deployment](https://docs.bytewax.io/stable/guide/deployment/waxctl.html).
 
-At a high level, Bytewax provides a few major benefits:
+### Scaling with the Bytewax Platform
 
-- The operators in Bytewax are largely “data-parallel”, meaning they can operate on independent parts of the data concurrently.
-- Bytewax offers the ability to express higher-level control constructs, like iteration.
-- Bytewax allows you to develop and run your code locally, and then easily scale that code to multiple workers or processes without changes.
-- Bytewax can be used in both a streaming and batch context
-- Ability to leverage the Python ecosystem directly
+Our commerically licensed Platform
 
-## Community
+---
 
-[Slack](https://join.slack.com/t/bytewaxcommunity/shared_invite/zt-vkos2f6r-_SeT9pF2~n9ArOaeI3ND2w) is the main forum for communication and discussion.
+## Examples
 
-[GitHub Issues](https://github.com/bytewax/bytewax/issues) is reserved only for actual issues. Please use the community Slack for discussions.
+- [User Guide](https://docs.bytewax.io/stable/guide/index.html): End-to-end tutorials and advanced topics.
+- [`/examples` Folder](examples): Additional sample dataflows and connector usage.
 
-[Code of Conduct](https://github.com/bytewax/bytewax/blob/main/CODE_OF_CONDUCT.md)
+---
 
-## More Examples
+## Community and Contributing
 
-For a more complete example, and documentation on the available operators, check out the [User Guide](https://docs.bytewax.io/stable/guide/index.html) and the [/examples](examples) folder.
+Join us on [Slack](https://join.slack.com/t/bytewaxcommunity/shared_invite/zt-vkos2f6r-_SeT9pF2~n9ArOaeI3ND2w) for support and discussion.
+
+Open issues on [GitHub Issues](https://github.com/bytewax/bytewax/issues) for bug reports and feature requests. (For general help, use Slack.)
+
+**Contributions Welcome:**
+- Check out the [Contribution Guide](https://docs.bytewax.io/stable/guide/contributing/contributing.html) to learn how to get started.
+- We follow a [Code of Conduct](https://github.com/bytewax/bytewax/blob/main/CODE_OF_CONDUCT.md).
+
+---
 
 ## License
 
 Bytewax is licensed under the [Apache-2.0](https://opensource.org/licenses/APACHE-2.0) license.
 
-## Contributing
+---
 
-Contributions are welcome! This community and project would not be what it is without the [contributors](https://github.com/bytewax/bytewax/graphs/contributors). All contributions, from bug reports to new features, are welcome and encouraged.
-
-Please view the [Contribution Guide](https://docs.bytewax.io/stable/guide/contributing/contributing.html) for how to get started.
-
-</br>
-</br>
-
-<p align="center"> With ❤️ Bytewax</p>
-<p align="center"><img src="https://user-images.githubusercontent.com/6073079/157482621-331ad886-df3c-4c92-8948-9e50accd38c9.png" /> </p>
-<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=07749572-3e76-4ac0-952b-d5dcf3bff737" />
+<p align="center">
+  Built with ❤️ by the Bytewax community
+</p>
