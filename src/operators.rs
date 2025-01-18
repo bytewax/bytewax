@@ -105,7 +105,7 @@ fn next_batch(
     in_batch: Vec<PyObject>,
 ) -> PyResult<()> {
     let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
-    let iter = res.iter().reraise_with(|| {
+    let iter = res.try_iter().reraise_with(|| {
         format!(
             "mapper must return an iterable; got a `{}` instead",
             unwrap_any!(res.get_type().name()),

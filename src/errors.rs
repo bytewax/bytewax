@@ -2,9 +2,8 @@ use std::panic::Location;
 
 use pyo3::exceptions::PyException;
 use pyo3::import_exception;
-use pyo3::prelude::*;
 use pyo3::types::PyTracebackMethods;
-use pyo3::PyDowncastError;
+use pyo3::DowncastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
@@ -143,7 +142,7 @@ impl<T> PythonException<T> for Result<T, Box<dyn std::error::Error>> {
     }
 }
 
-impl<T> PythonException<T> for Result<T, PyDowncastError<'_>> {
+impl<T> PythonException<T> for Result<T, DowncastError<'_, '_>> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
     }

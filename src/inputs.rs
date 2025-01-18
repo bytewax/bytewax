@@ -589,7 +589,7 @@ impl StatefulPartition {
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
             Ok(obj) => {
-                let iter = obj.iter().reraise_with(|| {
+                let iter = obj.try_iter().reraise_with(|| {
                     format!(
                         "`next_batch` must return an iterable; got a `{}` instead",
                         unwrap_any!(obj.get_type().name()),
@@ -866,7 +866,7 @@ impl StatelessPartition {
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
             Ok(obj) => {
-                let iter = obj.iter().reraise_with(|| {
+                let iter = obj.try_iter().reraise_with(|| {
                     format!(
                         "`next_batch` must return an iterable; got a `{}` instead",
                         unwrap_any!(obj.get_type().name()),
