@@ -90,7 +90,7 @@ impl serde::Serialize for TdPyAny {
             let x = self.bind(py);
             let pickle = PICKLE_MODULE
                 .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
-                    Ok(py.import_bound("pickle")?.unbind())
+                    Ok(py.import("pickle")?.unbind())
                 })
                 .map_err(S::Error::custom)?;
             let binding = pickle
@@ -119,7 +119,7 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import_bound("pickle")?;
+            let pickle = py.import("pickle")?;
             let x = pickle
                 .call_method1(intern!(py, "loads"), (bytes,))?
                 .unbind()

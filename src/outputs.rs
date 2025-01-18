@@ -36,7 +36,7 @@ pub(crate) struct Sink(Py<PyAny>);
 impl<'py> FromPyObject<'py> for Sink {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.outputs")?.getattr("Sink")?;
+        let abc = py.import("bytewax.outputs")?.getattr("Sink")?;
         if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "sink must subclass `bytewax.outputs.Sink`",
@@ -77,7 +77,7 @@ impl<'py> FromPyObject<'py> for FixedPartitionedSink {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.outputs")?
+            .import("bytewax.outputs")?
             .getattr("FixedPartitionedSink")?;
         if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
@@ -125,7 +125,7 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.outputs")?
+            .import("bytewax.outputs")?
             .getattr("StatefulSinkPartition")?;
         if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
@@ -418,7 +418,7 @@ pub(crate) struct DynamicSink(Py<PyAny>);
 impl<'py> FromPyObject<'py> for DynamicSink {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.outputs")?.getattr("DynamicSink")?;
+        let abc = py.import("bytewax.outputs")?.getattr("DynamicSink")?;
         if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "dynamic sink must subclass `bytewax.outputs.DynamicSink`",
@@ -451,7 +451,7 @@ impl<'py> FromPyObject<'py> for StatelessPartition {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.outputs")?
+            .import("bytewax.outputs")?
             .getattr("StatelessSinkPartition")?;
         if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(

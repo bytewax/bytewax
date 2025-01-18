@@ -458,7 +458,7 @@ impl<'py> FromPyObject<'py> for StatefulBatchLogic {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.operators")?
+            .import("bytewax.operators")?
             .getattr("StatefulBatchLogic")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(

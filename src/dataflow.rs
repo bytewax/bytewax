@@ -11,7 +11,7 @@ pub(crate) struct Dataflow(PyObject);
 impl<'py> FromPyObject<'py> for Dataflow {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.dataflow")?.getattr("Dataflow")?;
+        let abc = py.import("bytewax.dataflow")?.getattr("Dataflow")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
@@ -44,7 +44,7 @@ pub(crate) struct Operator(PyObject);
 impl<'py> FromPyObject<'py> for Operator {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.dataflow")?.getattr("Operator")?;
+        let abc = py.import("bytewax.dataflow")?.getattr("Operator")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "operator must subclass `bytewax.dataflow.Operator`",
@@ -82,9 +82,7 @@ impl Operator {
     }
 
     pub(crate) fn is_core(&self, py: Python) -> PyResult<bool> {
-        let core_cls = py
-            .import_bound("bytewax.dataflow")?
-            .getattr("_CoreOperator")?;
+        let core_cls = py.import("bytewax.dataflow")?.getattr("_CoreOperator")?;
         self.0.bind(py).is_instance(&core_cls)
     }
 

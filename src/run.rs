@@ -41,7 +41,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
     // Since the dataflow can't change at runtime, we encode it as a
     // string of JSON once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
-        let vis_mod = PyModule::import_bound(py, "bytewax.visualize")?;
+        let vis_mod = PyModule::import(py, "bytewax.visualize")?;
         let to_json = vis_mod.getattr("to_json")?;
 
         let dataflow_json = to_json
@@ -151,10 +151,7 @@ pub(crate) fn run_main(
         eprintln!();
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
             // Special case for keyboard interrupt.
-            if err
-                .get_type_bound(py)
-                .is(&PyType::new_bound::<PyKeyboardInterrupt>(py))
-            {
+            if err.get_type(py).is(&PyType::new::<PyKeyboardInterrupt>(py)) {
                 tracked_err::<PyKeyboardInterrupt>(
                     "interrupt signal received, all processes have been shut down",
                 )

@@ -1525,7 +1525,7 @@ where
         // Effectively map-with-epoch.
         self.unary(Pipeline, "ser_snap", move |_init_cap, _info| {
             let mut inbuf = Vec::new();
-            let pickle = Python::with_gil(|py| unwrap_any!(py.import_bound("pickle")).unbind());
+            let pickle = Python::with_gil(|py| unwrap_any!(py.import("pickle")).unbind());
 
             move |snaps_input, ser_snaps_output| {
                 snaps_input.for_each(|cap, incoming| {
@@ -1594,12 +1594,9 @@ where
                 let snap_change = match ser_change {
                     Some(ser_snap) => {
                         let snap = unwrap_any!(Python::with_gil(|py| -> PyResult<PyObject> {
-                            let pickle = py.import_bound("pickle")?;
+                            let pickle = py.import("pickle")?;
                             Ok(pickle
-                                .call_method1(
-                                    intern!(py, "loads"),
-                                    (PyBytes::new_bound(py, &ser_snap),),
-                                )?
+                                .call_method1(intern!(py, "loads"), (PyBytes::new(py, &ser_snap),))?
                                 .unbind())
                         }));
                         StateChange::Upsert(snap.into())
@@ -1937,15 +1934,12 @@ pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RecoveryConfig>()?;
     m.add(
         "InconsistentPartitionsError",
-        py.get_type_bound::<InconsistentPartitionsError>(),
+        py.get_type::<InconsistentPartitionsError>(),
     )?;
     m.add(
         "MissingPartitionsError",
-        py.get_type_bound::<MissingPartitionsError>(),
+        py.get_type::<MissingPartitionsError>(),
     )?;
-    m.add(
-        "NoPartitionsError",
-        py.get_type_bound::<NoPartitionsError>(),
-    )?;
+    m.add("NoPartitionsError", py.get_type::<NoPartitionsError>())?;
     Ok(())
 }

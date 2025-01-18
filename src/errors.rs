@@ -167,7 +167,7 @@ fn build_message(py: Python, caller: &Location, err: &PyErr, msg: &str) -> Strin
 }
 
 fn get_traceback(py: Python, err: &PyErr) -> Option<String> {
-    err.traceback_bound(py).map(|tb| {
+    err.traceback(py).map(|tb| {
         tb.format()
             .unwrap_or_else(|_| "Unable to print traceback".to_string())
     })
