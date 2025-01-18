@@ -15,6 +15,7 @@ use std::hash::Hash;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::OnceLock;
 
 use chrono::TimeDelta;
 use pyo3::create_exception;
@@ -24,7 +25,6 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -327,7 +327,7 @@ impl RecoveryConfig {
     /// Build the Rust-side bundle from the Python-side recovery
     /// config.
     #[instrument(name = "build_recovery", skip_all)]
-    pub(crate) fn build(&self, py: Python) -> PyResult<(RecoveryBundle, BackupInterval)> {
+    pub(crate) fn build(&self) -> PyResult<(RecoveryBundle, BackupInterval)> {
         let mut part_paths = HashMap::new();
         let sqlite_ext = OsStr::new("sqlite3");
         if !self.db_dir.is_dir() {
@@ -339,8 +339,7 @@ impl RecoveryConfig {
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
             let path = entry.reraise("Error accessing recovery DB file")?.path();
             if path.extension().map_or(false, |ext| *ext == *sqlite_ext) {
-                let part =
-                    RecoveryPart::open(py, &path).reraise("Error opening recovery DB file")?;
+                let part = RecoveryPart::open(&path).reraise("Error opening recovery DB file")?;
                 let mut part_loader = part.part_loader();
                 while let Some(batch) = part_loader.next_batch() {
                     for PartitionMeta(index, _count) in batch {
@@ -412,7 +411,9 @@ impl RecoveryBundle {
                             panic!("Trying to build RecoveryPartition for {part_key:?} but no path is known");
                         });
 
-                    let part = unwrap_any!(Python::with_gil(|py| RecoveryPart::open(py, path)));
+                    let part = RecoveryPart::open(path).unwrap_or_else(|err| {
+                        panic!("Trying to build RecoveryPartition for {part_key:?} but error opening: {err}");
+                    });
 
                     Rc::new(RefCell::new(part))
                 })
@@ -443,13 +444,10 @@ struct RecoveryPart {
 
 // The `'static` lifetime within [`Migrations`] is saying that the
 // [`str`]s composing the migrations are `'static`.
-//
-// Use [`GILOnceCell`] so we don't have to bring in a `lazy_static`
-// crate dep.
-static MIGRATIONS: GILOnceCell<Migrations<'static>> = GILOnceCell::new();
+static MIGRATIONS: OnceLock<Migrations<'static>> = OnceLock::new();
 
-fn get_migrations(py: Python) -> &Migrations<'static> {
-    MIGRATIONS.get_or_init(py, || {
+fn get_migrations() -> &'static Migrations<'static> {
+    MIGRATIONS.get_or_init(|| {
         Migrations::new(vec![
             M::up(
                 "CREATE TABLE parts (
@@ -511,11 +509,11 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
 #[test]
 fn migrations_valid() -> rusqlite_migration::Result<()> {
     pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| get_migrations(py).validate())
+    get_migrations().validate()
 }
 
 /// Setup our connection-level pragmas. Run this on each connection.
-fn setup_conn(py: Python, conn: &Rc<RefCell<Connection>>) {
+fn setup_conn(conn: &Rc<RefCell<Connection>>) {
     let mut conn = conn.borrow_mut();
 
     rusqlite::vtab::series::load_module(&conn).unwrap();
@@ -523,7 +521,7 @@ fn setup_conn(py: Python, conn: &Rc<RefCell<Connection>>) {
     // These are recommended by Litestream.
     conn.pragma_update(None, "journal_mode", "WAL").unwrap();
     conn.pragma_update(None, "busy_timeout", "5000").unwrap();
-    get_migrations(py).to_latest(&mut conn).unwrap();
+    get_migrations().to_latest(&mut conn).unwrap();
 }
 
 struct PartitionMetaWriter {
@@ -987,7 +985,7 @@ impl Committer<u64> for RecoveryCommitter {
 #[test]
 fn gc_leaves_only_final_snap() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let conn = RecoveryPart::init_open_mem();
     conn.snap_writer().write_batch(vec![
         SerializedSnapshot(
             StepId(String::from("step_1")),
@@ -1067,7 +1065,7 @@ create_exception!(
 );
 
 impl RecoveryPart {
-    fn init(py: Python, file: &Path, index: PartitionIndex, count: PartitionCount) -> PyResult<()> {
+    fn init(file: &Path, index: PartitionIndex, count: PartitionCount) -> PyResult<()> {
         tracing::debug!("Init recovery partition {index:?} / {count:?} at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
@@ -1078,7 +1076,7 @@ impl RecoveryPart {
             )
             .reraise("can't open recovery DB")?,
         ));
-        setup_conn(py, &conn);
+        setup_conn(&conn);
 
         let _self = Self { conn };
         _self
@@ -1088,7 +1086,7 @@ impl RecoveryPart {
         Ok(())
     }
 
-    fn open(py: Python, file: &Path) -> PyResult<Self> {
+    fn open(file: &Path) -> PyResult<Self> {
         tracing::debug!("Opening recovery partition at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
@@ -1097,14 +1095,14 @@ impl RecoveryPart {
             )
             .reraise("can't open recovery DB")?,
         ));
-        setup_conn(py, &conn);
+        setup_conn(&conn);
 
         Ok(Self { conn })
     }
 
-    fn init_open_mem(py: Python) -> Self {
+    fn init_open_mem() -> Self {
         let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
-        setup_conn(py, &conn);
+        setup_conn(&conn);
 
         Self { conn }
     }
@@ -1274,7 +1272,7 @@ impl RecoveryPart {
 #[test]
 fn resume_from_only_parts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
 
@@ -1286,7 +1284,7 @@ fn resume_from_only_parts() {
 #[test]
 fn resume_from_all_explict_fronts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
@@ -1310,7 +1308,7 @@ fn resume_from_all_explict_fronts() {
 #[test]
 fn resume_from_default_fronts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
@@ -1334,7 +1332,7 @@ fn resume_from_default_fronts() {
 fn resume_from_inconsistent_error() {
     pyo3::prepare_freethreaded_python();
     Python::with_gil(|py| {
-        let conn = RecoveryPart::init_open_mem(py);
+        let conn = RecoveryPart::init_open_mem();
         conn.part_writer().write_batch(vec![
             PartitionMeta(PartitionIndex(0), PartitionCount(2)),
             PartitionMeta(PartitionIndex(1), PartitionCount(2)),
@@ -1368,7 +1366,7 @@ fn resume_from_inconsistent_error() {
 ///
 /// :type count: int
 #[pyfunction]
-fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
+fn init_db_dir(db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
     tracing::warn!("Creating {count:?} recovery partitions in {db_dir:?}");
     if !db_dir.is_dir() {
         return Err(PyFileNotFoundError::new_err(format!(
@@ -1378,7 +1376,7 @@ fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<(
     }
     for index in count.iter() {
         let part_file = db_dir.join(format!("part-{}.sqlite3", index.0));
-        RecoveryPart::init(py, &part_file, index, count)
+        RecoveryPart::init(&part_file, index, count)
             .reraise("error init-ing recovery partition")?;
     }
     Ok(())
@@ -1829,8 +1827,8 @@ impl ReadProgressOp for RecoveryBundle {
 pub(crate) struct ResumeCalc(RecoveryPart);
 
 impl ResumeCalc {
-    pub(crate) fn new(py: Python) -> Self {
-        Self(RecoveryPart::init_open_mem(py))
+    pub(crate) fn new() -> Self {
+        Self(RecoveryPart::init_open_mem())
     }
 
     pub(crate) fn resume_from(&self) -> PyResult<ResumeFrom> {
