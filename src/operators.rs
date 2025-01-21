@@ -391,7 +391,7 @@ where
                             for item in inbuf.drain(..) {
                                 let item = item.into_py(py);
                                 let (key, value) = item
-                                    .extract::<(&PyAny, PyObject)>(py)
+                                    .extract::<(Bound<'_, PyAny>, PyObject)>(py)
                                     .raise_with::<PyTypeError>(|| {
                                         format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
                                             unwrap_any!(item.bind(py).get_type().name()),
@@ -495,12 +495,14 @@ impl<'py> FromPyObject<'py> for IsComplete {
 
 impl StatefulBatchLogic {
     fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
-            format!(
-                "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
-                unwrap_any!(res.get_type().name())
-            )
-        })?;
+        let (iter, is_complete) = res
+            .extract::<(Bound<'_, PyAny>, Bound<'_, PyAny>)>()
+            .reraise_with(|| {
+                format!(
+                    "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
+                    unwrap_any!(res.get_type().name())
+                )
+            })?;
         let is_complete = is_complete.extract::<IsComplete>()?;
         let emit = iter.extract::<Vec<_>>().reraise_with(|| {
             format!(
