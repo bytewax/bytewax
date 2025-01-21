@@ -44,7 +44,7 @@ impl TdPyAny {
         self.0.bind(py)
     }
 
-    pub(crate) fn into_py<'py>(self, py: Python<'py>) -> PyObject {
+    pub(crate) fn into_py(self, py: Python<'_>) -> PyObject {
         match Arc::try_unwrap(self.0) {
             Ok(x) => x,
             Err(self_) => self_.clone_ref(py),
@@ -204,9 +204,6 @@ pub(crate) trait OptionPyExt {
 
 impl<T> OptionPyExt for Option<Py<T>> {
     fn cloned_ref(&self, py: Python) -> Self {
-        match self {
-            Some(x) => Some(x.clone_ref(py)),
-            None => None,
-        }
+        self.as_ref().map(|x| x.clone_ref(py))
     }
 }
