@@ -29,6 +29,7 @@ use crate::unwrap_any;
 use crate::with_timer;
 
 /// Represents a `bytewax.outputs.Sink` from Python.
+#[derive(IntoPyObject)]
 pub(crate) struct Sink(Py<PyAny>);
 
 /// Do some eager type checking.
@@ -43,18 +44,6 @@ impl<'py> FromPyObject<'py> for Sink {
         } else {
             Ok(Self(ob.to_object(py)))
         }
-    }
-}
-
-impl IntoPy<Py<PyAny>> for Sink {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
-    }
-}
-
-impl ToPyObject for Sink {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
     }
 }
 

@@ -61,9 +61,9 @@ impl From<PyObject> for TdPyAny {
     }
 }
 
-impl From<Bound<'_, PyAny>> for TdPyAny {
-    fn from(x: Bound<'_, PyAny>) -> Self {
-        Self(Arc::new(x.unbind()))
+impl<'py, T> From<Bound<'py, T>> for TdPyAny {
+    fn from(x: Bound<'py, T>) -> Self {
+        Self(Arc::new(x.into_any().unbind()))
     }
 }
 

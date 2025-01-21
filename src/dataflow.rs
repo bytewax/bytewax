@@ -5,6 +5,7 @@ use pyo3::types::PyDict;
 use crate::errors::PythonException;
 use crate::recovery::StepId;
 
+#[derive(IntoPyObject)]
 pub(crate) struct Dataflow(PyObject);
 
 /// Do some eager type checking.
@@ -19,12 +20,6 @@ impl<'py> FromPyObject<'py> for Dataflow {
         } else {
             Ok(Self(ob.to_object(py)))
         }
-    }
-}
-
-impl IntoPy<Py<PyAny>> for Dataflow {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
     }
 }
 

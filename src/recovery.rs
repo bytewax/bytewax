@@ -152,18 +152,12 @@ pub(crate) struct CommitMeta(PartitionIndex, u64);
 /// can ensure that there's some resume epoch shared by all partitions
 /// we can use when resuming from a backup that might not be the most
 /// recent.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, IntoPyObject)]
 pub(crate) struct BackupInterval(TimeDelta);
 
 impl Default for BackupInterval {
     fn default() -> Self {
         Self(TimeDelta::zero())
-    }
-}
-
-impl IntoPy<Py<PyAny>> for BackupInterval {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
     }
 }
 
@@ -202,20 +196,8 @@ impl Default for ResumeFrom {
 ///
 /// Recovery data is keyed off of this to ensure state is not mixed
 /// between operators.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, FromPyObject)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, IntoPyObject, FromPyObject)]
 pub(crate) struct StepId(pub(crate) String);
-
-impl IntoPy<Py<PyAny>> for StepId {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
-    }
-}
-
-impl ToPyObject for StepId {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
-    }
-}
 
 /// Displays the step ID in quotes.
 impl std::fmt::Display for StepId {
@@ -237,15 +219,19 @@ impl std::fmt::Display for StepId {
 /// we can't guarantee those things are correct on any arbitrary
 /// Python type.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, FromPyObject,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    IntoPyObject,
+    FromPyObject,
 )]
 pub(crate) struct StateKey(pub(crate) String);
-
-impl IntoPy<Py<PyAny>> for StateKey {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
-    }
-}
 
 impl std::fmt::Display for StateKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

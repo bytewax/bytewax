@@ -104,6 +104,7 @@ create_exception!(
 );
 
 /// Represents a `bytewax.inputs.Source` from Python.
+#[derive(IntoPyObject)]
 pub(crate) struct Source(Py<PyAny>);
 
 /// Do some eager type checking.
@@ -118,18 +119,6 @@ impl<'py> FromPyObject<'py> for Source {
         } else {
             Ok(Self(ob.to_object(py)))
         }
-    }
-}
-
-impl IntoPy<Py<PyAny>> for Source {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
-    }
-}
-
-impl ToPyObject for Source {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
     }
 }
 
