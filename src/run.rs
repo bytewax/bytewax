@@ -26,6 +26,7 @@ use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::metrics::initialize_metrics;
+use crate::pyo3_extensions::OptionPyExt;
 use crate::recovery::RecoveryConfig;
 use crate::unwrap_any;
 use crate::webserver::run_webserver;
@@ -308,8 +309,8 @@ pub(crate) fn cluster_main(
             other,
             timely::WorkerConfig::default(),
             move |worker| {
-                let flow = Python::with_gil(|py| flow.clone_ref(py));
-                let recovery_config = recovery_config.clone();
+                let (flow, recovery_config) =
+                    Python::with_gil(|py| (flow.clone_ref(py), recovery_config.cloned_ref(py)));
 
                 unwrap_any!(worker_main(
                     worker,

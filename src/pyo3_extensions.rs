@@ -10,6 +10,7 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
+use std::sync::Arc;
 
 static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
@@ -19,34 +20,50 @@ static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 /// [`PyObject`] or bind it into a [`Bound`]. This should only exist
 /// within the dataflow.
 ///
-/// A newtype for [`Py`]<[`PyAny`]> so we can
-/// extend it with traits that Timely needs. See
+/// A newtype for [`Py`]`<`[`PyAny`]`>` so we can extend it with
+/// traits that Timely needs. See
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
+///
+/// This needs to be [`Arc`]`<`[`PyObject`]`>` because [`PyObject`] is
+/// not [`Clone`] because it's not possible to arbitrarily clone
+/// without holding the GIL. We expose an API such that we must have
+/// the GIL to convert to [`PyObject`] for use in logic calls which
+/// "collapses" all of the outstanding [`Arc`] references back to a
+/// single [`PyObject`] reference while we have the GIL.
+///
+/// This can still cause memory leaks (which is technically not
+/// unsoundness) unless we have the GIL during `drop`. To avoid this
+/// with this current API, every [`TdPyAny`] instance should "end"
+/// with `into_py`, but we currently can't do that because Timely
+/// serializes and drops the value on exchange. See
+/// https://pyo3.rs/v0.23.4/migration.html#pyclone-is-now-gated-behind-the-py-clone-feature
+/// for more info.
 #[derive(Clone)]
-pub(crate) struct TdPyAny(PyObject);
+pub(crate) struct TdPyAny(Arc<PyObject>);
 
 impl TdPyAny {
     pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
         self.0.bind(py)
     }
-}
 
-impl From<TdPyAny> for PyObject {
-    fn from(x: TdPyAny) -> Self {
-        x.0
+    pub(crate) fn into_py<'py>(self, py: Python<'py>) -> PyObject {
+        match Arc::try_unwrap(self.0) {
+            Ok(x) => x,
+            Err(self_) => self_.clone_ref(py),
+        }
     }
 }
 
 impl From<PyObject> for TdPyAny {
     fn from(x: PyObject) -> Self {
-        Self(x)
+        Self(Arc::new(x))
     }
 }
 
 impl From<Bound<'_, PyAny>> for TdPyAny {
     fn from(x: Bound<'_, PyAny>) -> Self {
-        Self(x.unbind())
+        Self(Arc::new(x.unbind()))
     }
 }
 
@@ -198,4 +215,17 @@ impl TdPyCallable {
 // The function returns one of the possible subclasses instances.
 pub(crate) trait PyConfigClass<S> {
     fn downcast(&self, py: Python) -> PyResult<S>;
+}
+
+pub(crate) trait OptionPyExt {
+    fn cloned_ref(&self, py: Python) -> Self;
+}
+
+impl<T> OptionPyExt for Option<Py<T>> {
+    fn cloned_ref(&self, py: Python) -> Self {
+        match self {
+            Some(x) => Some(x.clone_ref(py)),
+            None => None,
+        }
+    }
 }

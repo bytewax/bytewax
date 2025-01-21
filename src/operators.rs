@@ -197,7 +197,7 @@ where
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let batch: Vec<_> =
-                                        batch.into_iter().map(PyObject::from).collect();
+                                        batch.into_iter().map(|x| x.into_py(py)).collect();
                                     let mapper = mapper.bind(py);
 
                                     with_timer!(
@@ -389,7 +389,7 @@ where
                         let mut downstream_session = downstream_handle.session(&time);
                         unwrap_any!(|| -> PyResult<()> {
                             for item in inbuf.drain(..) {
-                                let item = PyObject::from(item);
+                                let item = item.into_py(py);
                                 let (key, value) = item
                                     .extract::<(&PyAny, PyObject)>(py)
                                     .raise_with::<PyTypeError>(|| {
@@ -428,11 +428,13 @@ where
 {
     fn wrap_key(&self) -> Stream<S, TdPyAny> {
         self.map(move |(key, value)| {
-            let value = PyObject::from(value);
+            Python::with_gil(|py| {
+                let value = value.into_py(py);
 
-            let item = Python::with_gil(|py| IntoPy::<PyObject>::into_py((key, value), py));
+                let item = IntoPy::<PyObject>::into_py((key, value), py);
 
-            TdPyAny::from(item)
+                TdPyAny::from(item)
+            })
         })
     }
 }
@@ -755,13 +757,13 @@ where
                             if let Some(items) = inbuf.remove(&epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
 
-                                let mut keyed_items: BTreeMap<StateKey, Vec<PyObject>> = BTreeMap::new();
-                                for (worker, (key, value)) in items {
-                                    assert!(worker == this_worker);
-                                    keyed_items.entry(key).or_default().push(PyObject::from(value));
-                                }
-
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    let mut keyed_items: BTreeMap<StateKey, Vec<PyObject>> = BTreeMap::new();
+                                    for (worker, (key, value)) in items {
+                                        assert!(worker == this_worker);
+                                        keyed_items.entry(key).or_default().push(value.into_py(py));
+                                    }
+
                                     let builder = builder.bind(py);
 
                                     for (key, values) in keyed_items {
@@ -981,7 +983,7 @@ where
                                             assert!(worker == this_worker);
                                             match change {
                                                 StateChange::Upsert(state) => {
-                                                    let state: PyObject = state.into();
+                                                    let state = state.into_py(py);
 
                                                     let logic = builder
                                                         .call1((Some(state),))?

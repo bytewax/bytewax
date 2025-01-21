@@ -1538,7 +1538,7 @@ where
                                 .map(|Snapshot(step_id, state_key, snap_change)| {
                                     let ser_change = match snap_change {
                                         StateChange::Upsert(snap) => {
-                                            let snap = PyObject::from(snap);
+                                            let snap = snap.into_py(py);
                                             let bytes = unwrap_any!(|| -> PyResult<Vec<u8>> {
                                                 Ok(pickle
                                                     .bind(py)

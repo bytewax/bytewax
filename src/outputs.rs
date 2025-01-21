@@ -29,7 +29,6 @@ use crate::unwrap_any;
 use crate::with_timer;
 
 /// Represents a `bytewax.outputs.Sink` from Python.
-#[derive(Clone)]
 pub(crate) struct Sink(Py<PyAny>);
 
 /// Do some eager type checking.
@@ -69,7 +68,6 @@ impl Sink {
 }
 
 /// Represents a `bytewax.outputs.PartitionedOutput` from Python.
-#[derive(Clone)]
 pub(crate) struct FixedPartitionedSink(Py<PyAny>);
 
 /// Do some eager type checking.
@@ -323,8 +321,10 @@ where
                                                     .reraise("error init StatefulSink"))
                                             });
 
-                                        let batch: Vec<_> =
-                                            items.into_iter().map(|(_k, v)| v.into()).collect();
+                                        let batch: Vec<_> = items
+                                            .into_iter()
+                                            .map(|(_k, v)| v.into_py(py))
+                                            .collect();
                                         item_inp_count.add(batch.len() as u64, &labels);
                                         with_timer!(
                                             write_batch_histogram,
@@ -374,31 +374,34 @@ where
                             assert!(awoken.is_empty());
 
                             if let Some(loads) = loads_inbuf.remove(epoch) {
-                                // If this worker was assigned to be
-                                // primary for a partition, build it.
-                                for (worker, (part_key, change)) in loads {
-                                    if worker == this_worker {
-                                        match change {
-                                            StateChange::Upsert(state) => {
-                                                let part = unwrap_any!(Python::with_gil(|py| {
-                                                    sink.build_part(
-                                                        py,
-                                                        &step_id,
-                                                        &part_key,
-                                                        Some(state.into()),
-                                                    )
-                                                    .reraise("error resuming StatefulSink")
-                                                }));
-                                                parts.insert(part_key, part);
+                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                    // If this worker was assigned to be
+                                    // primary for a partition, build it.
+                                    for (worker, (part_key, change)) in loads {
+                                        if worker == this_worker {
+                                            match change {
+                                                StateChange::Upsert(state) => {
+                                                    let part = sink
+                                                        .build_part(
+                                                            py,
+                                                            &step_id,
+                                                            &part_key,
+                                                            Some(state.into_py(py)),
+                                                        )
+                                                        .reraise("error resuming StatefulSink")?;
+                                                    parts.insert(part_key, part);
+                                                }
+                                                StateChange::Discard => {
+                                                    parts.remove(&part_key);
+                                                }
                                             }
-                                            StateChange::Discard => {
-                                                parts.remove(&part_key);
-                                            }
+                                        } else {
+                                            parts.remove(&part_key);
                                         }
-                                    } else {
-                                        parts.remove(&part_key);
                                     }
-                                }
+
+                                    Ok(())
+                                }));
                             }
                         },
                     );
@@ -411,7 +414,6 @@ where
 }
 
 /// Represents a `bytewax.outputs.DynamicSink` from Python.
-#[derive(Clone)]
 pub(crate) struct DynamicSink(Py<PyAny>);
 
 /// Do some eager type checking.
@@ -540,19 +542,23 @@ where
 
                         let mut output_session = output.session(&cap);
 
-                        let batch: Vec<PyObject> = tmp_incoming
-                            .split_off(0)
-                            .into_iter()
-                            .map(|item| item.into())
-                            .collect();
-                        item_inp_count.add(batch.len() as u64, &labels);
-                        with_timer!(
-                            write_batch_histogram,
-                            &labels,
-                            unwrap_any!(Python::with_gil(|py| sink
-                                .write_batch(py, batch)
-                                .reraise("error writing output batch")))
-                        );
+                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                            let batch: Vec<PyObject> = tmp_incoming
+                                .split_off(0)
+                                .into_iter()
+                                .map(|item| item.into_py(py))
+                                .collect();
+                            item_inp_count.add(batch.len() as u64, &labels);
+
+                            with_timer!(
+                                write_batch_histogram,
+                                &labels,
+                                sink.write_batch(py, batch)
+                                    .reraise("error writing output batch")
+                            )?;
+
+                            Ok(())
+                        }));
 
                         output_session.give(());
                     });

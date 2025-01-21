@@ -104,7 +104,6 @@ create_exception!(
 );
 
 /// Represents a `bytewax.inputs.Source` from Python.
-#[derive(Clone)]
 pub(crate) struct Source(Py<PyAny>);
 
 /// Do some eager type checking.
@@ -144,7 +143,6 @@ impl Source {
 }
 
 /// Represents a `bytewax.inputs.FixedPartitionedSource` from Python.
-#[derive(Clone)]
 pub(crate) struct FixedPartitionedSource(Py<PyAny>);
 
 /// Do some eager type checking.
@@ -338,7 +336,7 @@ impl FixedPartitionedSource {
                                         py,
                                         &step_id,
                                         &part_key,
-                                        Some(state.into())
+                                        Some(state.into_py(py))
                                     ).reraise_with(|| format!("error calling `FixedPartitionSource.build_part` in step {step_id} for partition {part_key}"))?;
                                     let next_awake = part.next_awake(py)
                                         .reraise_with(|| format!("error calling `StatefulSourcePartition.next_awake` in step {step_id} for partition {part_key}"))?;
@@ -629,7 +627,6 @@ impl Drop for StatefulPartition {
 }
 
 /// Represents a `bytewax.inputs.DynamicInput` from Python.
-#[derive(Clone)]
 pub(crate) struct DynamicSource(Py<PyAny>);
 
 /// Do some eager type checking.
