@@ -117,7 +117,7 @@ impl<'py> FromPyObject<'py> for Source {
                 "source must subclass `bytewax.inputs.Source`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -146,7 +146,7 @@ impl<'py> FromPyObject<'py> for FixedPartitionedSource {
                 "fixed partitioned source must subclass `bytewax.inputs.FixedPartitionedSource`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -558,7 +558,7 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
                 "stateful source partition must subclass `bytewax.inputs.StatefulSourcePartition`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -628,7 +628,7 @@ impl<'py> FromPyObject<'py> for DynamicSource {
                 "dynamic source must subclass `bytewax.inputs.DynamicSource`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -840,7 +840,7 @@ impl<'py> FromPyObject<'py> for StatelessPartition {
                 "stateless source partition must subclass `bytewax.inputs.StatelessSourcePartition`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }

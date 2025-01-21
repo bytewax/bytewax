@@ -468,7 +468,7 @@ impl<'py> FromPyObject<'py> for StatefulBatchLogic {
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }

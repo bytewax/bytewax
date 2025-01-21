@@ -42,7 +42,7 @@ impl<'py> FromPyObject<'py> for Sink {
                 "sink must subclass `bytewax.outputs.Sink`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -71,7 +71,7 @@ impl<'py> FromPyObject<'py> for FixedPartitionedSink {
                 "fixed partitioned sink must subclass `bytewax.outputs.FixedPartitionedSink`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -119,7 +119,7 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
                 "stateful sink partition must subclass `bytewax.outputs.StatefulSinkPartition`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -415,7 +415,7 @@ impl<'py> FromPyObject<'py> for DynamicSink {
                 "dynamic sink must subclass `bytewax.outputs.DynamicSink`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -449,7 +449,7 @@ impl<'py> FromPyObject<'py> for StatelessPartition {
                 "stateless sink partition must subclass `bytewax.outputs.StatelessSinkPartition`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }

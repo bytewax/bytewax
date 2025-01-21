@@ -18,7 +18,7 @@ impl<'py> FromPyObject<'py> for Dataflow {
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -45,7 +45,7 @@ impl<'py> FromPyObject<'py> for Operator {
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
