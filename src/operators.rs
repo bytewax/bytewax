@@ -15,7 +15,6 @@ use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
-use timely::dataflow::operators::Map;
 use timely::dataflow::operators::ToStream;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -383,31 +382,30 @@ where
             move |_frontiers| {
                 let mut downstream_handle = downstream_output.activate();
 
-                Python::with_gil(|py| {
-                    self_handle.for_each(|time, data| {
-                        data.swap(&mut inbuf);
-                        let mut downstream_session = downstream_handle.session(&time);
-                        unwrap_any!(|| -> PyResult<()> {
-                            for item in inbuf.drain(..) {
-                                let item = item.into_py(py);
-                                let (key, value) = item
-                                    .extract::<(Bound<'_, PyAny>, PyObject)>(py)
-                                    .raise_with::<PyTypeError>(|| {
-                                        format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
+                self_handle.for_each(|time, data| {
+                    data.swap(&mut inbuf);
+                    let mut downstream_session = downstream_handle.session(&time);
+                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                        for item in inbuf.drain(..) {
+                            let item = item.into_py(py);
+                            let (key, value) = item
+                                .extract::<(Bound<'_, PyAny>, PyObject)>(py)
+                                .raise_with::<PyTypeError>(|| {
+                                    format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
                                             unwrap_any!(item.bind(py).get_type().name()),
-                                        )
-                                    })?;
-
-                                let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
-                                    format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
-                                        unwrap_any!(key.get_type().name()),
                                     )
                                 })?;
-                                downstream_session.give((key, TdPyAny::from(value)));
-                            }
-                            Ok(())
-                        }());
-                    });
+
+                            let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
+                                format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
+                                        unwrap_any!(key.get_type().name()),
+                                )
+                            })?;
+                            downstream_session.give((key, TdPyAny::from(value)));
+                        }
+
+                        Ok(())
+                    }));
                 });
             }
         });
@@ -420,23 +418,43 @@ pub(crate) trait WrapKeyOp<S>
 where
     S: Scope,
 {
-    fn wrap_key(&self) -> Stream<S, TdPyAny>;
+    fn wrap_key(&self, for_step_id: StepId) -> Stream<S, TdPyAny>;
 }
 
 impl<S> WrapKeyOp<S> for Stream<S, (StateKey, TdPyAny)>
 where
     S: Scope,
 {
-    fn wrap_key(&self) -> Stream<S, TdPyAny> {
-        self.map(move |(key, value)| {
-            unwrap_any!(Python::with_gil(|py| -> PyResult<TdPyAny> {
-                let value = value.into_py(py);
+    fn wrap_key(&self, for_step_id: StepId) -> Stream<S, TdPyAny> {
+        let mut op_builder = OperatorBuilder::new(format!("{for_step_id}.wrap_key"), self.scope());
+        let mut self_handle = op_builder.new_input(self, Pipeline);
 
-                let item = IntoPyObject::into_pyobject((key, value), py)?;
+        let (mut downstream_output, downstream) = op_builder.new_output();
 
-                Ok(TdPyAny::from(item))
-            }))
-        })
+        op_builder.build(move |_| {
+            let mut inbuf = Vec::new();
+            move |_frontiers| {
+                let mut downstream_handle = downstream_output.activate();
+
+                self_handle.for_each(|time, data| {
+                    data.swap(&mut inbuf);
+                    let mut downstream_session = downstream_handle.session(&time);
+                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                        for (key, value) in inbuf.drain(..) {
+                            let value = value.into_py(py);
+
+                            let item = IntoPyObject::into_pyobject((key, value), py)?;
+
+                            downstream_session.give(TdPyAny::from(item));
+                        }
+
+                        Ok(())
+                    }));
+                });
+            }
+        });
+
+        downstream
     }
 }
 
@@ -595,6 +613,7 @@ where
             vec![Antichain::from_elem(0), Antichain::from_elem(0)],
         );
 
+        let o_step_id = step_id.clone();
         let info = op_builder.operator_info();
         let activator = self.scope().activator_for(&info.address[..]);
 
@@ -789,7 +808,7 @@ where
                                             logic
                                                 .on_batch(py, values)
                                                 .reraise_with(|| format!(
-                                                    "error calling `StatefulBatchLogic.on_batch` in step {step_id} for key {key}"
+                                                    "error calling `StatefulBatchLogic.on_batch` in step {o_step_id} for key {key}"
                                                 ))?
                                         );
 
@@ -831,7 +850,7 @@ where
                                             on_notify_histogram,
                                             labels,
                                             logic.on_notify(py).reraise_with(|| format!(
-                                                "error calling `StatefulBatchLogic.on_notify` in {step_id} for key {key}"
+                                                "error calling `StatefulBatchLogic.on_notify` in {o_step_id} for key {key}"
                                             ))?
                                         );
 
@@ -873,7 +892,7 @@ where
                                             on_eof_histogram,
                                             labels,
                                             logic.on_eof(py).reraise_with(|| format!(
-                                                "error calling `StatefulBatchLogic.on_eof` in {step_id} for key {key}"
+                                                "error calling `StatefulBatchLogic.on_eof` in {o_step_id} for key {key}"
                                             ))?
                                         );
 
@@ -915,7 +934,7 @@ where
                                                 notify_at_histogram,
                                                 labels,
                                                 logic.notify_at(py).reraise_with(|| {
-                                                    format!("error calling `StatefulBatchLogic.notify_at` in {step_id} for key {key}")
+                                                    format!("error calling `StatefulBatchLogic.notify_at` in {o_step_id} for key {key}")
                                                 })?
                                             );
                                             if let Some(sched) = sched {
@@ -954,7 +973,7 @@ where
                                                 snapshot_histogram,
                                                 labels,
                                                 logic.snapshot(py).reraise_with(|| {
-                                                    format!("error calling `StatefulBatchLogic.snapshot` in {step_id} for key {key}")
+                                                    format!("error calling `StatefulBatchLogic.snapshot` in {o_step_id} for key {key}")
                                                 })?
                                             );
                                             StateChange::Upsert(TdPyAny::from(state))
@@ -968,7 +987,7 @@ where
                                             // `IsComplete::Discard`.
                                             StateChange::Discard
                                         };
-                                        let snap = Snapshot(step_id.clone(), key, change);
+                                        let snap = Snapshot(o_step_id.clone(), key, change);
                                         snaps_session.give(snap);
                                     }
 
@@ -1036,7 +1055,7 @@ where
             }
         });
 
-        let downstream = kv_downstream.wrap_key();
+        let downstream = kv_downstream.wrap_key(step_id);
 
         Ok((downstream, snaps))
     }
