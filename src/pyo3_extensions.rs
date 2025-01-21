@@ -1,8 +1,5 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
-use crate::try_unwrap;
-
-use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -152,22 +149,6 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
 impl<'de> serde::Deserialize<'de> for TdPyAny {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer.deserialize_bytes(PickleVisitor)
-    }
-}
-
-/// Re-use Python's value semantics in Rust code.
-impl PartialEq for TdPyAny {
-    fn eq(&self, other: &Self) -> bool {
-        Python::with_gil(|py| {
-            // Don't use Py.eq or PyAny.eq since it only checks
-            // pointer identity.
-            let self_ = self.bind(py);
-            let other = other.bind(py);
-            try_unwrap!(self_
-                .rich_compare(other, CompareOp::Eq)?
-                .as_gil_ref()
-                .is_truthy())
-        })
     }
 }
 
