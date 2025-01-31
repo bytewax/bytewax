@@ -12,8 +12,8 @@
 
 <p align='center'>
 <a href="https://github.com/bytewax/bytewax/actions"><img src="https://github.com/bytewax/bytewax/workflows/CI/badge.svg"></a>
-<a href="https://pypi.org/project/bytewax/"><img src="https://img.shields.io/pypi/v/bytewax.svg?style=flat-square"></a>
-<a href="https://docs.bytewax.io/stable/guide/index.html"><img src="https://img.shields.io/badge/user-guide-brightgreen?style=flat-square"></a>
+<a href="https://pypi.org/project/bytewax/"><img src="https://img.shields.io/pypi/v/bytewax.svg"></a>
+<a href="https://docs.bytewax.io/stable/guide/index.html"><img src="https://img.shields.io/badge/user-guide-brightgreen"></a>
 <a href="https://github.com/bytewax/bytewax/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
 </p>
 
