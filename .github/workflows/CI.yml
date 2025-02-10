@@ -117,7 +117,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels
+          name: wheels-linux-${{ matrix.target }}-${{ matrix.python-version }}
           path: dist
 
   macos:
@@ -167,7 +167,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels
+          name: wheels-macos-${{ matrix.target }}-${{ matrix.python-version }}
           path: dist
 
   windows:
@@ -219,7 +219,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels
+          name: wheels-windows-${{ matrix.target }}-${{ matrix.python-version }}
           path: dist
 
   upload:
@@ -228,10 +228,11 @@ jobs:
     if: "github.ref == 'refs/heads/main'"
     needs: [ linux, macos, windows ]
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
-          name: wheels
+          pattern: wheels-*-*
           path: wheels
+          merge-multiple: true
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
