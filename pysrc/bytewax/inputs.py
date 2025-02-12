@@ -626,7 +626,7 @@ def batch_async(
             yield batch
         except StopAsyncIteration:
             return
-
-finally:
-    if loop is None:
-        loop.close()
+# Only close the loop if it was created locally
+    finally:
+        if loop is None:
+            loop.close()
