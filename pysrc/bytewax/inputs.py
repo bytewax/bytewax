@@ -628,5 +628,5 @@ def batch_async(
             return
     finally:
         # Only close the loop if it was created locally
-        if loop is not None:
+        if loop is None:
             loop.close()
