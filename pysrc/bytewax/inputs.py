@@ -626,3 +626,7 @@ def batch_async(
             yield batch
         except StopAsyncIteration:
             return
+
+finally:
+    if loop is None:
+        loop.close()
