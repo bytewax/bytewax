@@ -7,7 +7,7 @@ from pathlib import Path
 import bytewax.operators as op
 from bytewax.connectors.files import CSVSource
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import (
+from bytewax.windowing import (
     EventClock,
     SlidingWindower,
     count_window,
