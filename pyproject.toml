@@ -25,6 +25,7 @@ dependencies = [
 extras = [
     "duckdb",
     "kafka",
+    "redis",
     "rerun",
 ]
 
@@ -37,6 +38,9 @@ kafka = [
     "requests>=2.0",
     "fastavro>=1.8",
     "confluent-kafka>=2.0.2",
+]
+redis = [
+    "redis[hiredis]>=5.0",
 ]
 rerun = [
     "rerun-sdk>=0.18",
