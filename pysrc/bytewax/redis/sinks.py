@@ -1,6 +1,6 @@
 """Sinks for Redis."""
 
-from typing import Any
+from typing import Any, List, Dict, Tuple
 
 import redis
 from redis.typing import EncodableT, FieldT
@@ -8,7 +8,7 @@ from redis.typing import EncodableT, FieldT
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 
-class _RedisStreamSinkPartition(StatelessSinkPartition[dict[FieldT, EncodableT]]):
+class _RedisStreamSinkPartition(StatelessSinkPartition[Dict[FieldT, EncodableT]]):
     def __init__(self, stream_name: str, host: str, port: int, db: int):
         """Initialize a Redis stream sink partition.
 
@@ -20,7 +20,7 @@ class _RedisStreamSinkPartition(StatelessSinkPartition[dict[FieldT, EncodableT]]
         self.stream_name = stream_name
         self.redis_conn = redis.StrictRedis(host=host, port=port, db=db)
 
-    def write_batch(self, items: list[dict[FieldT, EncodableT]]) -> None:
+    def write_batch(self, items: List[Dict[FieldT, EncodableT]]) -> None:
         """Write a batch of items to the Redis stream.
 
         This method uses the Redis `XADD` command to add items to the Redis stream.
@@ -42,7 +42,7 @@ class _RedisStreamSinkPartition(StatelessSinkPartition[dict[FieldT, EncodableT]]
         self.redis_conn.close()
 
 
-class RedisStreamSink(DynamicSink[dict[FieldT, EncodableT]]):
+class RedisStreamSink(DynamicSink[Dict[FieldT, EncodableT]]):
     """Redis stream sink.
 
     This sink takes a stream of dictionaries containing key-value pairs
@@ -85,14 +85,14 @@ class RedisStreamSink(DynamicSink[dict[FieldT, EncodableT]]):
         )
 
 
-class _RedisKVSinkPartition(StatelessSinkPartition[tuple[Any, Any]]):
+class _RedisKVSinkPartition(StatelessSinkPartition[Tuple[Any, Any]]):
     def __init__(
         self, redis_host: str = "localhost", redis_port: int = 6379, redis_db: int = 0
     ):
         # Establish connection to Redis
         self.redis_conn = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
 
-    def write_batch(self, items: list[tuple[Any, Any]]) -> None:
+    def write_batch(self, items: List[Tuple[Any, Any]]) -> None:
         """Write a batch of key-value pairs to Redis using pipelines.
 
         This writes a batch of key-value pairs to Redis.
@@ -112,7 +112,7 @@ class _RedisKVSinkPartition(StatelessSinkPartition[tuple[Any, Any]]):
         self.redis_conn.close()
 
 
-class RedisKVSink(DynamicSink[tuple[Any, Any]]):
+class RedisKVSink(DynamicSink[Tuple[Any, Any]]):
     """Redis key-value sink.
 
     This sink take a stream of (key, value) 2-tuples, and writes every key

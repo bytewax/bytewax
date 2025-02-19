@@ -6,7 +6,7 @@ See the top level documentation for usage.
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal, Optional
+from typing import Any, Callable, Iterable, Literal, Optional, List
 
 import rerun as rr
 
@@ -25,7 +25,7 @@ class RerunMessage:
 
     See [rerun's docs](https://docs.rerun.io) for details.
 
-    :param str | list[str] entity_path: The path (or list of paths) of the entity
+    :param str | List[str] entity_path: The path (or list of paths) of the entity
         to be logged. The connector prepends `dataflow/worker{worker_index}/` to the
         entity path, so that you can distinguish between workers when looking at the
         data.
@@ -38,7 +38,7 @@ class RerunMessage:
     :param static bool: Set the item as `static` when logging. See Rerun docs.
     """
 
-    entity_path: str | list[str]
+    entity_path: str | List[str]
     entity: RerunEntity
 
     # Optional timing info
@@ -59,7 +59,7 @@ class _RerunPartition(StatelessSinkPartition[RerunMessage]):
         self.recording = recording
         self.worker_index = worker_index
 
-    def write_batch(self, items: list[RerunMessage]) -> None:
+    def write_batch(self, items: List[RerunMessage]) -> None:
         for item in items:
             if item.timeline is not None:
                 assert (

@@ -15,6 +15,7 @@ $ python -m bytewax.run examples.redis_connector:kv_producer_flow
 """
 
 import os
+from typing import List, Dict
 
 from bytewax import operators as op
 from bytewax.bytewax_redis import RedisKVSink, RedisStreamSink, RedisStreamSource
@@ -28,7 +29,7 @@ REDIS_STREAM_NAME = os.environ.get("REDIS_STREAM_NAME", "example-stream")
 
 # This dataflow writes to a stream in redis.
 stream_producer_flow = Dataflow("redis-stream-producer")
-stream_data: list[dict] = [
+stream_data: List[Dict[str, int]] = [
     {"field-1": 1},
     {"field-1": 2},
     {"field-1": 3},

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import rerun as rr
 
@@ -18,8 +18,8 @@ keyed_metrics = op.key_on("keyed-elements", metrics, lambda x: x[0])
 
 
 def make_message(
-    seconds_since_start: Optional[float], item: tuple[str, float]
-) -> tuple[Optional[float], RerunMessage]:
+    seconds_since_start: Optional[float], item: Tuple[str, float]
+) -> Tuple[Optional[float], RerunMessage]:
     # Here we just pretend events come in every 0.2 seconds.
     # In a real world scenario, you would take the event's time from
     # the data, take the first one as a starting point, and always use

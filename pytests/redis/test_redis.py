@@ -1,5 +1,6 @@
 import os
 from threading import Thread
+from typing import List, Dict
 
 import redis
 from pytest import mark
@@ -24,7 +25,7 @@ def test_redis_stream_roundtrip() -> None:
 
     # Create the dataflow that will put data into the redis stream
     flow = Dataflow("redis-stream-producer")
-    stream_data: list[dict] = [
+    stream_data: List[Dict[str, int]] = [
         {"field-1": 1},
         {"field-1": 2},
         {"field-2": 1},
@@ -49,7 +50,7 @@ def test_redis_stream_roundtrip() -> None:
         op.output("received", inp, TestingSink(out))
         run_main(flow)
 
-    out: list[dict] = []
+    out: List[Dict[bytes, bytes]] = []
     expected = [
         {b"field-1": b"1"},
         {b"field-1": b"2"},

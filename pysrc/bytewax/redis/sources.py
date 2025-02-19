@@ -1,6 +1,6 @@
 """Sources for Redis."""
 
-from typing import Iterable, Optional
+from typing import Iterable, Optional, List
 
 import redis
 
@@ -75,7 +75,7 @@ class RedisStreamSource(FixedPartitionedSource):
 
     def __init__(
         self,
-        stream_names: list[str],
+        stream_names: List[str],
         host: str,
         port: int,
         db: int,
@@ -96,7 +96,7 @@ class RedisStreamSource(FixedPartitionedSource):
         self.stream_names = stream_names
         self.batch_size = batch_size
 
-    def list_parts(self) -> list[str]:
+    def list_parts(self) -> List[str]:
         """List all available partitions for the Redis stream source.
 
         :return: A list of available partitions, in this case, each stream
