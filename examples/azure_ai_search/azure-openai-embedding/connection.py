@@ -1,29 +1,27 @@
 import os
-from dotenv import load_dotenv
+from typing import List
+
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
-from openai import AzureOpenAI
-
 from azure.search.documents.indexes.models import (
-    AzureOpenAIVectorizerParameters,
     AzureOpenAIVectorizer,
-    ExhaustiveKnnParameters,
+    AzureOpenAIVectorizerParameters,
+    CorsOptions,
     ExhaustiveKnnAlgorithmConfiguration,
-    HnswParameters,
+    ExhaustiveKnnParameters,
     HnswAlgorithmConfiguration,
-    SearchableField,
-    SimpleField,
+    HnswParameters,
+    ScoringProfile,
     SearchFieldDataType,
     SearchIndex,
+    SimpleField,
     VectorSearch,
     VectorSearchAlgorithmKind,
     VectorSearchAlgorithmMetric,
     VectorSearchProfile,
-    CorsOptions,
-    ScoringProfile,
 )
-
-from typing import List
+from dotenv import load_dotenv
+from openai import AzureOpenAI
 
 load_dotenv(".env")
 
@@ -152,4 +150,4 @@ index = SearchIndex(
 )
 result = index_client.create_or_update_index(index)
 
-print(f"Creating bytewax-index-openai search index")
+print("Creating bytewax-index-openai search index")

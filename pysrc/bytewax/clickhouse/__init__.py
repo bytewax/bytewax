@@ -1,4 +1,4 @@
-"""ClickHouse Sink Implementation.
+r"""ClickHouse Sink Implementation.
 
 This module provides a dynamic sink for writing data to a ClickHouse
 database using Bytewax's streaming data processing framework. The
@@ -29,7 +29,8 @@ Logging:
 
 ## Usage
 
-Before running any workload, you will need to start ClickHouse if you are not already running it.
+Before running any workload, you will need to start ClickHouse if you
+are not already running it.
 
 ```bash
 docker compose up -d
@@ -97,7 +98,6 @@ from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from clickhouse_connect import get_client
 from pyarrow import Table, concat_tables  # type: ignore
 from typing_extensions import override
-
 
 K = TypeVar("K")
 """Type of key in Kafka message."""

@@ -4,12 +4,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Generic, Iterable, List, Literal, Optional, Tuple, Union, cast
 
-from typing_extensions import TypeAlias, override
-
 import bytewax.operators as op
 from bytewax.dataflow import operator
 from bytewax.operators import KeyedStream, StatefulBatchLogic, V
-from bytewax.operators.windowing import SC, UTC_MIN, Clock, ClockLogic
+from bytewax.windowing import SC, UTC_MIN, Clock, ClockLogic
+from typing_extensions import TypeAlias, override
 
 
 @dataclass(frozen=True)

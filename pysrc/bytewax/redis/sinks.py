@@ -1,11 +1,11 @@
 """Sinks for Redis."""
 
-from typing import Any, List, Dict, Tuple
+from typing import Any, Dict, List, Tuple
+
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 import redis
 from redis.typing import EncodableT, FieldT
-
-from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 
 class _RedisStreamSinkPartition(StatelessSinkPartition[Dict[FieldT, EncodableT]]):

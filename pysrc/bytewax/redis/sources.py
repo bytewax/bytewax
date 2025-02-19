@@ -1,10 +1,10 @@
 """Sources for Redis."""
 
-from typing import Iterable, Optional, List
-
-import redis
+from typing import Iterable, List, Optional
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+
+import redis
 
 
 class _RedisStreamPartition(StatefulSourcePartition):

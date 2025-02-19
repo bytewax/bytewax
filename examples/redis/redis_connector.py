@@ -15,7 +15,7 @@ $ python -m bytewax.run examples.redis_connector:kv_producer_flow
 """
 
 import os
-from typing import List, Dict
+from typing import Dict, List
 
 from bytewax import operators as op
 from bytewax.bytewax_redis import RedisKVSink, RedisStreamSink, RedisStreamSource

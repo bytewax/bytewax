@@ -93,16 +93,22 @@ azure-core==1.30.2
 openai==1.44.1
 ```
 
-These are used to write the vectors on the appropriate services based on an Azure schema provided. We will provide an example in this README for working versions of schema definition under these versions.
+These are used to write the vectors on the appropriate services based
+on an Azure schema provided. We will provide an example in this README
+for working versions of schema definition under these versions.
 
 ## Setting up Azure AI services
 
-**This asumes you have set up an Azure AI Search service on the Azure portal. For more instructions, visit [their documentation](https://learn.microsoft.com/en-us/azure/search/search-create-service-portal)**
+**This asumes you have set up an Azure AI Search service on the Azure
+  portal. For more instructions, visit [their
+  documentation](https://learn.microsoft.com/en-us/azure/search/search-create-service-portal)**
 
-**Optional**
-To generate embeddings, you can set up an [Azure OpenAI service](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal) and deploy an embedding model such as `text-ada-002-embedding`
+**Optional** To generate embeddings, you can set up an [Azure OpenAI
+service](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal)
+and deploy an embedding model such as `text-ada-002-embedding`
 
-Once you have set up the resources, ensure to idenfity and store the following information from the Azure portal:
+Once you have set up the resources, ensure to idenfity and store the
+following information from the Azure portal:
 
 * You Azure AI Search admin key
 * You Azure AI Search service name
@@ -132,7 +138,9 @@ AZURE_SEARCH_ADMIN_KEY=<your-azure-ai-search-admin-key>
 AZURE_SEARCH_SERVICE=<your-azure-ai-search-named-service>
 AZURE_SEARCH_SERVICE_ENDPOINT=<your-azure-ai-search-endpoint-url>
 
-# Optional - if you prefer to generate embeddings with embedding models deployed on Azure
+# Optional - if you prefer to generate embeddings with embedding
+# models deployed on Azure
+
 AZURE_EMBEDDING_DEPLOYMENT_NAME=<your-azure-openai-given-deployment-name>
 AZURE_EMBEDDING_MODEL_NAME=<your-azure-openai-model-name>
 
@@ -150,11 +158,13 @@ You can verify the creation of the index was successful by visiting the portal.
 
 ![](https://github.com/bytewax/bytewax-azure-ai-search/blob/main/docs/images/sample-index.png)
 
-If you click on the created index and press "Search" you can verify it was created - but empty at this point.
+If you click on the created index and press "Search" you can verify it
+was created - but empty at this point.
 
 ![](https://github.com/bytewax/bytewax-azure-ai-search/blob/main/docs/images/sample-empty-index.png)
 
-Generate the embeddings and store in Azure AI Search through the bytewax-azure-ai-search sink
+Generate the embeddings and store in Azure AI Search through the
+bytewax-azure-ai-search sink
 
 ```bash
 python -m bytewax.run dataflow:flow
@@ -185,7 +195,9 @@ azure_sink = AzureSearchSink(
 )
 ```
 
-The schema and structure need to match how you configure the schema through the Azure AI Search Python API. For more information, [visit their page](https://pypi.org/project/azure-search-documents/)
+The schema and structure need to match how you configure the schema
+through the Azure AI Search Python API. For more information, [visit
+their page](https://pypi.org/project/azure-search-documents/)
 
 In this example:
 
@@ -239,6 +251,7 @@ fields = [
 
 Complete examples can be found
 [here](https://github.com/bytewax/bytewax/tree/main/examples/azure_ai_search)
+
 """
 
 import json
@@ -246,9 +259,8 @@ import logging
 from typing import Any, Dict, List, Optional, TypeVar, Union
 
 import requests
-from typing_extensions import override
-
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
+from typing_extensions import override
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

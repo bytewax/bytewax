@@ -1,19 +1,17 @@
-from haystack import Pipeline
-from haystack.components.embedders import OpenAIDocumentEmbedder
-from haystack.components.preprocessors import DocumentCleaner
-from haystack.components.preprocessors import DocumentSplitter
-from pathlib import Path
-from haystack.utils import Secret
-from haystack.components.fetchers import LinkContentFetcher
-from haystack.components.converters import HTMLToDocument
-
-from haystack import component, Document
-from typing import Any, Dict, List, Union
-from haystack.dataclasses import ByteStream
-from dotenv import load_dotenv
-import os
 import json
+import os
+from pathlib import Path
+from typing import Dict, List, Union
+
 import numpy as np
+from dotenv import load_dotenv
+from haystack import Document, Pipeline, component
+from haystack.components.converters import HTMLToDocument
+from haystack.components.embedders import OpenAIDocumentEmbedder
+from haystack.components.fetchers import LinkContentFetcher
+from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
+from haystack.dataclasses import ByteStream
+from haystack.utils import Secret
 
 load_dotenv(".env")
 open_ai_key = os.environ.get("OPENAI_API_KEY")
@@ -116,9 +114,11 @@ class JSONLReader:
             elif isinstance(embedding, list):
                 embedding = [float(x) for x in embedding]
             else:
-                raise ValueError(
-                    "Embedding is not in a recognized format (must be a NumPy array or list)."
+                msg = (
+                    "Embedding is not in a recognized format "
+                    "(must be a NumPy array or list)."
                 )
+                raise ValueError(msg)
 
         # Log the first few values of the embedding for debugging
         print(f"Embedding: {embedding[:5]}")

@@ -1,7 +1,6 @@
 from typing import Optional, Tuple
 
 import rerun as rr
-
 from bytewax import operators as op
 from bytewax.bytewax_rerun import RerunMessage, RerunSink
 from bytewax.connectors.demo import RandomMetricSource

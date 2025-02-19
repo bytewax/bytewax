@@ -4,6 +4,7 @@ from typing import List, Tuple
 import bytewax.operators as op
 import bytewax.windowing as win
 from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSink, TestingSource, run_main
 from bytewax.windowing import (
     LATE_SESSION_ID,
     SessionWindower,
@@ -13,7 +14,6 @@ from bytewax.windowing import (
     _SessionWindowerLogic,
     _SessionWindowerState,
 )
-from bytewax.testing import TestingSink, TestingSource, run_main
 
 
 def test_initial_session() -> None:

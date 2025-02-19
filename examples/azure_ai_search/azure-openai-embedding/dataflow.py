@@ -1,19 +1,15 @@
+import logging
+import os
+
+from bytewax import operators as op
+from bytewax.azure_ai_search import AzureSearchSink
+from bytewax.dataflow import Dataflow
+from bytewax.testing import TestingSource
+from dotenv import load_dotenv
+from news_dataclasses import News, Review, Social
 from openai import AzureOpenAI
 
-from bytewax.azure_ai_search import AzureSearchSink
-from bytewax.inputs import Source
-from bytewax.dataflow import Dataflow
-from bytewax import operators as op
-from bytewax.testing import TestingSource
-from bytewax.connectors.stdio import StdOutSink
-
-from news_dataclasses import News, Review, Social
-
-import os
-from dotenv import load_dotenv
-
 load_dotenv(override=True)
-import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -52,9 +48,8 @@ def generate_embeddings(event):
         )
 
         if len(embedding) != DIMENSIONS:
-            raise ValueError(
-                f"Invalid embedding size: expected {DIMENSIONS}, got {len(embedding)}"
-            )
+            msg = f"Invalid embedding size: expected {DIMENSIONS}, got {len(embedding)}"
+            raise ValueError(msg)
 
         event_dict = {
             "id": event.id,

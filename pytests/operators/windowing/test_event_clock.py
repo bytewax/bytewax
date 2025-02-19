@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
+from bytewax.testing import TimeTestingGetter
 from bytewax.windowing import (
     UTC_MAX,
     UTC_MIN,
     _EventClockLogic,
 )
-from bytewax.testing import TimeTestingGetter
 
 
 def test_watermark_starts_at_beginning_of_time() -> None:

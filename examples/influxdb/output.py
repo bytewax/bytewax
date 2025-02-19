@@ -1,11 +1,11 @@
-import os
 import logging
+import os
 from datetime import timedelta
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.testing import TestingSource
 from bytewax.influxdb import InfluxDBSink
+from bytewax.testing import TestingSource
 
 TOKEN = os.getenv(
     "INLFUXDB_TOKEN",

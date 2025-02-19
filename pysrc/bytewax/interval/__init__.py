@@ -32,7 +32,7 @@ from bytewax.operators import (
     Y,
     _JoinState,
 )
-from bytewax.operators.windowing import (
+from bytewax.windowing import (
     SC,
     UTC_MAX,
     UTC_MIN,
@@ -42,7 +42,6 @@ from bytewax.operators.windowing import (
     WindowMetadata,
 )
 from typing_extensions import TypeAlias, overload, override
-
 
 LeftRight: TypeAlias = Literal["left", "right"]
 """Which side did a value come from."""

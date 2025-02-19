@@ -4,11 +4,10 @@ import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
-import duckdb
-import pytest
-
 import bytewax.duckdb.operators as duck_op
 import bytewax.operators as op
+import duckdb
+import pytest
 from bytewax.dataflow import Dataflow
 from bytewax.duckdb import DuckDBSink
 from bytewax.testing import TestingSource, run_main

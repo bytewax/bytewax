@@ -39,11 +39,10 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
-from openai import AzureOpenAI
-
 import bytewax.operators as op
 from bytewax.azure_ai_search import AzureSearchSink
 from bytewax.dataflow import Stream, operator
+from openai import AzureOpenAI
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

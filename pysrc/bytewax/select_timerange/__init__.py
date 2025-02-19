@@ -23,9 +23,8 @@ import bytewax.operators as op
 from bytewax._utils import partition
 from bytewax.dataflow import operator
 from bytewax.operators import KeyedStream, StatefulBatchLogic, V
-from bytewax.operators.windowing import SC, UTC_MIN, Clock, ClockLogic
+from bytewax.windowing import SC, UTC_MIN, Clock, ClockLogic
 from typing_extensions import assert_never, override
-
 
 TC = TypeVar("TC")
 """Type of secondary {py:obj}`bytewax.operators.windowing.ClockLogic`'s

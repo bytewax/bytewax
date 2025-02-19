@@ -1,15 +1,12 @@
-from bytewax import operators as op
-from bytewax.dataflow import Dataflow
-from bytewax import operators as op
-from bytewax.connectors.stdio import StdOutSink
-from bytewax.connectors.files import FileSource
-
-from dotenv import load_dotenv
-import os
 import json
+import os
 
-from indexing import JSONLReader
+from bytewax import operators as op
 from bytewax.azure_ai_search import AzureSearchSink
+from bytewax.connectors.files import FileSource
+from bytewax.dataflow import Dataflow
+from dotenv import load_dotenv
+from indexing import JSONLReader
 
 load_dotenv(".env")
 open_ai_key = os.environ.get("OPENAI_API_KEY")

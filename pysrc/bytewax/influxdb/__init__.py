@@ -2,9 +2,12 @@
 
 You will need an influxdb account and the API key to use the connector.
 
-To test the connector, use `examples/input.py` and `examples/output.py`. You may need to modify the date parameters for it to work.
+To test the connector, use `examples/input.py` and
+`examples/output.py`. You may need to modify the date parameters for
+it to work.
 
-To use the source and sink connector use them in the input and output operators like shown below.
+To use the source and sink connector use them in the input and output
+operators like shown below.
 
 ```python
 inp = op.input(
@@ -32,18 +35,18 @@ op.output(
     ),
 )
 ```
+
 """
 
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, NamedTuple, Optional, Union
 
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from influxdb_client_3 import InfluxDBClient3, Point
 from influxdb_client_3.write_client.client.write.point import DEFAULT_WRITE_PRECISION
 from pyarrow import RecordBatch  # type: ignore
-
-from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
-from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

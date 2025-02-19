@@ -6,7 +6,6 @@ from typing import Generic, Iterable, List, Optional, Tuple, TypeVar
 
 from bytewax._utils import partition
 
-
 T = TypeVar("T")
 """Type of alarm token."""
 

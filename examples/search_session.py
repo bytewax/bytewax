@@ -4,11 +4,11 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 from bytewax import operators as op
+from bytewax import windowing as win
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.operators import windowing as win
-from bytewax.windowing import EventClock, SessionWindower
 from bytewax.testing import TestingSource
+from bytewax.windowing import EventClock, SessionWindower
 
 
 @dataclass

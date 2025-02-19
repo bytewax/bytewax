@@ -6,11 +6,11 @@ See the top level documentation for usage.
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal, Optional, List
-
-import rerun as rr
+from typing import Any, Callable, Iterable, List, Literal, Optional
 
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
+
+import rerun as rr
 
 RerunEntity = rr.AsComponents | Iterable[rr.ComponentBatchLike]
 """The type used by Rerun to identify the argument for `rr.log`'s `entity` parameter.

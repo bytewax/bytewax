@@ -1,6 +1,6 @@
-import os
 import logging
-from datetime import timedelta, datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow

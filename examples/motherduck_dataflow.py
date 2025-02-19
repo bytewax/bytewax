@@ -1,25 +1,17 @@
-from pathlib import Path
+import os
+import random
 from typing import Dict, Tuple, Union
 
 import bytewax.duckdb.operators as duck_op
-from bytewax.duckdb import DuckDBSink
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSource, run_main
-
-import os
 from dotenv import load_dotenv
 
 load_dotenv(".env")
 
 md_token = os.getenv("MOTHERDUCK_TOKEN")
 db_path = f"md:my_db?motherduck_token={md_token}"
-
-import bytewax.operators as op
-from bytewax.dataflow import Dataflow
-from bytewax.testing import run_main, TestingSource
-import random
-from typing import Dict, Tuple, Union
 
 # Initialize the dataflow
 flow = Dataflow("duckdb-names-cities")
@@ -48,7 +40,10 @@ duck_op.output(
     dict_stream,
     db_path,
     "names_cities",
-    "CREATE TABLE IF NOT EXISTS names_cities (id INTEGER, name TEXT, age INTEGER, location TEXT)",
+    (
+        "CREATE TABLE IF NOT EXISTS names_cities "
+        "(id INTEGER, name TEXT, age INTEGER, location TEXT)"
+    ),
 )
 
 # Run the dataflow

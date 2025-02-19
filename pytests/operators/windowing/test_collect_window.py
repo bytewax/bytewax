@@ -5,8 +5,8 @@ from typing import List, Tuple
 import bytewax.operators as op
 import bytewax.windowing as win
 from bytewax.dataflow import Dataflow
-from bytewax.windowing import EventClock, TumblingWindower
 from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import EventClock, TumblingWindower
 
 
 @dataclass(frozen=True)

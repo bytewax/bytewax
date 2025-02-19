@@ -6,8 +6,8 @@ import bytewax.operators as op
 import bytewax.windowing as win
 from bytewax.dataflow import Dataflow
 from bytewax.operators import JoinEmitMode, JoinInsertMode
-from bytewax.windowing import EventClock, SessionWindower
 from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import EventClock, SessionWindower
 
 
 @dataclass(frozen=True)

@@ -6,14 +6,16 @@ manages database connections, table creation, and batch writing for high-volume
 data flows.
 
 Classes:
-    DuckDBSink: A fixed partitioned sink that defines the target DuckDB or
+    - DuckDBSink: A fixed partitioned sink that defines the target DuckDB or
                 MotherDuck database and manages partition setup.
-    DuckDBSinkPartition: A stateful partition that handles the actual data
+
+    - DuckDBSinkPartition: A stateful partition that handles the actual data
                          writing to the DuckDB or MotherDuck tables.
 
 Usage:
     - Use the `DuckDBSink` class to configure the connection to the target
       database, specify table details, and initialize the sink for Bytewax dataflows.
+
     - The `DuckDBSinkPartition` class manages the writing of data in batches
       and executes custom SQL statements to create tables if specified.
 
@@ -68,16 +70,14 @@ Note: For further examples and usage patterns, refer to the
 [Bytewax DuckDB documentation](https://github.com/bytewax/bytewax-duckdb).
 """
 
-import os
-import sys
 from typing import List, Optional
 from urllib.parse import parse_qsl, urlparse
 
 import pyarrow as pa  # type: ignore
-
-import duckdb as md_duckdb
 from bytewax.operators import V
 from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
+
+import duckdb as md_duckdb
 
 MOTHERDUCK_SCHEME = "md"
 

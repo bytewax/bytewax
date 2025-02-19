@@ -1,14 +1,13 @@
 import os
 from threading import Thread
-from typing import List, Dict
+from typing import Dict, List
 
 import redis
-from pytest import mark
-
 from bytewax import operators as op
 from bytewax.bytewax_redis import RedisKVSink, RedisStreamSink, RedisStreamSource
 from bytewax.dataflow import Dataflow
 from bytewax.testing import TestingSink, TestingSource, run_main
+from pytest import mark
 
 
 @mark.integration

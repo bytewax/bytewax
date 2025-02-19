@@ -19,7 +19,6 @@ from bytewax.operators import (
 )
 from typing_extensions import override
 
-
 ZERO_TD: timedelta = timedelta(seconds=0)
 """A zero length of time."""
 

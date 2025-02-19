@@ -17,13 +17,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Generic, Iterable, List, Optional, Tuple, Union
 
-from typing_extensions import TypeAlias, override
-
 import bytewax.operators as op
 from bytewax._utils import partition
 from bytewax.dataflow import f_repr, operator
 from bytewax.operators import _EMPTY, KeyedStream, S, StatefulBatchLogic, V, W, W_co
-from bytewax.operators.windowing import SC, UTC_MIN, ZERO_TD, Clock, ClockLogic
+from bytewax.windowing import SC, UTC_MIN, ZERO_TD, Clock, ClockLogic
+from typing_extensions import TypeAlias, override
 
 
 @dataclass(frozen=True)
