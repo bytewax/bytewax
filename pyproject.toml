@@ -25,6 +25,7 @@ dependencies = [
 extras = [
     "azure-ai",
     "duckdb",
+    "influxdb",
     "kafka",
     "redis",
     "rerun",
@@ -43,6 +44,9 @@ azure-ai = [
 duckdb = [
     "pyarrow>=17.0.0",
     "duckdb==1.1.3",
+]
+influxdb = [
+    "influxdb3-python==0.8.0",
 ]
 kafka = [
     "requests>=2.0",
