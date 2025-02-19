@@ -136,10 +136,10 @@ venv-compile-all:
     uv pip compile --generate-hashes -p 3.11 --all-extras pyproject.toml -o requirements/lib-py3.11.txt
     uv pip compile --generate-hashes -p 3.12 --all-extras pyproject.toml -o requirements/lib-py3.12.txt
 
-    uv pip compile --generate-hashes -p 3.8 requirements/build.in requirements/lib-py3.8.txt -o requirements/build-py3.8.txt
-    uv pip compile --generate-hashes -p 3.9 requirements/build.in requirements/lib-py3.9.txt -o requirements/build-py3.9.txt
-    uv pip compile --generate-hashes -p 3.10 requirements/build.in requirements/lib-py3.10.txt -o requirements/build-py3.10.txt
-    uv pip compile --generate-hashes -p 3.11 requirements/build.in requirements/lib-py3.11.txt -o requirements/build-py3.11.txt
-    uv pip compile --generate-hashes -p 3.12 requirements/build.in requirements/lib-py3.12.txt -o requirements/build-py3.12.txt
+    uv pip compile --generate-hashes -p 3.8 requirements/build.in -o requirements/build-py3.8.txt
+    uv pip compile --generate-hashes -p 3.9 requirements/build.in -o requirements/build-py3.9.txt
+    uv pip compile --generate-hashes -p 3.10 requirements/build.in -o requirements/build-py3.10.txt
+    uv pip compile --generate-hashes -p 3.11 requirements/build.in -o requirements/build-py3.11.txt
+    uv pip compile --generate-hashes -p 3.12 requirements/build.in -o requirements/build-py3.12.txt
 
-    uv pip compile --generate-hashes -p 3.12 requirements/dev.in requirements/lib-py3.12.txt -o requirements/dev.txt
+    uv pip compile --generate-hashes -p 3.12 --all-extras pyproject.toml requirements/dev.in -o requirements/dev.txt

@@ -17,6 +17,8 @@ classifiers = [
     "Topic :: System :: Networking",
     "Topic :: System :: Distributed Computing",
 ]
+dynamic = ["version"]
+
 dependencies = [
     "typing_extensions>=4",
     "prometheus-client>=0.18"
@@ -34,29 +36,28 @@ extras = [
 
 [project.optional-dependencies]
 azure-ai = [
-  "azure-search-documents==11.5.1",
-  "python-dotenv",
-  "azure-common==1.1.28",
-  "azure-core==1.30.2",
-  "openai==1.44.1",
-  "types-requests",
-  "trafilatura==1.12.1",
+  "azure-common>=1.1.28",
+  "azure-core>=1.30.2",
+  "azure-search-documents>=11.5.1",
+  "openai>=1.44.1",
+  "requests>=2.0",
+  "types-requests>=2.0",
 ]
 clickhouse = [
-    "clickhouse-connect==0.7.19",
-    "pyarrow==16.1.0",
+    "clickhouse-connect>=0.7.19",
+    "pyarrow>=16.1.0",
 ]
 duckdb = [
+    "duckdb>=1.1.3",
     "pyarrow>=17.0.0",
-    "duckdb==1.1.3",
 ]
 influxdb = [
-    "influxdb3-python==0.8.0",
+    "influxdb3-python>=0.8.0",
 ]
 kafka = [
-    "requests>=2.0",
-    "fastavro>=1.8",
     "confluent-kafka>=2.0.2",
+    "fastavro>=1.8",
+    "requests>=2.0",
 ]
 redis = [
     "redis[hiredis]>=5.0",
