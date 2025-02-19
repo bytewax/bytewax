@@ -24,6 +24,7 @@ dependencies = [
 
 extras = [
     "azure-ai",
+    "clickhouse",
     "duckdb",
     "influxdb",
     "kafka",
@@ -40,6 +41,10 @@ azure-ai = [
   "openai==1.44.1",
   "types-requests",
   "trafilatura==1.12.1",
+]
+clickhouse = [
+    "clickhouse-connect==0.7.19",
+    "pyarrow==16.1.0",
 ]
 duckdb = [
     "pyarrow>=17.0.0",
