@@ -23,6 +23,7 @@ dependencies = [
 ]
 
 extras = [
+    "azure-ai",
     "duckdb",
     "kafka",
     "redis",
@@ -30,6 +31,15 @@ extras = [
 ]
 
 [project.optional-dependencies]
+azure-ai = [
+  "azure-search-documents==11.5.1",
+  "python-dotenv",
+  "azure-common==1.1.28",
+  "azure-core==1.30.2",
+  "openai==1.44.1",
+  "types-requests",
+  "trafilatura==1.12.1",
+]
 duckdb = [
     "pyarrow>=17.0.0",
     "duckdb==1.1.3",
