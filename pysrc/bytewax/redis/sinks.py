@@ -1,6 +1,6 @@
 """Sinks for Redis."""
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Mapping, Tuple, cast
 
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
@@ -8,7 +8,7 @@ import redis
 from redis.typing import EncodableT, FieldT
 
 
-class _RedisStreamSinkPartition(StatelessSinkPartition[Dict[FieldT, EncodableT]]):
+class _RedisStreamSinkPartition(StatelessSinkPartition[Mapping[FieldT, EncodableT]]):
     def __init__(self, stream_name: str, host: str, port: int, db: int):
         """Initialize a Redis stream sink partition.
 
@@ -20,7 +20,7 @@ class _RedisStreamSinkPartition(StatelessSinkPartition[Dict[FieldT, EncodableT]]
         self.stream_name = stream_name
         self.redis_conn = redis.StrictRedis(host=host, port=port, db=db)
 
-    def write_batch(self, items: List[Dict[FieldT, EncodableT]]) -> None:
+    def write_batch(self, items: List[Mapping[FieldT, EncodableT]]) -> None:
         """Write a batch of items to the Redis stream.
 
         This method uses the Redis `XADD` command to add items to the Redis stream.
@@ -31,7 +31,7 @@ class _RedisStreamSinkPartition(StatelessSinkPartition[Dict[FieldT, EncodableT]]
                       pairs to be written as fields to the Redis stream.
         """
         for item in items:
-            self.redis_conn.xadd(self.stream_name, item)
+            self.redis_conn.xadd(self.stream_name, cast(Dict, item))
 
     def close(self) -> None:
         """Close the Redis connection (optional).
@@ -42,7 +42,7 @@ class _RedisStreamSinkPartition(StatelessSinkPartition[Dict[FieldT, EncodableT]]
         self.redis_conn.close()
 
 
-class RedisStreamSink(DynamicSink[Dict[FieldT, EncodableT]]):
+class RedisStreamSink(DynamicSink[Mapping[FieldT, EncodableT]]):
     """Redis stream sink.
 
     This sink takes a stream of dictionaries containing key-value pairs

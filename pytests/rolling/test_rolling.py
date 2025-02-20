@@ -3,9 +3,9 @@ from typing import List, Optional, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import EventClock
 from bytewax.rolling import rolling_delta_stateful_flat_map, rolling_flat_map
 from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import EventClock
 
 
 def test_rolling_flat_map() -> None:

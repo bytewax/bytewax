@@ -6,8 +6,8 @@ import bytewax.interval as iv
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.interval import IntervalLogic, LeftRight
-from bytewax.operators.windowing import EventClock
 from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import EventClock
 from typing_extensions import override
 
 

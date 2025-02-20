@@ -4,23 +4,25 @@ from typing import Dict, List
 
 import redis
 from bytewax import operators as op
-from bytewax.bytewax_redis import RedisKVSink, RedisStreamSink, RedisStreamSource
 from bytewax.dataflow import Dataflow
+from bytewax.redis import RedisKVSink, RedisStreamSink, RedisStreamSource
 from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import mark
 
+pytestmark = mark.skipif(
+    "TEST_REDIS_HOST" not in os.environ,
+    reason="Set `TEST_REDIS_HOST` env var to run",
+)
+REDIS_HOST = os.environ.get("TEST_REDIS_HOST", "localhost")
+REDIS_PORT = int(os.environ.get("TEST_REDIS_PORT", "6379"))
+REDIS_DB = int(os.environ.get("TEST_REDIS_DB", "0"))
+REDIS_STREAM = os.environ.get("TEST_REDIS_STREAM", "test-stream")
 
-@mark.integration
+
 def test_redis_stream_roundtrip() -> None:
-    # Get redis config values.
-    redis_host = os.environ.get("REDIS_HOST", "localhost")
-    redis_port = int(os.environ.get("REDIS_PORT", 6379))
-    redis_db = int(os.environ.get("REDIS_DB", 0))
-    redis_stream = os.environ.get("REDIS_STREAM", "test-stream")
-
     # First, cleanup the stream
-    redis_conn = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    redis_conn.delete(redis_stream)
+    redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
+    redis_conn.delete(REDIS_STREAM)
 
     # Create the dataflow that will put data into the redis stream
     flow = Dataflow("redis-stream-producer")
@@ -31,8 +33,8 @@ def test_redis_stream_roundtrip() -> None:
         {"field-2": 2},
     ]
     stream_inp = op.input("test-input", flow, TestingSource(stream_data))
-    sink = RedisStreamSink(redis_stream, redis_host, redis_port, redis_db)
-    op.output("redis-stream-out", stream_inp, sink)
+    sink = RedisStreamSink(REDIS_STREAM, REDIS_HOST, REDIS_PORT, REDIS_DB)
+    op.output("redis-stream-out", stream_inp, sink)  # type: ignore
     run_main(flow)
 
     # Now run a different dataflow that reads from the same stream
@@ -43,7 +45,7 @@ def test_redis_stream_roundtrip() -> None:
     # the output while it is running
     def run_flow(out: list) -> None:
         flow = Dataflow("redis-consumer")
-        source = RedisStreamSource([redis_stream], redis_host, redis_port, redis_db)
+        source = RedisStreamSource([REDIS_STREAM], REDIS_HOST, REDIS_PORT, REDIS_DB)
         inp = op.input("from_redis", flow, source)
         inp = op.key_rm("remove_key", inp)
         op.output("received", inp, TestingSink(out))
@@ -72,13 +74,7 @@ def test_redis_stream_roundtrip() -> None:
     assert out == expected
 
 
-@mark.integration
 def test_kv_sink() -> None:
-    # Get redis config values.
-    redis_host = os.environ.get("REDIS_HOST", "localhost")
-    redis_port = int(os.environ.get("REDIS_PORT", 6379))
-    redis_db = int(os.environ.get("REDIS_DB", 0))
-
     data = [
         ("key-1", 1),
         ("key-1", 2),
@@ -88,21 +84,16 @@ def test_kv_sink() -> None:
     ]
 
     # Cleanup the data first
-    redis_conn = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
     redis_conn.delete("key-1")
     redis_conn.delete("key-2")
 
     # Run the dataflow that will put the key-value pairs into redis
     flow = Dataflow("redis-kv-producer")
     inp = op.input("test-input", flow, TestingSource(data))
-    op.output("redis-kv-out", inp, RedisKVSink(redis_host, redis_port, redis_db))
+    op.output("redis-kv-out", inp, RedisKVSink(REDIS_HOST, REDIS_PORT, REDIS_DB))
     run_main(flow)
 
     # Now check that the data is there
     assert redis_conn.get("key-1") == b"3"
     assert redis_conn.get("key-2") == b"5"
-
-
-# Test here to avoid exit code 5 from Pytest runs
-def test_placeholder() -> None:
-    pass

@@ -4,9 +4,9 @@ from typing import List, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import EventClock
 from bytewax.ordering import order
 from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import EventClock
 
 
 @dataclass(frozen=True)

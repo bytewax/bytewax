@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import List, Literal, Tuple
+from typing import List, Literal, Optional, Tuple
 
 import bytewax.interval as iv
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import EventClock
 from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import EventClock
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ def _build_dataflow(
     mode: Literal["complete", "final", "running", "product"],
     inp_left: List[_Event],
     inp_right: List[_Event],
-    out_down: List[Tuple[str, str]],
+    out_down: List[Tuple[str, Optional[str]]],
     batch_size: int = 1,
     gap: timedelta = timedelta(seconds=2),
 ) -> Dataflow:
@@ -50,7 +50,8 @@ def _build_dataflow(
         wo.down,
         lambda v: tuple(x.value if x is not None else None for x in v[1]),
     )
-    op.output("out", simplifieds, TestingSink(out_down))
+    sink = TestingSink(out_down)
+    op.output("out", simplifieds, sink)  # type: ignore
 
     return flow
 
@@ -64,7 +65,7 @@ def test_join_interval_complete() -> None:
         _Event(align_to + timedelta(seconds=1), "right1"),
         _Event(align_to + timedelta(seconds=2), "right2"),
     ]
-    out_down: List[Tuple[str, str]] = []
+    out_down: List[Tuple[str, Optional[str]]] = []
 
     flow = _build_dataflow("complete", inp_left, inp_right, out_down)
 
@@ -91,7 +92,7 @@ def test_join_interval_batch_complete() -> None:
         _Event(align_to + timedelta(seconds=2), "right2"),
         _Event(align_to + timedelta(seconds=3), "right3"),
     ]
-    out_down: List[Tuple[str, str]] = []
+    out_down: List[Tuple[str, Optional[str]]] = []
 
     flow = _build_dataflow(
         "complete",
@@ -120,7 +121,7 @@ def test_join_interval_final() -> None:
         _Event(align_to + timedelta(seconds=1), "right1"),
         _Event(align_to + timedelta(seconds=2), "right2"),
     ]
-    out_down: List[Tuple[str, str]] = []
+    out_down: List[Tuple[str, Optional[str]]] = []
 
     flow = _build_dataflow("final", inp_left, inp_right, out_down)
 
@@ -139,7 +140,7 @@ def test_join_interval_running() -> None:
         _Event(align_to + timedelta(seconds=1), "right1"),
         _Event(align_to + timedelta(seconds=2), "right2"),
     ]
-    out_down: List[Tuple[str, str]] = []
+    out_down: List[Tuple[str, Optional[str]]] = []
 
     flow = _build_dataflow("running", inp_left, inp_right, out_down)
 
@@ -160,7 +161,7 @@ def test_join_interval_product() -> None:
         _Event(align_to + timedelta(seconds=1), "right1"),
         _Event(align_to + timedelta(seconds=2), "right2"),
     ]
-    out_down: List[Tuple[str, str]] = []
+    out_down: List[Tuple[str, Optional[str]]] = []
 
     flow = _build_dataflow("product", inp_left, inp_right, out_down)
 

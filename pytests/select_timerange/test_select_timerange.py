@@ -4,7 +4,6 @@ from typing import List, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow, Stream
-from bytewax.operators.windowing import EventClock
 from bytewax.select_timerange import (
     TimeRangeQuery,
     TimeRangeResult,
@@ -12,6 +11,7 @@ from bytewax.select_timerange import (
     time_range_ts_getter,
 )
 from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import EventClock
 
 
 @dataclass(frozen=True)
