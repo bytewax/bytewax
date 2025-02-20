@@ -1,6 +1,6 @@
 """Sources for Redis."""
 
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional, cast
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 
@@ -40,6 +40,7 @@ class _RedisStreamPartition(StatefulSourcePartition):
             # Never block while reading messages
             block=0,
         )
+        messages = cast(Any, messages)
         if messages != []:
             # The structure of the object is quite nested.
             # and the type is Any, hope the format is stable enough.

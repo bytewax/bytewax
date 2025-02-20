@@ -63,7 +63,7 @@ redis = [
     "redis[hiredis]>=5.0",
 ]
 rerun = [
-    "rerun-sdk>=0.18",
+    "rerun-sdk>=0.18,<0.22",
 ]
 
 [project.urls]

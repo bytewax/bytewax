@@ -894,12 +894,12 @@ requests==2.32.3 \
     # via
     #   bytewax (pyproject.toml)
     #   azure-core
-rerun-sdk==0.22.0 \
-    --hash=sha256:2c8f8cc2178ba77eafa6a66ccea2b732f555f210d0cfba3be21194fd6af474a7 \
-    --hash=sha256:2ccdeb7beb236d7a4214b742bc308c291eca9488bcaa11d59cd3ddebab578fbf \
-    --hash=sha256:50224ae88db978aae4583f238e4a438d7a06c7e6e4d42b28d5af378cf377b290 \
-    --hash=sha256:5b904b561c8e061af15dd46be7e9ba7d29edaa207c9e54e3af0688b047bdb311 \
-    --hash=sha256:e954fc1ade1ff74670904bb72c5d974983efb213943c7cb8fbb530fea8fa8080
+rerun-sdk==0.21.0 \
+    --hash=sha256:1e454ceea31c70ae9ec1bb26eaa82828661b7657ab4d2261ca0b94006d6a1975 \
+    --hash=sha256:2060bdb536a198f0f04789ba5ba771e66587e7851d668b3dfab257a5efa16819 \
+    --hash=sha256:84ecb77b0b5bac71b53e849801ff073de89fcd2f1e0ca0da62fb18fcbeceadf0 \
+    --hash=sha256:897649aadcab7014b78096f93c84c61c00a227b80adaf0dec279924b5aab53d8 \
+    --hash=sha256:919d921165c3238490dbe5bf00a062c68fdd2c54dc14aac6a1914c82edb5d9c8
     # via bytewax (pyproject.toml)
 setuptools==75.8.0 \
     --hash=sha256:c5afc8f407c626b8313a86e10311dd3f661c6cd9c09d4bf8c15c0e11f9f2b0e6 \
