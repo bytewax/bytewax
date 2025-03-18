@@ -1,8 +1,5 @@
 //! Newtypes around PyO3 types which allow easier interfacing with
 //! Timely or other Rust libraries we use.
-use crate::try_unwrap;
-
-use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -10,6 +7,7 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
+use std::sync::Arc;
 
 static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
@@ -19,34 +17,50 @@ static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 /// [`PyObject`] or bind it into a [`Bound`]. This should only exist
 /// within the dataflow.
 ///
-/// A newtype for [`Py`]<[`PyAny`]> so we can
-/// extend it with traits that Timely needs. See
+/// A newtype for [`Py`]`<`[`PyAny`]`>` so we can extend it with
+/// traits that Timely needs. See
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
+///
+/// This needs to be [`Arc`]`<`[`PyObject`]`>` because [`PyObject`] is
+/// not [`Clone`] because it's not possible to arbitrarily clone
+/// without holding the GIL. We expose an API such that we must have
+/// the GIL to convert to [`PyObject`] for use in logic calls which
+/// "collapses" all of the outstanding [`Arc`] references back to a
+/// single [`PyObject`] reference while we have the GIL.
+///
+/// This can still cause memory leaks (which is technically not
+/// unsoundness) unless we have the GIL during `drop`. To avoid this
+/// with this current API, every [`TdPyAny`] instance should "end"
+/// with `into_py`, but we currently can't do that because Timely
+/// serializes and drops the value on exchange. See
+/// https://pyo3.rs/v0.23.4/migration.html#pyclone-is-now-gated-behind-the-py-clone-feature
+/// for more info.
 #[derive(Clone)]
-pub(crate) struct TdPyAny(PyObject);
+pub(crate) struct TdPyAny(Arc<PyObject>);
 
 impl TdPyAny {
     pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
         self.0.bind(py)
     }
-}
 
-impl From<TdPyAny> for PyObject {
-    fn from(x: TdPyAny) -> Self {
-        x.0
+    pub(crate) fn into_py(self, py: Python<'_>) -> PyObject {
+        match Arc::try_unwrap(self.0) {
+            Ok(x) => x,
+            Err(self_) => self_.clone_ref(py),
+        }
     }
 }
 
 impl From<PyObject> for TdPyAny {
     fn from(x: PyObject) -> Self {
-        Self(x)
+        Self(Arc::new(x))
     }
 }
 
-impl From<Bound<'_, PyAny>> for TdPyAny {
-    fn from(x: Bound<'_, PyAny>) -> Self {
-        Self(x.unbind())
+impl<'py, T> From<Bound<'py, T>> for TdPyAny {
+    fn from(x: Bound<'py, T>) -> Self {
+        Self(Arc::new(x.into_any().unbind()))
     }
 }
 
@@ -90,7 +104,7 @@ impl serde::Serialize for TdPyAny {
             let x = self.bind(py);
             let pickle = PICKLE_MODULE
                 .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
-                    Ok(py.import_bound("pickle")?.unbind())
+                    Ok(py.import("pickle")?.unbind())
                 })
                 .map_err(S::Error::custom)?;
             let binding = pickle
@@ -119,7 +133,7 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import_bound("pickle")?;
+            let pickle = py.import("pickle")?;
             let x = pickle
                 .call_method1(intern!(py, "loads"), (bytes,))?
                 .unbind()
@@ -135,22 +149,6 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
 impl<'de> serde::Deserialize<'de> for TdPyAny {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer.deserialize_bytes(PickleVisitor)
-    }
-}
-
-/// Re-use Python's value semantics in Rust code.
-impl PartialEq for TdPyAny {
-    fn eq(&self, other: &Self) -> bool {
-        Python::with_gil(|py| {
-            // Don't use Py.eq or PyAny.eq since it only checks
-            // pointer identity.
-            let self_ = self.bind(py);
-            let other = other.bind(py);
-            try_unwrap!(self_
-                .rich_compare(other, CompareOp::Eq)?
-                .as_gil_ref()
-                .is_truthy())
-        })
     }
 }
 
@@ -198,4 +196,14 @@ impl TdPyCallable {
 // The function returns one of the possible subclasses instances.
 pub(crate) trait PyConfigClass<S> {
     fn downcast(&self, py: Python) -> PyResult<S>;
+}
+
+pub(crate) trait OptionPyExt {
+    fn cloned_ref(&self, py: Python) -> Self;
+}
+
+impl<T> OptionPyExt for Option<Py<T>> {
+    fn cloned_ref(&self, py: Python) -> Self {
+        self.as_ref().map(|x| x.clone_ref(py))
+    }
 }

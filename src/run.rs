@@ -26,6 +26,7 @@ use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::metrics::initialize_metrics;
+use crate::pyo3_extensions::OptionPyExt;
 use crate::recovery::RecoveryConfig;
 use crate::unwrap_any;
 use crate::webserver::run_webserver;
@@ -41,7 +42,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
     // Since the dataflow can't change at runtime, we encode it as a
     // string of JSON once, when the webserver starts.
     let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
-        let vis_mod = PyModule::import_bound(py, "bytewax.visualize")?;
+        let vis_mod = PyModule::import(py, "bytewax.visualize")?;
         let to_json = vis_mod.getattr("to_json")?;
 
         let dataflow_json = to_json
@@ -151,10 +152,7 @@ pub(crate) fn run_main(
         eprintln!();
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
             // Special case for keyboard interrupt.
-            if err
-                .get_type_bound(py)
-                .is(&PyType::new_bound::<PyKeyboardInterrupt>(py))
-            {
+            if err.get_type(py).is(&PyType::new::<PyKeyboardInterrupt>(py)) {
                 tracked_err::<PyKeyboardInterrupt>(
                     "interrupt signal received, all processes have been shut down",
                 )
@@ -311,8 +309,8 @@ pub(crate) fn cluster_main(
             other,
             timely::WorkerConfig::default(),
             move |worker| {
-                let flow = Python::with_gil(|py| flow.clone_ref(py));
-                let recovery_config = recovery_config.clone();
+                let (flow, recovery_config) =
+                    Python::with_gil(|py| (flow.clone_ref(py), recovery_config.cloned_ref(py)));
 
                 unwrap_any!(worker_main(
                     worker,

@@ -5,26 +5,21 @@ use pyo3::types::PyDict;
 use crate::errors::PythonException;
 use crate::recovery::StepId;
 
+#[derive(IntoPyObject)]
 pub(crate) struct Dataflow(PyObject);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for Dataflow {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.dataflow")?.getattr("Dataflow")?;
+        let abc = py.import("bytewax.dataflow")?.getattr("Dataflow")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
-    }
-}
-
-impl IntoPy<Py<PyAny>> for Dataflow {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
     }
 }
 
@@ -44,13 +39,13 @@ pub(crate) struct Operator(PyObject);
 impl<'py> FromPyObject<'py> for Operator {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.dataflow")?.getattr("Operator")?;
+        let abc = py.import("bytewax.dataflow")?.getattr("Operator")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.as_unbound().clone_ref(py)))
         }
     }
 }
@@ -82,9 +77,7 @@ impl Operator {
     }
 
     pub(crate) fn is_core(&self, py: Python) -> PyResult<bool> {
-        let core_cls = py
-            .import_bound("bytewax.dataflow")?
-            .getattr("_CoreOperator")?;
+        let core_cls = py.import("bytewax.dataflow")?.getattr("_CoreOperator")?;
         self.0.bind(py).is_instance(&core_cls)
     }
 
@@ -108,7 +101,7 @@ impl Operator {
             .getattr(port_name)
             .reraise_with(|| format!("operator did not have MultiPort {port_name:?}"))?
             .getattr("stream_ids")?
-            .extract::<&PyDict>()?;
+            .extract::<Bound<'_, PyDict>>()?;
         stream_ids.values().extract()
     }
 }
