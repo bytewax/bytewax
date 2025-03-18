@@ -123,7 +123,7 @@ Bytewax provides built-in connectors for common data sources and sinks such as K
 - **StdIn/StdOut:** `bytewax.connectors.stdio`
 - **Redis, S3, and More:** See [Bytewax connectors](https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.html).
 
-**Community & Partner Connectors:** Check out the [Bytewax Module Hub](https://docs.bytewax.io/stable/guide/connectors-hub.html) for additional connectors contributed by the community.
+**Community & Partner Connectors:** Check out the [Bytewax Module Hub](https://bytewax.io/modules) for additional connectors contributed by the community.
 
 ---
 
