@@ -145,7 +145,7 @@ All of Bytewax's operators are in the {py:obj}`bytewax.operators` module, which 
 
 We will now turn our attention to windowing the data. In a dataflow pipeline, the role of collecting windowed data, particularly after mapping user events, is crucial for segmenting the continuous stream of events into manageable, discrete chunks based on time or event characteristics. This step enables the aggregation and analysis of events within specific time frames or sessions, which is essential for understanding patterns, behaviors, and trends over time.
 
-After user events are mapped, typically transforming each event into a tuple of `(user_id, event_data)`, the next step is to group these events into windows. In this example, we will use a {py:obj}`~bytewax.operators.windowing.SessionWindower` to group events by user sessions. We will also use an {py:obj}`~bytewax.operators.windowing.EventClock` to manage the timing and order of events as they are processed through the dataflow.
+After user events are mapped, typically transforming each event into a tuple of `(user_id, event_data)`, the next step is to group these events into windows. In this example, we will use a {py:obj}`~bytewax.windowing.SessionWindower` to group events by user sessions. We will also use an {py:obj}`~bytewax.windowing.EventClock` to manage the timing and order of events as they are processed through the dataflow.
 
 
 
@@ -156,9 +156,9 @@ After user events are mapped, typically transforming each event into a tuple of 
 :lineno-match:
 ```
 
-* A clock defines the sense of time for the windowing operator and using an {py:obj}`~bytewax.operators.windowing.EventClock` means we want to use the timestamps embedded in the events themselves to determine ordering. This allows out-of-order events to still be processed correctly.
+* A clock defines the sense of time for the windowing operator and using an {py:obj}`~bytewax.windowing.EventClock` means we want to use the timestamps embedded in the events themselves to determine ordering. This allows out-of-order events to still be processed correctly.
 
-* The {py:obj}`~bytewax.operators.windowing.SessionWindower` specifies how to group these timestamped events into sessions. A session window collects all events that occur within a specified gap of each other, allowing for dynamic window sizes based on the flow of incoming data
+* The {py:obj}`~bytewax.windowing.SessionWindower` specifies how to group these timestamped events into sessions. A session window collects all events that occur within a specified gap of each other, allowing for dynamic window sizes based on the flow of incoming data
 
 These configurations ensure that your dataflow can handle streaming data effectively, capturing user behavior in sessions and calculating relevant metrics like CTR in a way that is timely and reflective of actual user interactions. This setup is ideal for scenarios where user engagement metrics over time are critical, such as in digital marketing analysis, website optimization, or interactive application monitoring.
 

@@ -453,7 +453,7 @@ you manage mutable state and give you some pre-packaged solutions to
 common state-containing problems. E.g.
 {py:obj}`~bytewax.operators.stateful_map`,
 {py:obj}`~bytewax.operators.join`, all the window operators like
-{py:obj}`~bytewax.operators.windowing.collect_window`.
+{py:obj}`~bytewax.windowing.collect_window`.
 
 (xref-state-keys)=
 #### State Keys

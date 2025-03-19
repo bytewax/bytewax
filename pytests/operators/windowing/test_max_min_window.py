@@ -1,14 +1,14 @@
 from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
-import bytewax.operators.windowing as win
+import bytewax.windowing as win
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import (
+from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import (
     ZERO_TD,
     EventClock,
     TumblingWindower,
 )
-from bytewax.testing import TestingSink, TestingSource, run_main
 
 
 def test_max_window():

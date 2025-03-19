@@ -1214,9 +1214,9 @@ class WindowOut(Generic[V, W_co]):
 
     Emitted once when that window closes. Not emitted for original
     windows that are merged into another window. The target window's
-    {py:obj}`~bytewax.operators.windowing.WindowMetadata` will have
+    {py:obj}`~bytewax.windowing.WindowMetadata` will have
     the original window IDs in
-    {py:obj}`~bytewax.operators.windowing.WindowMetadata.merged_ids`.
+    {py:obj}`~bytewax.windowing.WindowMetadata.merged_ids`.
 
     Sub-keyed by window ID.
     """
@@ -1459,7 +1459,7 @@ def collect_window(
     from datetime import datetime, timedelta, timezone
     from bytewax.dataflow import Dataflow
     import bytewax.operators as op
-    from bytewax.operators.windowing import (TumblingWindower,\
+    from bytewax.windowing import (TumblingWindower,\
         EventClock, collect_window)
     from bytewax.testing import TestingSource
 
@@ -1590,7 +1590,7 @@ def count_window(
     from datetime import datetime, timedelta, timezone
     from bytewax.dataflow import Dataflow
     import bytewax.operators as op
-    from bytewax.operators.windowing import EventClock, TumblingWindower, count_window
+    from bytewax.windowing import EventClock, TumblingWindower, count_window
     from bytewax.testing import TestingSource, run_main
 
     # Create a new dataflow
@@ -1743,7 +1743,7 @@ def fold_window(
     from datetime import datetime, timedelta, timezone
     from bytewax.dataflow import Dataflow
     import bytewax.operators as op
-    from bytewax.operators.windowing import (TumblingWindower,
+    from bytewax.windowing import (TumblingWindower,
                                             EventClock,
                                             fold_window)
     from bytewax.testing import TestingSource
