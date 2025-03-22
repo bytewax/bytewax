@@ -1,3 +1,4 @@
+(xref-dataflow-programming)=
 # Dataflow Programming
 
 ## Overview
