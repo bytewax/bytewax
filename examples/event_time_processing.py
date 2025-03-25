@@ -21,13 +21,13 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-import bytewax.operators.windowing as win
+import bytewax.windowing as win
 from bytewax import operators as op
 from bytewax.connectors.kafka import KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import EventClock, TumblingWindower
+from bytewax.windowing import EventClock, TumblingWindower
 
 # Define the dataflow object and kafka input.
 flow = Dataflow("event time")

@@ -9,14 +9,14 @@ from abc import ABC, abstractmethod
 from typing import Generic, List, Optional, Tuple, TypeVar
 from zlib import adler32
 
-X = TypeVar("X")
+X_contra = TypeVar("X_contra", contravariant=True)
 """Type consumed by a {py:obj}`Sink`."""
 
 S = TypeVar("S")
 """Type of state snapshots."""
 
 
-class Sink(ABC, Generic[X]):  # noqa: B024
+class Sink(ABC, Generic[X_contra]):  # noqa: B024
     """A destination to write output items.
 
     Base class for all output sinks. Do not subclass this.
@@ -29,11 +29,11 @@ class Sink(ABC, Generic[X]):  # noqa: B024
     pass
 
 
-class StatefulSinkPartition(ABC, Generic[X, S]):
+class StatefulSinkPartition(ABC, Generic[X_contra, S]):
     """Output partition that maintains state of its position."""
 
     @abstractmethod
-    def write_batch(self, values: List[X]) -> None:
+    def write_batch(self, values: List[X_contra]) -> None:
         """Write a batch of output values.
 
         Called with a list of `value`s for each `(key, value)` at this
@@ -77,7 +77,7 @@ class StatefulSinkPartition(ABC, Generic[X, S]):
         return
 
 
-class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
+class FixedPartitionedSink(Sink[Tuple[str, X_contra]], Generic[X_contra, S]):
     """An output sink with a fixed number of independent partitions.
 
     Will maintain the state of each partition and re-build using it during
@@ -132,7 +132,7 @@ class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
         step_id: str,
         for_part: str,
         resume_state: Optional[S],
-    ) -> StatefulSinkPartition[X, S]:
+    ) -> StatefulSinkPartition[X_contra, S]:
         """Build anew or resume an output partition.
 
         Will be called once per execution for each partition key on a
@@ -158,11 +158,11 @@ class FixedPartitionedSink(Sink[Tuple[str, X]], Generic[X, S]):
         ...
 
 
-class StatelessSinkPartition(ABC, Generic[X]):
+class StatelessSinkPartition(ABC, Generic[X_contra]):
     """Output partition that is stateless."""
 
     @abstractmethod
-    def write_batch(self, items: List[X]) -> None:
+    def write_batch(self, items: List[X_contra]) -> None:
         """Write a batch of output items.
 
         Called multiple times whenever new items are seen at this
@@ -185,7 +185,7 @@ class StatelessSinkPartition(ABC, Generic[X]):
         return
 
 
-class DynamicSink(Sink[X]):
+class DynamicSink(Sink[X_contra]):
     """An output sink where all workers write items concurrently.
 
     Does not support storing any resume state. Thus these kind of
@@ -196,7 +196,7 @@ class DynamicSink(Sink[X]):
     @abstractmethod
     def build(
         self, step_id: str, worker_index: int, worker_count: int
-    ) -> StatelessSinkPartition[X]:
+    ) -> StatelessSinkPartition[X_contra]:
         """Build an output partition for a worker.
 
         Will be called once on each worker.

@@ -57,7 +57,7 @@ emails = op.input("emails", flow, TestingSource(emails_l))
 ```
 
 Bytewax provides the {py:obj}`~bytewax.operators.join`,
-{py:obj}`~bytewax.operators.windowing.join_window`, operators to
+{py:obj}`~bytewax.windowing.join_window`, operators to
 provide this functionality.
 
 ## Join Keys
@@ -458,7 +458,7 @@ stream when you aren't sure that you'll see values on all sides of the
 join.
 
 Bytewax provides the operators
-{py:obj}`~bytewax.operators.windowing.join_window` and to implement
+{py:obj}`~bytewax.windowing.join_window` and to implement
 this.
 
 For the details of all the types of windows you can define and
@@ -469,7 +469,7 @@ using event time.
 
 ```{testcode}
 from datetime import timedelta, datetime, timezone
-from bytewax.operators.windowing import EventClock, TumblingWindower
+from bytewax.windowing import EventClock, TumblingWindower
 
 clock = EventClock(ts_getter=lambda x: x["at"], wait_for_system_duration=timedelta(0))
 windower = TumblingWindower(
@@ -577,7 +577,7 @@ Now let's set up the windowed join and inspect the results to see if
 it matches that. To review, the entire dataflow is as follows.
 
 ```{testcode}
-import bytewax.operators.windowing as win
+import bytewax.windowing as win
 
 flow = Dataflow("join_eg")
 
@@ -695,7 +695,7 @@ can see all of the values for the Bee's email in that window.
 ```{testcode}
 :hide:
 
-import bytewax.operators.windowing as win
+import bytewax.windowing as win
 
 flow = Dataflow("join_eg")
 

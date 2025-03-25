@@ -4,16 +4,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple
 
 import bytewax.operators as op
-import bytewax.operators.windowing as win
+import bytewax.windowing as win
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import (
+from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import (
     ZERO_TD,
     EventClock,
     SessionWindower,
     SlidingWindower,
     TumblingWindower,
 )
-from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import mark
 
 # TODO: Test snapshotting logic so we're sure a recovery roundtrip

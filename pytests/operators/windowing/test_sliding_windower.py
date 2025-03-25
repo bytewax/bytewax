@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from bytewax.operators.windowing import _SlidingWindowerLogic, _SlidingWindowerState
+from bytewax.windowing import _SlidingWindowerLogic, _SlidingWindowerState
 
 
 def test_intersect_overlap_offset_divisible_by_length_bulk_positive():

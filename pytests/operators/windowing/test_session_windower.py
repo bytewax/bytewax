@@ -2,9 +2,10 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 
 import bytewax.operators as op
-import bytewax.operators.windowing as win
+import bytewax.windowing as win
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import (
+from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import (
     LATE_SESSION_ID,
     SessionWindower,
     SystemClock,
@@ -13,7 +14,6 @@ from bytewax.operators.windowing import (
     _SessionWindowerLogic,
     _SessionWindowerState,
 )
-from bytewax.testing import TestingSink, TestingSource, run_main
 
 
 def test_initial_session() -> None:
