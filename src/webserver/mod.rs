@@ -53,7 +53,7 @@ async fn get_dataflow(Extension(state): Extension<Arc<State>>) -> impl IntoRespo
 
 async fn get_metrics() -> impl IntoResponse {
     let py_metrics: String = Python::with_gil(|py| -> PyResult<String> {
-        let metrics_mod = PyModule::import_bound(py, "bytewax._metrics")?;
+        let metrics_mod = PyModule::import(py, "bytewax._metrics")?;
         let metrics = metrics_mod
             .getattr("generate_python_metrics")?
             .call0()?
