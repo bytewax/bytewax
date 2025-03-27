@@ -127,6 +127,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        debian-version: ['slim-bullseye', 'slim-bookworm']
     steps:
     - uses: actions/checkout@v2
     - name: Set up QEMU
@@ -145,13 +146,14 @@ jobs:
         push: true
         platforms: linux/amd64, linux/arm64
         tags: |
-          ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
-          ${{ needs.release.outputs.latest-image-tag }}-python${{ matrix.python-version }}
+          ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}-${{ matrix.debian-version }}
+          ${{ needs.release.outputs.latest-image-tag }}-python${{ matrix.python-version }}-${{ matrix.debian-version }}
         build-args: |
           BYTEWAX_VERSION=${{ needs.release.outputs.bytewax-version }}
           PYTHON_VERSION=${{ matrix.python-version }}
+          DEBIAN_VERSION=${{ matrix.debian-version }}
         file: Dockerfile.release
     - name: Tag latest
-      if: ${{ matrix.python-version == '3.9' }}
+      if: ${{ matrix.python-version == '3.9' && matrix.debian-version == 'slim-bullseye' }}
       run: |
-        docker buildx imagetools create -t ${{ needs.release.outputs.latest-image-tag }} ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
+        docker buildx imagetools create -t ${{ needs.release.outputs.latest-image-tag }} ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}-${{ matrix.debian-version }}

@@ -168,12 +168,12 @@ We showed how to build a custom image to run a Bytewax dataflow, but
 Bytewax also offers some premade images, that are optimizied for build
 size and have customizations options so that you don't always have to
 create your own image from scratch. Releases are available in Docker
-Hub with these python versions: 3.8, 3.9, 3.10 and 3.11.
+Hub with these python versions: 3.8, 3.9, 3.10, 3.11 and 3.12; and these python base images: `slim-bullseye` and `slim-bookworm`.
 
 We implement the following naming convention:
 
 ```bash
-bytewax/bytewax:${BYTEWAX_VERSION}-python${PYTHON_VERSION}
+bytewax/bytewax:${BYTEWAX_VERSION}-python${PYTHON_VERSION}-${DEBIAN_VERSION}
 ```
 
 Following this convention, Bytewax {{ version }} would have the
@@ -182,22 +182,34 @@ images:
 ```{code-block}
 :substitutions:
 
-bytewax/bytewax:|version|-python3.8
-bytewax/bytewax:|version|-python3.9
-bytewax/bytewax:|version|-python3.10
-bytewax/bytewax:|version|-python3.11
+bytewax/bytewax:|version|-python3.8-slim-bookworm
+bytewax/bytewax:|version|-python3.9-slim-bookworm
+bytewax/bytewax:|version|-python3.10-slim-bookworm
+bytewax/bytewax:|version|-python3.11-slim-bookworm
+bytewax/bytewax:|version|-python3.12-slim-bookworm
+bytewax/bytewax:|version|-python3.8-slim-bullseye
+bytewax/bytewax:|version|-python3.9-slim-bullseye
+bytewax/bytewax:|version|-python3.10-slim-bullseye
+bytewax/bytewax:|version|-python3.11-slim-bullseye
+bytewax/bytewax:|version|-python3.12-slim-bullseye
 ```
 
 And for the latest version of Bytewax:
 
 ```
-bytewax/bytewax:latest-python3.8
-bytewax/bytewax:latest-python3.9
-bytewax/bytewax:latest-python3.10
-bytewax/bytewax:latest-python3.11
+bytewax/bytewax:latest-python3.8-slim-bookworm
+bytewax/bytewax:latest-python3.9-slim-bookworm
+bytewax/bytewax:latest-python3.10-slim-bookworm
+bytewax/bytewax:latest-python3.11-slim-bookworm
+bytewax/bytewax:latest-python3.12-slim-bookworm
+bytewax/bytewax:latest-python3.8-slim-bullseye
+bytewax/bytewax:latest-python3.9-slim-bullseye
+bytewax/bytewax:latest-python3.10-slim-bullseye
+bytewax/bytewax:latest-python3.11-slim-bullseye
+bytewax/bytewax:latest-python3.12-slim-bullseye
 ```
 
-The standard `latest` tag is equivalent to `latest-python3.9`.
+The standard `latest` tag is equivalent to `latest-python3.9-slim-bullseye`.
 
 ## Using Bytewax Container Image locally
 

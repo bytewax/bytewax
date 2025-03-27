@@ -1,6 +1,7 @@
 ARG PYTHON_VERSION=3.9
+ARG DEBIAN_VERSION=slim-bullseye
 
-FROM python:$PYTHON_VERSION-slim-bullseye AS build
+FROM python:$PYTHON_VERSION-$DEBIAN_VERSION AS build
 
 ARG BYTEWAX_VERSION
 
@@ -11,7 +12,7 @@ RUN apt-get update && \
 
 RUN /venv/bin/pip3 install bytewax[kafka]==$BYTEWAX_VERSION
 
-FROM python:$PYTHON_VERSION-slim-bullseye AS runner
+FROM python:$PYTHON_VERSION-$DEBIAN_VERSION AS runner
 COPY --from=build /venv /venv
 WORKDIR /bytewax
 COPY ./entrypoint.sh .
