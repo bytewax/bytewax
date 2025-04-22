@@ -383,6 +383,9 @@ class KafkaSource(
         }
         config.update(self._add_config)
         client = AdminClient(config)
+        # Workaround for https://github.com/confluentinc/librdkafka/issues/3753#issuecomment-1058272987
+        # to start any configured auth callbacks.
+        client.poll(0)
 
         return list(_list_parts(client, self._topics))
 
