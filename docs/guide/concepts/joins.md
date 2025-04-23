@@ -301,7 +301,7 @@ the Bee, there's no name state. So nothing is emitted!
 
 | Key | Name Value | Email Value |
 | --- | ---------- | ----------- |
-| 123 | | `"bee@bytewax.io"` |
+| 123 | | `"queen@bytewax.io"` |
 
 Hopefully this helps clarify how basic streaming joins work. Realizing
 that the {py:obj}`~bytewax.operators.join` operator only keeps the
