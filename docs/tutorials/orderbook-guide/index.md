@@ -60,7 +60,7 @@ Complete installation - we recommend using a virtual environment to manage your 
 :substitutions:
 $ python -m venv venv
 $ ./venv/bin/activate
-(venv) $ pip install bytewax==|version|
+(venv) $ pip install bytewax==|version| websockets
 ```
 
 Now, let's import the required modules and set up the environment for building the dataflow.
