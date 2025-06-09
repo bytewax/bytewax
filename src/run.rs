@@ -267,7 +267,10 @@ pub(crate) fn cluster_main(
                 process: proc_id,
                 addresses,
                 report: false,
-                log_fn: Box::new(|_| None),
+                zerocopy: false,
+                // log_fn: Box::new(|_| None),
+                // TODO checkout what messages are missing
+                log_fn: Arc::new(|_| None),
             }
         }
         .try_build()

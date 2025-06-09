@@ -269,7 +269,7 @@ impl FixedPartitionedSource {
         let (mut snaps_output, snaps) = op_builder.new_output();
 
         let info = op_builder.operator_info();
-        let activator = scope.activator_for(&info.address[..]);
+        let activator = scope.activator_for(info.address);
         let probe = probe.clone();
         let abort = abort.clone();
 
@@ -304,7 +304,7 @@ impl FixedPartitionedSource {
             let mut parts: BTreeMap<StateKey, PartitionedPartState> = BTreeMap::new();
             let mut primary_parts = BTreeSet::new();
 
-            let mut tmp = Vec::new();
+            // let mut tmp = Vec::new();
             let mut primaries_inbuf = InBuffer::new();
 
             move |input_frontiers| {
@@ -318,8 +318,8 @@ impl FixedPartitionedSource {
 
                     loads_input.for_each(|cap, incoming| {
                         let load_epoch = cap.time();
-                        assert!(tmp.is_empty());
-                        incoming.swap(&mut tmp);
+                        // assert!(tmp.is_empty());
+                        // incoming.swap(&mut tmp);
 
                         // Snapshots might be from an "old" epoch if
                         // there were no items and thus snapshots
@@ -329,7 +329,7 @@ impl FixedPartitionedSource {
                         let emit_epoch = std::cmp::max(*load_epoch, start_at.0);
 
                         unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                            for (worker, (part_key, change)) in tmp.drain(..) {
+                            for (worker, (part_key, change)) in incoming.drain(..) {
                                 assert!(worker == this_worker);
 
                                 if let StateChange::Upsert(state) = change {
@@ -461,7 +461,7 @@ impl FixedPartitionedSource {
                                                 let mut downstream_session = downstream_handle.session(&part_state.downstream_cap);
                                                 item_out_count.add(batch_len as u64, &labels);
                                                 let mut batch = batch.into_iter().map(TdPyAny::from).collect();
-                                                downstream_session.give_vec(&mut batch);
+                                                downstream_session.give_container(&mut batch);
 
                                                 let next_awake_res = part_state
                                                     .part
@@ -708,7 +708,7 @@ impl DynamicSource {
         let (mut downstream_wrapper, downstream) = op_builder.new_output();
 
         let info = op_builder.operator_info();
-        let activator = scope.activator_for(&info.address[..]);
+        let activator = scope.activator_for(info.address);
         let probe = probe.clone();
         let abort = abort.clone();
 
@@ -781,7 +781,7 @@ impl DynamicSource {
                                             let mut downstream_session = downstream_handle.session(&part_state.output_cap);
                                             item_out_count.add(batch_len as u64, &labels);
                                             let mut batch = batch.into_iter().map(TdPyAny::from).collect();
-                                            downstream_session.give_vec(&mut batch);
+                                            downstream_session.give_container(&mut batch);
 
                                             let next_awake_res = part_state
                                                 .part

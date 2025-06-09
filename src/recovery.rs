@@ -1438,16 +1438,17 @@ where
             init_caps.downgrade_all(&resume_epoch.0);
             let mut cap = init_caps.pop();
 
-            let mut inbuf = Vec::new();
+            // let mut inbuf = Vec::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = name).in_scope(|| {
                     input.for_each(|_cap, incoming| {
-                        assert!(inbuf.is_empty());
-                        incoming.swap(&mut inbuf);
+                        // assert!(inbuf.is_empty());
+                        // incoming.swap(&mut inbuf);
                         // We have to drain the incoming data, but we just
                         // care about the epoch so drop it.
-                        inbuf.clear();
+                        // TODO take a closer look
+                        incoming.clear();
                     });
 
                     cap = cap.take().and_then(|cap| {
@@ -1524,17 +1525,17 @@ where
     fn ser_snap(&self) -> Stream<S, ((StepId, StateKey), SerializedSnapshot)> {
         // Effectively map-with-epoch.
         self.unary(Pipeline, "ser_snap", move |_init_cap, _info| {
-            let mut inbuf = Vec::new();
+            // let mut inbuf = Vec::new();
             let pickle = Python::with_gil(|py| unwrap_any!(py.import_bound("pickle")).unbind());
 
             move |snaps_input, ser_snaps_output| {
                 snaps_input.for_each(|cap, incoming| {
-                    incoming.swap(&mut inbuf);
+                    // incoming.swap(&mut inbuf);
 
                     let epoch = cap.time();
                     Python::with_gil(|py| {
                         let ser_snaps =
-                            inbuf
+                            incoming
                                 .drain(..)
                                 .map(|Snapshot(step_id, state_key, snap_change)| {
                                     let ser_change = match snap_change {

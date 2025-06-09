@@ -20,7 +20,6 @@ use timely::dataflow::operators::ToStream;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 use timely::order::TotalOrder;
-use timely::progress::Antichain;
 use timely::ExchangeData;
 
 use crate::errors::PythonException;
@@ -58,19 +57,19 @@ where
         let (mut falses_output, falses) = op_builder.new_output();
 
         op_builder.build(move |_| {
-            let mut inbuf = Vec::new();
+            // let mut inbuf = Vec::new();
             move |_frontiers| {
                 let mut trues_handle = trues_output.activate();
                 let mut falses_handle = falses_output.activate();
 
                 Python::with_gil(|py| {
                     self_handle.for_each(|time, data| {
-                        data.swap(&mut inbuf);
+                        // data.swap(&mut inbuf);
                         let mut trues_session = trues_handle.session(&time);
                         let mut falses_session = falses_handle.session(&time);
                         let pred = predicate.bind(py);
                         unwrap_any!(|| -> PyResult<()> {
-                            for item in inbuf.drain(..) {
+                            for item in data.drain(..) {
                                 let res = pred
                                     .call1((item.bind(py),))
                                     .reraise_with(|| {
@@ -178,6 +177,7 @@ where
             // this is effectively 'static because Timely swaps this
             // out under the covers so it doesn't end up growing
             // without bound.
+            // remark: give_vec changed for give_container; behavior could change
             let mut outbuf = Vec::new();
 
             move |input_frontiers| {
@@ -211,7 +211,7 @@ where
                                     );
 
                                     item_out_count.add(outbuf.len() as u64, &labels);
-                                    downstream_session.give_vec(&mut outbuf);
+                                    downstream_session.give_container(&mut outbuf);
 
                                     Ok(())
                                 }));
@@ -302,7 +302,7 @@ where
                                     Ok(())
                                 }));
 
-                                downstream_session.give_vec(&mut items);
+                                downstream_session.give_container(&mut items);
                                 clock_session.give(());
                             }
                         },
@@ -379,16 +379,16 @@ where
         let (mut downstream_output, downstream) = op_builder.new_output();
 
         op_builder.build(move |_| {
-            let mut inbuf = Vec::new();
+            // let mut inbuf = Vec::new();
             move |_frontiers| {
                 let mut downstream_handle = downstream_output.activate();
 
                 Python::with_gil(|py| {
                     self_handle.for_each(|time, data| {
-                        data.swap(&mut inbuf);
+                        // data.swap(&mut inbuf);
                         let mut downstream_session = downstream_handle.session(&time);
                         unwrap_any!(|| -> PyResult<()> {
-                            for item in inbuf.drain(..) {
+                            for item in data.drain(..) {
                                 let item = PyObject::from(item);
                                 let (key, value) = item
                                     .extract::<(&PyAny, PyObject)>(py)
@@ -579,19 +579,12 @@ where
         let (mut kv_downstream_output, kv_downstream) = op_builder.new_output();
         let (mut snaps_output, snaps) = op_builder.new_output();
 
-        let mut input_handle = op_builder.new_input_connection(
-            &partd_self,
-            routed_exchange(),
-            vec![Antichain::from_elem(0), Antichain::from_elem(0)],
-        );
-        let mut loads_handle = op_builder.new_input_connection(
-            &partd_loads,
-            routed_exchange(),
-            vec![Antichain::from_elem(0), Antichain::from_elem(0)],
-        );
+        let mut input_handle = op_builder.new_input(&partd_self, routed_exchange());
+
+        let mut loads_handle = op_builder.new_input(&partd_loads, routed_exchange());
 
         let info = op_builder.operator_info();
-        let activator = self.scope().activator_for(&info.address[..]);
+        let activator = self.scope().activator_for(info.address);
 
         let meter = opentelemetry::global::meter("bytewax");
         let item_inp_count = meter

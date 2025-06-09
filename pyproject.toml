@@ -17,6 +17,8 @@ classifiers = [
     "Topic :: System :: Networking",
     "Topic :: System :: Distributed Computing",
 ]
+dynamic = ["version"]
+
 dependencies = [
     "typing_extensions>=4",
     "prometheus-client>=0.18"

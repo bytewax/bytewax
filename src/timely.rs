@@ -17,10 +17,12 @@ use opentelemetry::global;
 use opentelemetry::KeyValue;
 use serde::Deserialize;
 use serde::Serialize;
-use timely::communication::message::RefOrMut;
+use timely::communication::Pull;
+// use timely::communication::message::RefOrMut;
 use timely::dataflow::channels::pact::Exchange;
 use timely::dataflow::channels::pact::ParallelizationContract;
 use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::channels::Message;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::generic::operator::empty;
 use timely::dataflow::operators::generic::InputHandle;
@@ -49,7 +51,7 @@ pub(crate) struct InBuffer<T, D>
 where
     T: Timestamp,
 {
-    tmp: Vec<D>,
+    // tmp: Vec<D>,
     buffer: BTreeMap<T, Vec<D>>,
 }
 
@@ -60,20 +62,20 @@ where
 {
     pub(crate) fn new() -> Self {
         Self {
-            tmp: Vec::new(),
+            // tmp: Vec::new(),
             buffer: BTreeMap::new(),
         }
     }
 
     /// Buffer that this input was received on this epoch.
-    pub(crate) fn extend(&mut self, epoch: T, incoming: RefOrMut<Vec<D>>) {
-        assert!(self.tmp.is_empty());
-        incoming.swap(&mut self.tmp);
+    pub(crate) fn extend(&mut self, epoch: T, incoming: &mut Vec<D>) {
+        // assert!(self.tmp.is_empty());
+        // incoming.swap(&mut self.tmp);
         self.buffer
             .entry(epoch)
-            .and_modify(|buf| buf.append(&mut self.tmp))
+            .and_modify(|buf| buf.append(incoming))
             // Prevent Vec copy on new data for this epoch.
-            .or_insert_with(|| std::mem::take(&mut self.tmp));
+            .or_insert_with(|| std::mem::take(incoming));
     }
 
     /// Get all input received on a given epoch.
@@ -286,7 +288,7 @@ impl<T, D, P> OpInputHandleEx<T, D> for InputHandle<T, D, P>
 where
     T: Timestamp + TotalOrder,
     D: Data,
-    P: timely::communication::Pull<timely::dataflow::channels::Bundle<T, D>>,
+    P: Pull<Message<T, Vec<D>>>,
 {
     fn buffer_notify<S>(
         &mut self,
@@ -806,7 +808,7 @@ where
 
 /// Build a [`ParallelizationContract`] which routes items to the
 /// worker explicitly specified in the tuple of each item.
-pub(crate) fn routed_exchange<T, D>() -> impl ParallelizationContract<T, (WorkerIndex, D)>
+pub(crate) fn routed_exchange<T, D>() -> impl ParallelizationContract<T, Vec<(WorkerIndex, D)>>
 where
     T: Timestamp,
     D: ExchangeData,
@@ -918,7 +920,7 @@ where
         op_builder.build(move |init_caps| {
             let parts: BTreeMap<P, W> = BTreeMap::new();
 
-            let mut routed_tmp = Vec::new();
+            // let mut routed_tmp = Vec::new();
             let mut items_inbuf: BTreeMap<S::Timestamp, BTreeMap<P, Vec<V>>> = BTreeMap::new();
             let mut primaries_inbuf = InBuffer::new();
             let mut ncater = EagerNotificator::new(init_caps, parts);
@@ -927,9 +929,9 @@ where
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
                 routed_input.for_each(|cap, incoming| {
                     let epoch = cap.time();
-                    assert!(routed_tmp.is_empty());
-                    incoming.swap(&mut routed_tmp);
-                    for (_worker, (part, (_key, value))) in routed_tmp.drain(..) {
+                    // assert!(routed_tmp.is_empty());
+                    // incoming.swap(&mut routed_tmp);
+                    for (_worker, (part, (_key, value))) in incoming.drain(..) {
                         items_inbuf.entry(epoch.clone())
                             .or_insert_with(BTreeMap::new)
                             .entry(part)
@@ -1143,7 +1145,7 @@ where
         let (mut items_output, output) = op_builder.new_output();
 
         let info = op_builder.operator_info();
-        let activator = self.activator_for(&info.address[..]);
+        let activator = self.activator_for(info.address);
         let cooldown = Duration::from_millis(1);
 
         // We can't use a notificator here because reading from a
@@ -1152,7 +1154,7 @@ where
         // queues. Notificators don't have a way to "hold onto" a
         // capability after the epoch is marked as closed once.
         op_builder.build(move |_init_caps| {
-            let mut inbuf = Vec::new();
+            // let mut inbuf = Vec::new();
 
             let mut queue: BinaryHeap<LoadPartEntry<S::Timestamp, P, L>> = BinaryHeap::new();
 
@@ -1162,10 +1164,10 @@ where
 
                     primaries_input.for_each(|cap, incoming| {
                         let epoch = cap.time();
-                        assert!(inbuf.is_empty());
-                        incoming.swap(&mut inbuf);
+                        // assert!(inbuf.is_empty());
+                        // incoming.swap(&mut inbuf);
 
-                        for (part_key, worker) in inbuf.drain(..) {
+                        for (part_key, worker) in incoming.drain(..) {
                             if worker == this_worker {
                                 let labels = part_label_map
                                     .get(&part_key)
@@ -1200,7 +1202,7 @@ where
                                 items_output
                                     .activate()
                                     .session(&entry.cap)
-                                    .give_vec(&mut items);
+                                    .give_container(&mut items);
 
                                 // This part isn't EOF, so leave it.
                             } else {

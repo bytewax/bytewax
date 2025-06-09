@@ -271,7 +271,7 @@ where
             // snapshot those.
             let awoken: BTreeSet<StateKey> = BTreeSet::new();
 
-            let mut routed_tmp = Vec::new();
+            // let mut routed_tmp = Vec::new();
             // First `StateKey` is partition, second is data
             // routing.
             type PartToInBufferMap = BTreeMap<StateKey, Vec<(StateKey, TdPyAny)>>;
@@ -283,9 +283,9 @@ where
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
                     routed_input.for_each(|cap, incoming| {
                         let epoch = cap.time();
-                        assert!(routed_tmp.is_empty());
-                        incoming.swap(&mut routed_tmp);
-                        for (worker, (part, (key, value))) in routed_tmp.drain(..) {
+                        // assert!(routed_tmp.is_empty());
+                        // incoming.swap(&mut routed_tmp);
+                        for (worker, (part, (key, value))) in incoming.drain(..) {
                             assert!(worker == this_worker);
                             items_inbuf
                                 .entry(*epoch)
@@ -530,17 +530,17 @@ where
         ];
 
         let downstream = self.unary_frontier(Pipeline, &step_id.0, |_init_cap, _info| {
-            let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
+            // let mut tmp_incoming: Vec<TdPyAny> = Vec::new();
 
             move |input, output| {
                 part = part.take().and_then(|sink| {
                     input.for_each(|cap, incoming| {
-                        assert!(tmp_incoming.is_empty());
-                        incoming.swap(&mut tmp_incoming);
+                        // assert!(tmp_incoming.is_empty());
+                        // incoming.swap(&mut tmp_incoming);
 
                         let mut output_session = output.session(&cap);
 
-                        let batch: Vec<PyObject> = tmp_incoming
+                        let batch: Vec<PyObject> = incoming
                             .split_off(0)
                             .into_iter()
                             .map(|item| item.into())

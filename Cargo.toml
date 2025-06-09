@@ -1,6 +1,6 @@
 [package]
 name = "bytewax"
-version = "0.21.1"
+version = "0.21.2"
 edition = "2021"
 
 [lib]
@@ -25,7 +25,8 @@ seahash = { version = "4.1.0" }
 serde = { version = "1.0.134", features = ["derive"] }
 serde_json = { version = "1.0.96" }
 serde_test = { version = "1.0.134" }
-timely = { git = "https://github.com/TimelyDataflow/timely-dataflow.git", rev = "432ef57", features = ["bincode"] }
+timely = { version = "0.21.0" }
+# timely = { git = "https://github.com/TimelyDataflow/timely-dataflow.git", rev = "432ef57", features = ["bincode"] }
 tokio = { version = "1.20.1", features = ["full"] }
 tracing = { version = "0.1" }
 tracing-opentelemetry = { version = "0.20" }
