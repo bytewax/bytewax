@@ -10,7 +10,9 @@ use chrono::Utc;
 use opentelemetry::KeyValue;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
+use pyo3::IntoPyObject;
 use pyo3::prelude::*;
+use pyo3::prelude::PyAnyMethods;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Concatenate;
@@ -105,7 +107,7 @@ fn next_batch(
     in_batch: Vec<PyObject>,
 ) -> PyResult<()> {
     let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
-    let iter = res.iter().reraise_with(|| {
+    let iter = res.try_iter().reraise_with(|| {
         format!(
             "mapper must return an iterable; got a `{}` instead",
             unwrap_any!(res.get_type().name()),
@@ -242,7 +244,7 @@ where
 impl<S> InspectDebugOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
-    S::Timestamp: IntoPy<PyObject> + TotalOrder,
+    S::Timestamp: for<'py> IntoPyObject<'py> + TotalOrder,
 {
     fn inspect_debug(
         &self,
@@ -390,19 +392,13 @@ where
                         unwrap_any!(|| -> PyResult<()> {
                             for item in inbuf.drain(..) {
                                 let item = PyObject::from(item);
-                                let (key, value) = item
-                                    .extract::<(&PyAny, PyObject)>(py)
+                                let (key, value): (StateKey, PyObject) = item
+                                    .extract::<(StateKey, PyObject)>(py)
                                     .raise_with::<PyTypeError>(|| {
                                         format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
                                             unwrap_any!(item.bind(py).get_type().name()),
                                         )
                                     })?;
-
-                                let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
-                                    format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
-                                        unwrap_any!(key.get_type().name()),
-                                    )
-                                })?;
                                 downstream_session.give((key, TdPyAny::from(value)));
                             }
                             Ok(())
@@ -430,7 +426,12 @@ where
         self.map(move |(key, value)| {
             let value = PyObject::from(value);
 
-            let item = Python::with_gil(|py| IntoPy::<PyObject>::into_py((key, value), py));
+            let item = Python::with_gil(|py| {
+                (key, value)
+                    .into_pyobject(py)
+                    .map(|obj| obj.unbind().into_any())
+                    .expect("tuple conversion to Python should not fail")
+            });
 
             TdPyAny::from(item)
         })
@@ -454,18 +455,19 @@ where
 struct StatefulBatchLogic(PyObject);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulBatchLogic {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for StatefulBatchLogic {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.operators")?
+            .import("bytewax.operators")?
             .getattr("StatefulBatchLogic")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.to_owned().unbind()))
         }
     }
 }
@@ -475,8 +477,9 @@ enum IsComplete {
     Discard,
 }
 
-impl<'py> FromPyObject<'py> for IsComplete {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for IsComplete {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if ob.extract::<bool>().reraise_with(|| {
             format!(
                 "`is_complete` was not a `bool`; got a `{}` instead",
@@ -492,17 +495,11 @@ impl<'py> FromPyObject<'py> for IsComplete {
 
 impl StatefulBatchLogic {
     fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
+        let (emit, is_complete): (Vec<PyObject>, IsComplete) =
+            res.extract::<(Vec<PyObject>, IsComplete)>().reraise_with(|| {
             format!(
                 "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
                 unwrap_any!(res.get_type().name())
-            )
-        })?;
-        let is_complete = is_complete.extract::<IsComplete>()?;
-        let emit = iter.extract::<Vec<_>>().reraise_with(|| {
-            format!(
-                "`emit` was not a `list`; got a `{}` instead",
-                unwrap_any!(iter.get_type().name())
             )
         })?;
 
@@ -533,7 +530,7 @@ impl StatefulBatchLogic {
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         let res = self.0.bind(py).call_method0(intern!(py, "notify_at"))?;
-        res.extract().reraise_with(|| {
+        res.extract::<Option<DateTime<Utc>>>().reraise_with(|| {
             format!(
                 "did not return a `datetime`; got a `{}` instead",
                 unwrap_any!(res.get_type().name())

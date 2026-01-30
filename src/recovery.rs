@@ -23,9 +23,10 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
+use pyo3::IntoPyObject;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDelta, PyString};
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 use rusqlite_migration::Migrations;
@@ -161,14 +162,19 @@ impl Default for BackupInterval {
     }
 }
 
-impl IntoPy<Py<PyAny>> for BackupInterval {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
+impl<'py> IntoPyObject<'py> for BackupInterval {
+    type Target = PyDelta;
+    type Output = Bound<'py, PyDelta>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        Ok(self.0.into_pyobject(py)?)
     }
 }
 
-impl<'py> FromPyObject<'py> for BackupInterval {
-    fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for BackupInterval {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(duration) = obj.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
@@ -205,15 +211,13 @@ impl Default for ResumeFrom {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, FromPyObject)]
 pub(crate) struct StepId(pub(crate) String);
 
-impl IntoPy<Py<PyAny>> for StepId {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
-    }
-}
+impl<'py> IntoPyObject<'py> for StepId {
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
+    type Error = PyErr;
 
-impl ToPyObject for StepId {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        Ok(self.0.into_pyobject(py)?)
     }
 }
 
@@ -241,9 +245,13 @@ impl std::fmt::Display for StepId {
 )]
 pub(crate) struct StateKey(pub(crate) String);
 
-impl IntoPy<Py<PyAny>> for StateKey {
-    fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-        self.0.into_py(py)
+impl<'py> IntoPyObject<'py> for StateKey {
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        Ok(self.0.into_pyobject(py)?)
     }
 }
 
@@ -1525,7 +1533,7 @@ where
         // Effectively map-with-epoch.
         self.unary(Pipeline, "ser_snap", move |_init_cap, _info| {
             let mut inbuf = Vec::new();
-            let pickle = Python::with_gil(|py| unwrap_any!(py.import_bound("pickle")).unbind());
+            let pickle = Python::with_gil(|py| unwrap_any!(py.import("pickle")).unbind());
 
             move |snaps_input, ser_snaps_output| {
                 snaps_input.for_each(|cap, incoming| {
@@ -1594,11 +1602,11 @@ where
                 let snap_change = match ser_change {
                     Some(ser_snap) => {
                         let snap = unwrap_any!(Python::with_gil(|py| -> PyResult<PyObject> {
-                            let pickle = py.import_bound("pickle")?;
+                            let pickle = py.import("pickle")?;
                             Ok(pickle
                                 .call_method1(
                                     intern!(py, "loads"),
-                                    (PyBytes::new_bound(py, &ser_snap),),
+                                    (PyBytes::new(py, &ser_snap),),
                                 )?
                                 .unbind())
                         }));
@@ -1937,15 +1945,15 @@ pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RecoveryConfig>()?;
     m.add(
         "InconsistentPartitionsError",
-        py.get_type_bound::<InconsistentPartitionsError>(),
+        py.get_type::<InconsistentPartitionsError>(),
     )?;
     m.add(
         "MissingPartitionsError",
-        py.get_type_bound::<MissingPartitionsError>(),
+        py.get_type::<MissingPartitionsError>(),
     )?;
     m.add(
         "NoPartitionsError",
-        py.get_type_bound::<NoPartitionsError>(),
+        py.get_type::<NoPartitionsError>(),
     )?;
     Ok(())
 }

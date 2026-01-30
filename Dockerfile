@@ -1,46 +1,30 @@
-# Builder to get maturin
-FROM konstin2/maturin:v0.12.6 as maturin-builder
+# ----- Build stage: compile bytewax for linux/amd64 -----
+FROM --platform=linux/amd64 python:3.14-slim AS build
 
-# Builder to get the package
-FROM rust:1.68-slim-bullseye AS build
+ARG BYTEWAX_VERSION=0.22.0
 
-COPY --from=maturin-builder /usr/bin/maturin /usr/bin/maturin
+# build deps
+RUN apt-get update && apt-get install -y \
+    build-essential curl pkg-config libssl-dev libsqlite3-dev \
+ && rm -rf /var/lib/apt/lists/*
 
-ARG BYTEWAX_VERSION
+# Install Rust
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
-RUN apt-get update && \
-    apt-get install --no-install-suggests --no-install-recommends --yes \
-        build-essential \
-        cmake \
-        gcc \
-        libpython3-dev \
-        libsasl2-dev \
-        libssl-dev \
-        make \
-        openssl \
-        patchelf \
-        pkg-config \
-        protobuf-compiler \
-        python3-venv && \
-    python3 -m venv /venv && \
-    /venv/bin/pip install --upgrade pip setuptools wheel
+# maturin for building the wheel
+RUN pip install --no-cache-dir maturin
 
-COPY . /bytewax
-WORKDIR /bytewax
+WORKDIR /opt/bytewax
+COPY . .
 
-RUN maturin build --interpreter python3.9
-RUN /venv/bin/pip3 install /bytewax/target/wheels/bytewax-$BYTEWAX_VERSION-cp39-cp39-manylinux_2_31_x86_64.whl
+# build wheel for cp314 / linux x86_64
+RUN maturin build --release --interpreter python3.14
 
-# Final image
-FROM gcr.io/distroless/python3-debian11:debug
-COPY --from=build /venv /venv
-WORKDIR /bytewax
-COPY ./entrypoint.sh .
-COPY ./entrypoint-recovery.sh .
+# collect wheel in a clean place
+RUN mkdir -p /dist && cp target/wheels/bytewax-${BYTEWAX_VERSION}-cp314-*.whl /dist/
 
-ENV BYTEWAX_WORKDIR=/bytewax
+# ----- Artifact stage: ONLY the wheel -----
+FROM scratch AS artifact
+COPY --from=build /dist /dist
 
-# Ports that needs to be exposed
-EXPOSE 9999 3030
-
-ENTRYPOINT ["/bin/sh", "-c", "./entrypoint.sh"]

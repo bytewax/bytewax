@@ -8,6 +8,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
+use pyo3::prelude::PyAnyMethods;
 use serde::ser::Error;
 use std::fmt;
 
@@ -90,7 +91,7 @@ impl serde::Serialize for TdPyAny {
             let x = self.bind(py);
             let pickle = PICKLE_MODULE
                 .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
-                    Ok(py.import_bound("pickle")?.unbind())
+                    Ok(py.import("pickle")?.unbind())
                 })
                 .map_err(S::Error::custom)?;
             let binding = pickle
@@ -119,7 +120,7 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import_bound("pickle")?;
+            let pickle = py.import("pickle")?;
             let x = pickle
                 .call_method1(intern!(py, "loads"), (bytes,))?
                 .unbind()
@@ -146,10 +147,7 @@ impl PartialEq for TdPyAny {
             // pointer identity.
             let self_ = self.bind(py);
             let other = other.bind(py);
-            try_unwrap!(self_
-                .rich_compare(other, CompareOp::Eq)?
-                .as_gil_ref()
-                .is_truthy())
+            try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_truthy())
         })
     }
 }
@@ -162,8 +160,9 @@ pub(crate) struct TdPyCallable(PyObject);
 
 /// Have PyO3 do type checking to ensure we only make from callable
 /// objects.
-impl<'py> FromPyObject<'py> for TdPyCallable {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for TdPyCallable {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if ob.is_callable() {
             let py = ob.py();
             Ok(Self(ob.as_unbound().clone_ref(py)))

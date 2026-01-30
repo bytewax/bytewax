@@ -1,6 +1,8 @@
 use pyo3::exceptions::PyTypeError;
+use pyo3::IntoPyObject;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::prelude::PyAnyMethods;
+use pyo3::types::{PyDict, PyDictMethods};
 
 use crate::errors::PythonException;
 use crate::recovery::StepId;
@@ -8,23 +10,28 @@ use crate::recovery::StepId;
 pub(crate) struct Dataflow(PyObject);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Dataflow {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for Dataflow {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.dataflow")?.getattr("Dataflow")?;
+        let abc = py.import("bytewax.dataflow")?.getattr("Dataflow")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.to_owned().unbind()))
         }
     }
 }
 
-impl IntoPy<Py<PyAny>> for Dataflow {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
+impl<'py> IntoPyObject<'py> for Dataflow {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        Ok(self.0.into_bound(py))
     }
 }
 
@@ -41,16 +48,17 @@ impl Dataflow {
 pub(crate) struct Operator(PyObject);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Operator {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for Operator {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.dataflow")?.getattr("Operator")?;
+        let abc = py.import("bytewax.dataflow")?.getattr("Operator")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.to_owned().unbind()))
         }
     }
 }
@@ -58,8 +66,9 @@ impl<'py> FromPyObject<'py> for Operator {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StreamId(String);
 
-impl<'py> FromPyObject<'py> for StreamId {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for StreamId {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         Ok(Self(ob.extract()?))
     }
 }
@@ -83,7 +92,7 @@ impl Operator {
 
     pub(crate) fn is_core(&self, py: Python) -> PyResult<bool> {
         let core_cls = py
-            .import_bound("bytewax.dataflow")?
+            .import("bytewax.dataflow")?
             .getattr("_CoreOperator")?;
         self.0.bind(py).is_instance(&core_cls)
     }
@@ -102,13 +111,13 @@ impl Operator {
         py: Python,
         port_name: &str,
     ) -> PyResult<Vec<StreamId>> {
-        let stream_ids = self
+        let stream_ids: Bound<'_, PyDict> = self
             .0
             .bind(py)
             .getattr(port_name)
             .reraise_with(|| format!("operator did not have MultiPort {port_name:?}"))?
             .getattr("stream_ids")?
-            .extract::<&PyDict>()?;
+            .extract()?;
         stream_ids.values().extract()
     }
 }

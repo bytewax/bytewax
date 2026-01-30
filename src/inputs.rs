@@ -18,7 +18,9 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyStopIteration;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
+use pyo3::IntoPyObject;
 use pyo3::prelude::*;
+use pyo3::prelude::PyAnyMethods;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Capability;
@@ -49,8 +51,9 @@ const DEFAULT_COOLDOWN: TimeDelta = TimeDelta::microseconds(1000);
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct EpochInterval(TimeDelta);
 
-impl<'py> FromPyObject<'py> for EpochInterval {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for EpochInterval {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(duration) = ob.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
@@ -108,38 +111,37 @@ create_exception!(
 pub(crate) struct Source(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Source {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for Source {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.inputs")?.getattr("Source")?;
+        let abc = py.import("bytewax.inputs")?.getattr("Source")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "source must subclass `bytewax.inputs.Source`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.to_owned().unbind()))
         }
     }
 }
 
-impl IntoPy<Py<PyAny>> for Source {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
-    }
-}
+impl<'py> IntoPyObject<'py> for Source {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
 
-impl ToPyObject for Source {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.0.to_object(py)
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        Ok(self.0.into_bound(py))
     }
 }
 
 impl Source {
     pub(crate) fn extract<'p, D>(&'p self, py: Python<'p>) -> PyResult<D>
     where
-        D: FromPyObject<'p>,
+        D: for<'a> FromPyObject<'a, 'p>,
     {
-        self.0.extract(py)
+        self.0.extract(py).map_err(Into::into)
     }
 }
 
@@ -148,18 +150,19 @@ impl Source {
 pub(crate) struct FixedPartitionedSource(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for FixedPartitionedSource {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for FixedPartitionedSource {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.inputs")?
+            .import("bytewax.inputs")?
             .getattr("FixedPartitionedSource")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "fixed partitioned source must subclass `bytewax.inputs.FixedPartitionedSource`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.to_owned().unbind()))
         }
     }
 }
@@ -560,18 +563,19 @@ impl FixedPartitionedSource {
 struct StatefulPartition(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulPartition {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for StatefulPartition {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.inputs")?
+            .import("bytewax.inputs")?
             .getattr("StatefulSourcePartition")?;
         if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "stateful source partition must subclass `bytewax.inputs.StatefulSourcePartition`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.to_owned().unbind()))
         }
     }
 }
@@ -589,14 +593,14 @@ impl StatefulPartition {
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
             Ok(obj) => {
-                let iter = obj.iter().reraise_with(|| {
+                let iter = obj.try_iter().reraise_with(|| {
                     format!(
                         "`next_batch` must return an iterable; got a `{}` instead",
                         unwrap_any!(obj.get_type().name()),
                     )
                 })?;
                 let batch = iter
-                    .map(|res| res.map(PyObject::from))
+                    .map(|res| res.map(|item| PyObject::from(item.unbind())))
                     .collect::<PyResult<Vec<_>>>()
                     .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
@@ -633,18 +637,19 @@ impl Drop for StatefulPartition {
 pub(crate) struct DynamicSource(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for DynamicSource {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for DynamicSource {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.inputs")?
+            .import("bytewax.inputs")?
             .getattr("DynamicSource")?;
         if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "dynamic source must subclass `bytewax.inputs.DynamicSource`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.to_owned().unbind()))
         }
     }
 }
@@ -845,18 +850,19 @@ impl DynamicSource {
 struct StatelessPartition(Py<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatelessPartition {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for StatelessPartition {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.inputs")?
+            .import("bytewax.inputs")?
             .getattr("StatelessSourcePartition")?;
         if !ob.is_instance(&abc)? {
             Err(tracked_err::<PyTypeError>(
                 "stateless source partition must subclass `bytewax.inputs.StatelessSourcePartition`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.to_owned().unbind()))
         }
     }
 }
@@ -868,14 +874,14 @@ impl StatelessPartition {
             Err(err) if err.is_instance_of::<AbortExecution>(py) => Ok(BatchResult::Abort),
             Err(err) => Err(err),
             Ok(obj) => {
-                let iter = obj.iter().reraise_with(|| {
+                let iter = obj.try_iter().reraise_with(|| {
                     format!(
                         "`next_batch` must return an iterable; got a `{}` instead",
                         unwrap_any!(obj.get_type().name()),
                     )
                 })?;
                 let batch = iter
-                    .map(|res| res.map(PyObject::from))
+                    .map(|res| res.map(|item| PyObject::from(item.unbind())))
                     .collect::<PyResult<Vec<_>>>()
                     .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
@@ -904,6 +910,6 @@ impl Drop for StatelessPartition {
 }
 
 pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("AbortExecution", py.get_type_bound::<AbortExecution>())?;
+    m.add("AbortExecution", py.get_type::<AbortExecution>())?;
     Ok(())
 }
