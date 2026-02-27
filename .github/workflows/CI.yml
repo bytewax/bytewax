@@ -68,6 +68,26 @@ jobs:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
         target: ['x86_64', 'aarch64', 'armv7']
     runs-on: ubuntu-20.04
+    # Kafka service container for integration tests (KRaft mode, no Zookeeper).
+    # Only accessible from the runner host, which is fine since tests only
+    # run on x86_64 (native arch).
+    services:
+      kafka:
+        image: confluentinc/cp-kafka:7.7.1
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     steps:
       - uses: actions/checkout@v3
       - uses: actions/cache@v4
@@ -106,9 +126,7 @@ jobs:
         if: ${{ matrix.target == 'x86_64' }}
         shell: bash
         env:
-          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
-          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
-          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
+          TEST_KAFKA_BROKER: localhost:9092
         run: |
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
@@ -153,12 +171,10 @@ jobs:
       - name: Run Python tests
         # Only run tests for the host architecture, as x86_64 is
         # cross-compiled on macOS runners.
+        # Note: Kafka tests are skipped on macOS (no Docker service
+        # container support). They run on Linux x86_64 instead.
         if: ${{ matrix.target == 'aarch64' }}
         shell: bash
-        env:
-          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
-          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
-          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
@@ -222,24 +238,27 @@ jobs:
           name: wheels-windows-${{ matrix.target }}-${{ matrix.python-version }}
           path: dist
 
-  upload:
-    name: Store wheels in S3
-    runs-on: ubuntu-20.04
-    if: "github.ref == 'refs/heads/main'"
-    needs: [ linux, macos, windows ]
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: wheels-*-*
-          path: wheels
-          merge-multiple: true
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.ECR_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.ECR_SECRET_KEY }}
-          aws-region: us-west-2
-      - name: Upload files to S3 with AWS CLI
-        run: |
-          aws s3 sync ./wheels s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }} --delete
-          aws s3 ls s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }}
+  # NOTE: S3 upload job commented out — using GitHub Actions artifacts instead.
+  # Uncomment and configure AWS secrets to re-enable S3 wheel storage.
+  #
+  # upload:
+  #   name: Store wheels in S3
+  #   runs-on: ubuntu-20.04
+  #   if: "github.ref == 'refs/heads/main'"
+  #   needs: [ linux, macos, windows ]
+  #   steps:
+  #     - uses: actions/download-artifact@v4
+  #       with:
+  #         pattern: wheels-*-*
+  #         path: wheels
+  #         merge-multiple: true
+  #     - name: Configure AWS Credentials
+  #       uses: aws-actions/configure-aws-credentials@v1
+  #       with:
+  #         aws-access-key-id: ${{ secrets.ECR_ACCESS_KEY }}
+  #         aws-secret-access-key: ${{ secrets.ECR_SECRET_KEY }}
+  #         aws-region: us-west-2
+  #     - name: Upload files to S3 with AWS CLI
+  #       run: |
+  #         aws s3 sync ./wheels s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }} --delete
+  #         aws s3 ls s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }}
