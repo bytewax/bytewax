@@ -10,6 +10,7 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
+use std::sync::Arc;
 
 static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
@@ -24,7 +25,7 @@ static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
 #[derive(Clone)]
-pub(crate) struct TdPyAny(PyObject);
+pub(crate) struct TdPyAny(Arc<PyObject>);
 
 impl TdPyAny {
     pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
@@ -34,19 +35,22 @@ impl TdPyAny {
 
 impl From<TdPyAny> for PyObject {
     fn from(x: TdPyAny) -> Self {
-        x.0
+        match Arc::try_unwrap(x.0) {
+            Ok(obj) => obj,
+            Err(arc) => Python::with_gil(|py| (*arc).clone_ref(py)),
+        }
     }
 }
 
 impl From<PyObject> for TdPyAny {
     fn from(x: PyObject) -> Self {
-        Self(x)
+        Self(Arc::new(x))
     }
 }
 
 impl From<Bound<'_, PyAny>> for TdPyAny {
     fn from(x: Bound<'_, PyAny>) -> Self {
-        Self(x.unbind())
+        Self(Arc::new(x.unbind()))
     }
 }
 
