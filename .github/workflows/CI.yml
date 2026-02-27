@@ -20,11 +20,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - uses: actions/setup-python@v3
+      - uses: astral-sh/setup-uv@v7
         with:
-          python-version: 3.12
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+          python-version: "3.12"
+      - run: uv python install
       - uses: extractions/setup-just@v2
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
@@ -99,13 +98,11 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-          allow-prereleases: true
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: extractions/setup-just@v2
       - name: Ensure Rust toolchain
         shell: bash
@@ -125,6 +122,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
@@ -157,13 +155,11 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: 10.9
     steps:
       - uses: actions/checkout@v3
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-          allow-prereleases: true
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -175,6 +171,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
@@ -216,13 +213,12 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-          allow-prereleases: true
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - run: uv python install
+      - shell: bash
+        run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         run: |
@@ -233,6 +229,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}

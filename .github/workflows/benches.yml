@@ -18,11 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-      - name: Install uv
-        run: python3 -m pip install uv
+      - run: uv python install
       - uses: mkroening/rust-toolchain-toml@main
       - uses: extractions/setup-just@v2
       - name: Prep build venv
