@@ -67,7 +67,7 @@ jobs:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
         target: ['x86_64', 'aarch64', 'armv7']
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     # Kafka service container for integration tests (KRaft mode, no Zookeeper).
     # Only accessible from the runner host, which is fine since tests only
     # run on x86_64 (native arch).
@@ -100,9 +100,10 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
       - name: Set up uv
         run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
       - uses: extractions/setup-just@v2
@@ -157,9 +158,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
       - name: Set up uv
         run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
       - uses: extractions/setup-just@v2
@@ -215,9 +217,10 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
       - name: Set up uv
         run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
       - uses: extractions/setup-just@v2
