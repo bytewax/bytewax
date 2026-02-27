@@ -592,7 +592,7 @@ impl StatefulPartition {
                 let iter = obj.iter().reraise_with(|| {
                     format!(
                         "`next_batch` must return an iterable; got a `{}` instead",
-                        unwrap_any!(obj.get_type().name()),
+                        unwrap_any!(obj.get_type().qualname()),
                     )
                 })?;
                 let batch = iter
@@ -871,7 +871,7 @@ impl StatelessPartition {
                 let iter = obj.iter().reraise_with(|| {
                     format!(
                         "`next_batch` must return an iterable; got a `{}` instead",
-                        unwrap_any!(obj.get_type().name()),
+                        unwrap_any!(obj.get_type().qualname()),
                     )
                 })?;
                 let batch = iter

@@ -314,6 +314,7 @@ pub(crate) struct RecoveryConfig {
 #[pymethods]
 impl RecoveryConfig {
     #[new]
+    #[pyo3(signature = (db_dir, backup_interval=None))]
     fn new(db_dir: PathBuf, backup_interval: Option<BackupInterval>) -> Self {
         Self {
             db_dir,

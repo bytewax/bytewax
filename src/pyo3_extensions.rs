@@ -168,7 +168,7 @@ impl<'py> FromPyObject<'py> for TdPyCallable {
             let py = ob.py();
             Ok(Self(ob.as_unbound().clone_ref(py)))
         } else {
-            let msg = if let Ok(type_name) = ob.get_type().name() {
+            let msg = if let Ok(type_name) = ob.get_type().qualname() {
                 format!("'{type_name}' object is not callable")
             } else {
                 "object is not callable".to_string()

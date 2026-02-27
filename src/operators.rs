@@ -108,7 +108,7 @@ fn next_batch(
     let iter = res.iter().reraise_with(|| {
         format!(
             "mapper must return an iterable; got a `{}` instead",
-            unwrap_any!(res.get_type().name()),
+            unwrap_any!(res.get_type().qualname()),
         )
     })?;
     for res in iter {
@@ -394,13 +394,13 @@ where
                                     .extract::<(&PyAny, PyObject)>(py)
                                     .raise_with::<PyTypeError>(|| {
                                         format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
-                                            unwrap_any!(item.bind(py).get_type().name()),
+                                            unwrap_any!(item.bind(py).get_type().qualname()),
                                         )
                                     })?;
 
                                 let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
                                     format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
-                                        unwrap_any!(key.get_type().name()),
+                                        unwrap_any!(key.get_type().qualname()),
                                     )
                                 })?;
                                 downstream_session.give((key, TdPyAny::from(value)));
@@ -480,7 +480,7 @@ impl<'py> FromPyObject<'py> for IsComplete {
         if ob.extract::<bool>().reraise_with(|| {
             format!(
                 "`is_complete` was not a `bool`; got a `{}` instead",
-                unwrap_any!(ob.get_type().name())
+                unwrap_any!(ob.get_type().qualname())
             )
         })? {
             Ok(IsComplete::Discard)
@@ -495,14 +495,14 @@ impl StatefulBatchLogic {
         let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
             format!(
                 "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
-                unwrap_any!(res.get_type().name())
+                unwrap_any!(res.get_type().qualname())
             )
         })?;
         let is_complete = is_complete.extract::<IsComplete>()?;
         let emit = iter.extract::<Vec<_>>().reraise_with(|| {
             format!(
                 "`emit` was not a `list`; got a `{}` instead",
-                unwrap_any!(iter.get_type().name())
+                unwrap_any!(iter.get_type().qualname())
             )
         })?;
 
@@ -536,7 +536,7 @@ impl StatefulBatchLogic {
         res.extract().reraise_with(|| {
             format!(
                 "did not return a `datetime`; got a `{}` instead",
-                unwrap_any!(res.get_type().name())
+                unwrap_any!(res.get_type().qualname())
             )
         })
     }
