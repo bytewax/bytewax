@@ -11,20 +11,23 @@ pub(crate) struct Dataflow(PyObject);
 impl<'py> FromPyObject<'py> for Dataflow {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.dataflow")?.getattr("Dataflow")?;
+        let abc = py.import("bytewax.dataflow")?.getattr("Dataflow")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.clone().unbind()))
         }
     }
 }
 
-impl IntoPy<Py<PyAny>> for Dataflow {
-    fn into_py(self, _py: Python<'_>) -> Py<PyAny> {
-        self.0
+impl<'py> IntoPyObject<'py> for Dataflow {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(self.0.into_bound(py))
     }
 }
 
@@ -44,13 +47,13 @@ pub(crate) struct Operator(PyObject);
 impl<'py> FromPyObject<'py> for Operator {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
-        let abc = py.import_bound("bytewax.dataflow")?.getattr("Operator")?;
+        let abc = py.import("bytewax.dataflow")?.getattr("Operator")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.clone().unbind()))
         }
     }
 }
@@ -83,7 +86,7 @@ impl Operator {
 
     pub(crate) fn is_core(&self, py: Python) -> PyResult<bool> {
         let core_cls = py
-            .import_bound("bytewax.dataflow")?
+            .import("bytewax.dataflow")?
             .getattr("_CoreOperator")?;
         self.0.bind(py).is_instance(&core_cls)
     }
@@ -102,13 +105,13 @@ impl Operator {
         py: Python,
         port_name: &str,
     ) -> PyResult<Vec<StreamId>> {
-        let stream_ids = self
+        let binding = self
             .0
             .bind(py)
             .getattr(port_name)
             .reraise_with(|| format!("operator did not have MultiPort {port_name:?}"))?
-            .getattr("stream_ids")?
-            .extract::<&PyDict>()?;
+            .getattr("stream_ids")?;
+        let stream_ids = binding.downcast::<PyDict>()?;
         stream_ids.values().extract()
     }
 }
