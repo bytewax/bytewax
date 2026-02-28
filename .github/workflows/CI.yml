@@ -71,17 +71,25 @@ jobs:
             mkdir -p "$HOME/.local/bin"
             mv cbfmt "$HOME/.local/bin/"
             echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - name: Prep venv
+      # Run pre-commit before compilation — fast fail on formatting issues.
+      # pre-commit only needs ruff and cbfmt (already on PATH), not bytewax.
+      - name: Prep pre-commit venv
         shell: bash
         run: |
           uv venv -p 3.12 venv
           . venv/bin/activate
-          uv pip sync --strict requirements/dev.txt
+          uv pip install pre-commit ruff
       - name: Check pre-commit hooks
         shell: bash
         run: |
           . venv/bin/activate
           just lint-pc
+      # Full venv with bytewax (triggers Rust compilation via -e .)
+      - name: Prep full venv
+        shell: bash
+        run: |
+          . venv/bin/activate
+          uv pip sync --strict requirements/dev.txt
       - name: Run lints
         shell: bash
         run: |
