@@ -28,6 +28,10 @@ jobs:
           apt-get install -y -qq build-essential pkg-config libssl-dev git curl ca-certificates
       - name: Checkout
         uses: actions/checkout@v3
+      # actions/checkout sets safe.directory in a temp HOME; re-set it
+      # globally so git works in subsequent steps (pre-commit, etc.)
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
@@ -70,6 +74,11 @@ jobs:
         run: |
           . venv/bin/activate
           just test-doc
+      # Container runs as root; fix ownership so later jobs (running as
+      # the host runner user) can clean up the shared workspace.
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE"
 
   linux:
     strategy:
@@ -99,6 +108,12 @@ jobs:
           CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
           KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     steps:
+      # On a single self-hosted runner, previous jobs (repo-checks container
+      # or maturin-action) may leave root-owned files. Fix before checkout.
+      - name: Fix workspace permissions
+        run: |
+          docker run --rm -v "${{ github.workspace }}":"${{ github.workspace }}" \
+            ubuntu:22.04 chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
       - uses: actions/checkout@v3
       - uses: actions/cache@v4
         with:
