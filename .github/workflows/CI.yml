@@ -16,7 +16,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pre-pull:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Pre-pull Docker images
+        run: |
+          docker pull ubuntu:22.04 &
+          docker pull confluentinc/cp-kafka:7.7.1 &
+          docker pull quay.io/pypa/manylinux2014_x86_64:latest &
+          docker pull ghcr.io/rust-cross/manylinux2014-cross:aarch64 &
+          docker pull ghcr.io/rust-cross/manylinux2014-cross:armv7 &
+          wait
+
   repo-checks:
+    needs: pre-pull
     runs-on: [self-hosted, Linux, X64]
     # Run inside a container for clean environment and no sudo needed.
     container:
@@ -32,9 +45,19 @@ jobs:
       # globally so git works in subsequent steps (pre-commit, etc.)
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-repo-checks-${{ hashFiles('**/Cargo.lock') }}
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
+          enable-cache: true
       - run: uv python install
       - uses: extractions/setup-just@v2
       # Need this because we're running `cargo clippy` and `fmt`
@@ -81,6 +104,7 @@ jobs:
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
 
   linux:
+    needs: pre-pull
     strategy:
       fail-fast: false
       matrix:
@@ -123,10 +147,11 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: extractions/setup-just@v2
