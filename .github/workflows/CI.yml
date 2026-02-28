@@ -166,7 +166,7 @@ jobs:
       # not in Docker). Cross-compile targets use Docker containers with
       # Rust pre-installed.
       - uses: dsherret/rust-toolchain-file@v1
-      - run: rustup default "$(rustup toolchain list | head -1)"
+      - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
       - name: Prep build venv
         shell: bash
         run: |
