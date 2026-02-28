@@ -157,6 +157,10 @@ jobs:
     steps:
       - name: Fix workspace permissions
         run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      # maturin-action post-build runs "sudo chown" for permission fix.
+      # Container runs as root so sudo is unnecessary; provide a no-op wrapper.
+      - name: Create sudo wrapper
+        run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
       - uses: actions/checkout@v3
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
