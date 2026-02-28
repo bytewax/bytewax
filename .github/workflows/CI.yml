@@ -19,19 +19,9 @@ jobs:
   pre-pull:
     runs-on: [self-hosted, Linux, X64]
     steps:
-      - name: Create Docker-in-Docker path symlink
-        run: |
-          # Jobs running in a container use /__w/ paths. Cross-compile
-          # Docker containers need this path on the HOST for bind mounts
-          # to resolve via the host Docker daemon.
-          # Force-replace any stale directory (Docker creates empty dirs
-          # when bind mount sources don't exist yet).
-          if [ -d "/__w" ] && [ ! -L "/__w" ]; then
-            sudo rm -rf /__w
-          fi
-          sudo ln -sfn /opt/actions-runner/_work /__w
       - name: Pre-pull Docker images
         run: |
+          docker pull alpine:latest &
           docker pull buildpack-deps:22.04 &
           docker pull ubuntu:22.04 &
           docker pull confluentinc/cp-kafka:7.7.1 &
@@ -39,6 +29,18 @@ jobs:
           docker pull ghcr.io/rust-cross/manylinux2014-cross:aarch64 &
           docker pull ghcr.io/rust-cross/manylinux2014-cross:armv7 &
           wait
+      - name: Create Docker-in-Docker path symlink
+        run: |
+          # Jobs running in a container use /__w/ paths. Cross-compile
+          # Docker containers need this path on the HOST for bind mounts
+          # to resolve via the host Docker daemon.
+          # Use Docker for root access (runner user has no passwordless sudo).
+          docker run --rm -v /:/host alpine sh -c '
+            if [ -d /host/__w ] && [ ! -L /host/__w ]; then
+              rm -rf /host/__w
+            fi
+            ln -sfn /opt/actions-runner/_work /host/__w
+          '
 
   repo-checks:
     needs: pre-pull
