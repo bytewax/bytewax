@@ -73,39 +73,29 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-        # Cross-compilation targets (aarch64, armv7) require Docker on the
-        # runner. Commented out for bare self-hosted runners.
-        target: ['x86_64']
-        # target: ['x86_64', 'aarch64', 'armv7']
+        target: ['x86_64', 'aarch64', 'armv7']
     runs-on: [self-hosted, Linux, X64]
     # Kafka service container for integration tests (KRaft mode, no Zookeeper).
-    # Requires Docker on the runner. Commented out for self-hosted runners
-    # without Docker. Kafka tests will be skipped (TEST_KAFKA_BROKER not set).
-    # Uncomment when Docker is available on the runner.
-    #
-    # services:
-    #   kafka:
-    #     image: confluentinc/cp-kafka:7.7.1
-    #     ports:
-    #       - 9092:9092
-    #     env:
-    #       KAFKA_NODE_ID: 1
-    #       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-    #       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-    #       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-    #       KAFKA_PROCESS_ROLES: broker,controller
-    #       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
-    #       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-    #       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    #       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-    #       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-    #       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
-    #       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    # Only used for x86_64 tests (cross-compiled targets skip tests).
+    services:
+      kafka:
+        image: confluentinc/cp-kafka:7.7.1
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config libssl-dev
       - uses: actions/checkout@v3
       - uses: actions/cache@v4
         with:
@@ -122,16 +112,6 @@ jobs:
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: extractions/setup-just@v2
-      - name: Ensure Rust toolchain
-        shell: bash
-        run: |
-          if ! command -v rustup &> /dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-            export PATH="$HOME/.cargo/bin:$PATH"
-          fi
-          rustup default stable
-          rustup toolchain install 1.74.1
       - name: Prep build venv
         shell: bash
         run: |
@@ -146,14 +126,12 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-          container: "off"
+          sccache: true
       - name: Run Python tests
-        # Only run tests for the host architecture, as aarch64 and
-        # armv7 are cross-compiled on Ubuntu runners.
-        # Kafka tests skipped when TEST_KAFKA_BROKER is not set
-        # (requires Docker service container).
         if: ${{ matrix.target == 'x86_64' }}
         shell: bash
+        env:
+          TEST_KAFKA_BROKER: localhost:9092
         run: |
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
