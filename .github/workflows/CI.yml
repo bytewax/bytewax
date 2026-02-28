@@ -21,6 +21,7 @@ jobs:
     steps:
       - name: Pre-pull Docker images
         run: |
+          docker pull buildpack-deps:22.04 &
           docker pull ubuntu:22.04 &
           docker pull confluentinc/cp-kafka:7.7.1 &
           docker pull quay.io/pypa/manylinux2014_x86_64:latest &
@@ -32,13 +33,10 @@ jobs:
     needs: pre-pull
     runs-on: [self-hosted, Linux, X64]
     # Run inside a container for clean environment and no sudo needed.
+    # buildpack-deps:22.04 includes gcc, make, pkg-config, libssl-dev, git, curl.
     container:
-      image: ubuntu:22.04
+      image: buildpack-deps:22.04
     steps:
-      - name: Install system dependencies
-        run: |
-          apt-get update -qq
-          apt-get install -y -qq build-essential pkg-config libssl-dev git curl ca-certificates
       - name: Checkout
         uses: actions/checkout@v3
       # actions/checkout sets safe.directory in a temp HOME; re-set it

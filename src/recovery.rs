@@ -167,7 +167,10 @@ impl<'py> IntoPyObject<'py> for BackupInterval {
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0.into_pyobject(py).map(|b| b.into_any()).map_err(Into::into)
+        self.0
+            .into_pyobject(py)
+            .map(|b| b.into_any())
+            .map_err(Into::into)
     }
 }
 
@@ -1601,10 +1604,7 @@ where
                         let snap = unwrap_any!(Python::with_gil(|py| -> PyResult<PyObject> {
                             let pickle = py.import("pickle")?;
                             Ok(pickle
-                                .call_method1(
-                                    intern!(py, "loads"),
-                                    (PyBytes::new(py, &ser_snap),),
-                                )?
+                                .call_method1(intern!(py, "loads"), (PyBytes::new(py, &ser_snap),))?
                                 .unbind())
                         }));
                         StateChange::Upsert(snap.into())
@@ -1948,9 +1948,6 @@ pub(crate) fn register(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         "MissingPartitionsError",
         py.get_type::<MissingPartitionsError>(),
     )?;
-    m.add(
-        "NoPartitionsError",
-        py.get_type::<NoPartitionsError>(),
-    )?;
+    m.add("NoPartitionsError", py.get_type::<NoPartitionsError>())?;
     Ok(())
 }

@@ -430,9 +430,8 @@ where
         self.map(move |(key, value)| {
             let value = PyObject::from(value);
 
-            let item: PyObject = Python::with_gil(|py| {
-                (key, value).into_pyobject(py).unwrap().unbind().into()
-            });
+            let item: PyObject =
+                Python::with_gil(|py| (key, value).into_pyobject(py).unwrap().unbind().into());
 
             TdPyAny::from(item)
         })
@@ -494,12 +493,14 @@ impl<'py> FromPyObject<'py> for IsComplete {
 
 impl StatefulBatchLogic {
     fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let (iter, is_complete) = res.extract::<(Bound<'_, PyAny>, Bound<'_, PyAny>)>().reraise_with(|| {
-            format!(
-                "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
-                unwrap_any!(res.get_type().qualname())
-            )
-        })?;
+        let (iter, is_complete) = res
+            .extract::<(Bound<'_, PyAny>, Bound<'_, PyAny>)>()
+            .reraise_with(|| {
+                format!(
+                    "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
+                    unwrap_any!(res.get_type().qualname())
+                )
+            })?;
         let is_complete = is_complete.extract::<IsComplete>()?;
         let emit = iter.extract::<Vec<_>>().reraise_with(|| {
             format!(

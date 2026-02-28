@@ -85,9 +85,7 @@ impl Operator {
     }
 
     pub(crate) fn is_core(&self, py: Python) -> PyResult<bool> {
-        let core_cls = py
-            .import("bytewax.dataflow")?
-            .getattr("_CoreOperator")?;
+        let core_cls = py.import("bytewax.dataflow")?.getattr("_CoreOperator")?;
         self.0.bind(py).is_instance(&core_cls)
     }
 

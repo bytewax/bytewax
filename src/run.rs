@@ -151,10 +151,7 @@ pub(crate) fn run_main(
         eprintln!();
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
             // Special case for keyboard interrupt.
-            if err
-                .get_type(py)
-                .is(&PyType::new::<PyKeyboardInterrupt>(py))
-            {
+            if err.get_type(py).is(&PyType::new::<PyKeyboardInterrupt>(py)) {
                 tracked_err::<PyKeyboardInterrupt>(
                     "interrupt signal received, all processes have been shut down",
                 )

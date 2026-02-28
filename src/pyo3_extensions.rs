@@ -150,9 +150,7 @@ impl PartialEq for TdPyAny {
             // pointer identity.
             let self_ = self.bind(py);
             let other = other.bind(py);
-            try_unwrap!(self_
-                .rich_compare(other, CompareOp::Eq)?
-                .is_truthy())
+            try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_truthy())
         })
     }
 }

@@ -56,7 +56,6 @@ impl<'py> IntoPyObject<'py> for Sink {
     }
 }
 
-
 impl Sink {
     pub(crate) fn extract<'p, D>(&'p self, py: Python<'p>) -> PyResult<D>
     where
