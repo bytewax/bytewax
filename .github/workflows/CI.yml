@@ -162,6 +162,10 @@ jobs:
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: extractions/setup-just@v2
+      # Needed for x86_64 native builds (maturin-action builds natively,
+      # not in Docker). Cross-compile targets use Docker containers with
+      # Rust pre-installed.
+      - uses: dsherret/rust-toolchain-file@v1
       - name: Prep build venv
         shell: bash
         run: |
