@@ -19,6 +19,10 @@ jobs:
   repo-checks:
     runs-on: [self-hosted, Linux, X64]
     steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config libssl-dev git
       - name: Checkout
         uses: actions/checkout@v3
       - uses: astral-sh/setup-uv@v7
@@ -69,7 +73,10 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-        target: ['x86_64', 'aarch64', 'armv7']
+        # Cross-compilation targets (aarch64, armv7) require Docker on the
+        # runner. Commented out for bare self-hosted runners.
+        target: ['x86_64']
+        # target: ['x86_64', 'aarch64', 'armv7']
     runs-on: [self-hosted, Linux, X64]
     # Kafka service container for integration tests (KRaft mode, no Zookeeper).
     # Requires Docker on the runner. Commented out for self-hosted runners
@@ -95,6 +102,10 @@ jobs:
     #       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     #       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config libssl-dev
       - uses: actions/checkout@v3
       - uses: actions/cache@v4
         with:
@@ -115,10 +126,12 @@ jobs:
         shell: bash
         run: |
           if ! command -v rustup &> /dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
             export PATH="$HOME/.cargo/bin:$PATH"
           fi
+          rustup default stable
+          rustup toolchain install 1.74.1
       - name: Prep build venv
         shell: bash
         run: |
@@ -133,7 +146,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-          sccache: true
+          container: "off"
       - name: Run Python tests
         # Only run tests for the host architecture, as aarch64 and
         # armv7 are cross-compiled on Ubuntu runners.
