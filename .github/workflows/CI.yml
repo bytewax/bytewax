@@ -19,6 +19,14 @@ jobs:
   pre-pull:
     runs-on: [self-hosted, Linux, X64]
     steps:
+      - name: Create Docker-in-Docker path symlink
+        run: |
+          # Jobs running in a container use /__w/ paths. Cross-compile
+          # Docker containers need this path on the HOST for bind mounts
+          # to resolve via the host Docker daemon.
+          if [ ! -e "/__w" ]; then
+            sudo ln -sfn /opt/actions-runner/_work /__w
+          fi
       - name: Pre-pull Docker images
         run: |
           docker pull buildpack-deps:22.04 &
