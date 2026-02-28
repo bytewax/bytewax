@@ -311,9 +311,9 @@ class CSVSource(FixedPartitionedSource[Dict[str, str], int]):
     @override
     def build_part(self, step_id: str, for_part: str, resume_state: Optional[Any]):
         _fs_id, path = for_part.split("::", 1)
-        assert path == str(
-            self._file_source._path
-        ), "Can't resume reading from different file"
+        assert path == str(self._file_source._path), (
+            "Can't resume reading from different file"
+        )
         return _CSVPartition(
             self._file_source._path,
             self._file_source._batch_size,

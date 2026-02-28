@@ -75,8 +75,7 @@ V2 = TypeVar("V2")
 # is also global.
 BYTEWAX_CONSUMER_LAG_GAUGE = Gauge(
     "bytewax_kafka_consumer_lag",
-    "Difference between last offset on the broker "
-    "and the currently consumed offset.",
+    "Difference between last offset on the broker and the currently consumed offset.",
     ["step_id", "topic", "partition"],
 )
 
@@ -267,8 +266,7 @@ class _KafkaSourcePartition(
                 elif self._raise_on_errors:
                     # Discard all the messages in this batch too
                     err_msg = (
-                        f"error consuming from Kafka topic `{self._topic!r}`: "
-                        f"{error}"
+                        f"error consuming from Kafka topic `{self._topic!r}`: {error}"
                     )
                     raise RuntimeError(err_msg)
 

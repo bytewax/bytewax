@@ -55,11 +55,7 @@ labeled_metrics = op.stateful_map("detector", metrics, mapper)
 def pretty_formatter(key_value):
     metric, (value, mu, sigma, is_anomalous) = key_value
     return (
-        f"{metric}: "
-        f"value = {value}, "
-        f"mu = {mu:.2f}, "
-        f"sigma = {sigma:.2f}, "
-        f"{is_anomalous}"
+        f"{metric}: value = {value}, mu = {mu:.2f}, sigma = {sigma:.2f}, {is_anomalous}"
     )
 
 

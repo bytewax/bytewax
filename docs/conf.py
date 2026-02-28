@@ -204,7 +204,7 @@ myst_url_schemes = {
         "classes": ["github"],
     },
     "gh-path": {
-        "url": f"https://github.com/bytewax/bytewax/blob/{git_id}" "{{path}}",
+        "url": f"https://github.com/bytewax/bytewax/blob/{git_id}{{{{path}}}}",
         "title": "bytewax/bytewax{{path}}",
         "classes": ["github"],
     },
