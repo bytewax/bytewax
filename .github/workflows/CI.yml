@@ -164,9 +164,12 @@ jobs:
       - uses: extractions/setup-just@v2
       # Needed for x86_64 native builds (maturin-action builds natively,
       # not in Docker). Cross-compile targets use Docker containers with
-      # Rust pre-installed.
+      # Rust and build tools pre-installed.
       - uses: dsherret/rust-toolchain-file@v1
       - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
+      - name: Install native build tools
+        if: matrix.target == 'x86_64'
+        run: sudo apt-get update && sudo apt-get install -y gcc pkg-config libssl-dev
       - name: Prep build venv
         shell: bash
         run: |
