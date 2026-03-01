@@ -18,6 +18,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     container:
       image: buildpack-deps:22.04
+      options: --security-opt seccomp=unconfined
     steps:
       - name: Fix workspace permissions
         run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
