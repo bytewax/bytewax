@@ -16,13 +16,23 @@ concurrency:
 jobs:
   benchmarks:
     runs-on: [self-hosted, Linux, X64]
+    container:
+      image: buildpack-deps:22.04
     steps:
+      - name: Fix workspace permissions
+        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - name: Create sudo wrapper
+        run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
       - uses: actions/checkout@v3
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
       - run: uv python install
-      - uses: mkroening/rust-toolchain-toml@main
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: dsherret/rust-toolchain-file@v1
+      - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -44,3 +54,6 @@ jobs:
             WHEEL_FILE=$(ls ./dist/*.whl)
             uv pip install -v --no-deps $WHEEL_FILE
             just test-benchmark
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE"
