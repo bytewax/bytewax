@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - cheeeee/fork-cicd
+    tags:
+      - 'v*'
     paths-ignore:
       - ".github/ISSUE_TEMPLATE/**"
   pull_request: {}
