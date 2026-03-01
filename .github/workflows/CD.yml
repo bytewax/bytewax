@@ -21,11 +21,11 @@ jobs:
         id: get-info
         run: |
           BYTEWAX_VERSION=${GITHUB_REF:11}
-          echo "::set-output name=bytewax-version::${BYTEWAX_VERSION}"
+          echo "bytewax-version=${BYTEWAX_VERSION}" >> $GITHUB_OUTPUT
           REPOSITORY=${{ github.repository }}
           IMAGE_TAG="${REPOSITORY}:${GITHUB_REF:11}"
-          echo "::set-output name=version-image-tag::${IMAGE_TAG}"
-          echo "::set-output name=latest-image-tag::${REPOSITORY}:latest"
+          echo "version-image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "latest-image-tag=${REPOSITORY}:latest" >> $GITHUB_OUTPUT
       - name: Report Info
         run: |
           [ -n "${{steps.get-info.outputs.bytewax-version}}" ]
@@ -43,13 +43,19 @@ jobs:
           commit: ${{ github.sha }}
           name: wheels-*
           name_is_regexp: true
-          path: wheels
-          merge_multiple: true
+          path: wheels-raw
+
+      - name: Flatten wheels into single directory
+        run: |
+          mkdir -p wheels
+          find wheels-raw -name '*.whl' -exec mv {} wheels/ \;
+          echo "Wheels found:"
+          ls -la wheels/
 
       - name: Check the Version and Quantity of Wheel files
         env:
           NEEDED_VERSION: ${{steps.get-info.outputs.bytewax-version}}
-          WHEELS: 42
+          WHEELS: 21
         run: |
           cd wheels
           cat << EOF > ./check_versions.sh
