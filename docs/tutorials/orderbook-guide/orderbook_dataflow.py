@@ -36,7 +36,7 @@ async def _ws_agen(product_id):
         _type_: A tuple of the product_id and the message as a dictionary.
     """
     url = "wss://ws-feed.exchange.coinbase.com"
-    async with websockets.connect(url) as websocket:
+    async with websockets.connect(url, max_size=100_000_000) as websocket:
         msg = json.dumps(
             {
                 "type": "subscribe",

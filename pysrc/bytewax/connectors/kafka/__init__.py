@@ -382,7 +382,9 @@ class KafkaSource(
             "bootstrap.servers": ",".join(self._brokers),
         }
         config.update(self._add_config)
+        config.pop("group.id", None)  # AdminClient doesn't use consumer groups
         client = AdminClient(config)
+        client.poll(0)  # Trigger pending callbacks (e.g. OAUTHBEARER token refresh)
 
         return list(_list_parts(client, self._topics))
 
@@ -398,15 +400,15 @@ class KafkaSource(
         assert topic in self._topics, "Can't resume from different set of Kafka topics"
 
         config = {
-            # We'll manage our own "consumer group" via the recovery
-            # system.
-            "group.id": "BYTEWAX_IGNORED",
-            "enable.auto.commit": "false",
             "bootstrap.servers": ",".join(self._brokers),
             "enable.partition.eof": str(not self._tail),
             "statistics.interval.ms": 1000,
         }
         config.update(self._add_config)
+        # Bytewax manages its own partition assignment; override any
+        # user group.id to prevent consumer group side effects.
+        config["group.id"] = "BYTEWAX_IGNORED"
+        config["enable.auto.commit"] = "false"
         return _KafkaSourcePartition(
             step_id,
             config,
@@ -483,13 +485,23 @@ class _KafkaSinkPartition(
                 err = f"No topic to produce to for {msg}"
                 raise RuntimeError(err)
 
-            self._producer.produce(
-                value=msg.value,
-                key=msg.key,
-                headers=msg.headers,
-                topic=topic,
-                timestamp=msg.timestamp,
-            )
+            try:
+                self._producer.produce(
+                    value=msg.value,
+                    key=msg.key,
+                    headers=msg.headers,
+                    topic=topic,
+                    timestamp=msg.timestamp,
+                )
+            except BufferError:
+                self._producer.flush()
+                self._producer.produce(
+                    value=msg.value,
+                    key=msg.key,
+                    headers=msg.headers,
+                    topic=topic,
+                    timestamp=msg.timestamp,
+                )
             self._producer.poll(0)
         self._producer.flush()
 
@@ -545,6 +557,7 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
             "bootstrap.servers": ",".join(self._brokers),
         }
         config.update(self._add_config)
+        config.pop("group.id", None)  # Producer doesn't use consumer groups
         producer = Producer(config)
 
         return _KafkaSinkPartition(producer, self._topic)

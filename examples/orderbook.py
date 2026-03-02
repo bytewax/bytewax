@@ -12,7 +12,7 @@ from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batc
 
 async def _ws_agen(product_id):
     url = "wss://ws-feed.exchange.coinbase.com"
-    async with websockets.connect(url) as websocket:
+    async with websockets.connect(url, max_size=100_000_000) as websocket:
         msg = json.dumps(
             {
                 "type": "subscribe",

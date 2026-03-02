@@ -24,6 +24,7 @@ pub(crate) mod macros;
 #[pymodule]
 #[pyo3(name = "_bytewax")]
 fn mod_bytewax(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     inputs::register(py, m)?;
     recovery::register(py, m)?;
     run::register(py, m)?;

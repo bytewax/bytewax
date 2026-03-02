@@ -7,6 +7,8 @@ use.
 
 """
 
+__version__: str
+
 class BytewaxTracer:
     """Utility class used to handle tracing.
 
