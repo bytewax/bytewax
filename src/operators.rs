@@ -24,6 +24,7 @@ use timely::progress::Antichain;
 use timely::ExchangeData;
 
 use crate::errors::PythonException;
+use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::*;
@@ -452,7 +453,7 @@ where
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
 }
 
-struct StatefulBatchLogic(PyObject);
+struct StatefulBatchLogic(SafePy<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for StatefulBatchLogic {
@@ -466,7 +467,7 @@ impl<'py> FromPyObject<'py> for StatefulBatchLogic {
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            Ok(Self(SafePy::from(ob.clone().unbind())))
         }
     }
 }

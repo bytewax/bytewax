@@ -12,7 +12,7 @@ def test_key_on():
 
     flow = Dataflow("test_df")
     s = op.input("inp", flow, TestingSource(inp))
-    s = op.key_on("key", s, lambda x: str(x))
+    s = op.key_on("key", s, str)
     op.output("out", s, TestingSink(out))
 
     run_main(flow)

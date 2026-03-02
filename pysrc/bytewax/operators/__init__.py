@@ -28,6 +28,8 @@ from typing import (
     overload,
 )
 
+from typing_extensions import Self, TypeAlias, TypeGuard, override
+
 from bytewax.dataflow import (
     Dataflow,
     Stream,
@@ -36,7 +38,6 @@ from bytewax.dataflow import (
 )
 from bytewax.inputs import Source
 from bytewax.outputs import DynamicSink, Sink, StatelessSinkPartition
-from typing_extensions import Self, TypeAlias, TypeGuard, override
 
 X = TypeVar("X")
 """Type of upstream items."""
@@ -2913,6 +2914,61 @@ def stateful_flat_map(
 
     def shim_builder(resume_state: Optional[S]) -> _StatefulFlatMapLogic[V, W, S]:
         return _StatefulFlatMapLogic(step_id, mapper, resume_state)
+
+    return stateful("stateful", up, shim_builder)
+
+
+@dataclass
+class _StatefulFlatMapBatchLogic(StatefulLogic[V, W, S]):
+    step_id: str
+    mapper: Callable[[Optional[S], V], Iterable[Tuple[Optional[S], W]]]
+    state: Optional[S]
+
+    @override
+    def on_item(self, value: V) -> Tuple[Iterable[W], bool]:
+        results = []
+        for s, w in self.mapper(self.state, value):
+            self.state = s
+            results.append(w)
+        if self.state is None:
+            return (results, StatefulLogic.DISCARD)
+        return (results, StatefulLogic.RETAIN)
+
+    @override
+    def snapshot(self) -> S:
+        assert self.state is not None
+        return copy.deepcopy(self.state)
+
+
+@operator
+def stateful_flat_map_batch(
+    step_id: str,
+    up: KeyedStream[V],
+    mapper: Callable[[Optional[S], V], Iterable[Tuple[Optional[S], W]]],
+) -> KeyedStream[W]:
+    """Transform values one-to-many with per-item state updates.
+
+    Like {py:obj}`stateful_flat_map` but the mapper yields
+    ``(updated_state, value)`` pairs, allowing state to be updated
+    as each value is produced. This is useful for large iterables
+    where you want to update state incrementally rather than
+    computing the final state upfront.
+
+    :arg step_id: Unique ID.
+
+    :arg up: Keyed stream.
+
+    :arg mapper: Called whenever a value is encountered from upstream
+        with the last state or ``None``, and then the upstream value.
+        Should yield 2-tuples of ``(updated_state, emit_value)``.
+        If the final updated state is ``None``, discard it.
+
+    :returns: A keyed stream.
+
+    """
+
+    def shim_builder(resume_state: Optional[S]) -> _StatefulFlatMapBatchLogic[V, W, S]:
+        return _StatefulFlatMapBatchLogic(step_id, mapper, resume_state)
 
     return stateful("stateful", up, shim_builder)
 

@@ -10,9 +10,59 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
 use std::sync::Arc;
 
 static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+
+/// Wrapper around [`Py<T>`] that prevents segfaults during Python
+/// 3.13+ interpreter finalization. On 3.13+, `Py<T>::Drop` calls
+/// `Py_DECREF` which can dereference already-freed type objects. This
+/// wrapper checks `Py_IsFinalizing()` before dropping, intentionally
+/// leaking the reference (the process is exiting anyway).
+pub(crate) struct SafePy<T>(ManuallyDrop<Py<T>>);
+
+impl<T> Drop for SafePy<T> {
+    fn drop(&mut self) {
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
+        // SAFETY: Only called once (in Drop), skipped when finalizing.
+        unsafe { ManuallyDrop::drop(&mut self.0) };
+    }
+}
+
+impl<T> Deref for SafePy<T> {
+    type Target = Py<T>;
+    fn deref(&self) -> &Py<T> {
+        &self.0
+    }
+}
+
+impl<T> Clone for SafePy<T> {
+    fn clone(&self) -> Self {
+        Python::with_gil(|py| Self(ManuallyDrop::new(self.0.clone_ref(py))))
+    }
+}
+
+impl<T> From<Py<T>> for SafePy<T> {
+    fn from(obj: Py<T>) -> Self {
+        Self(ManuallyDrop::new(obj))
+    }
+}
+
+impl<T> SafePy<T> {
+    /// Take the inner `Py<T>` out, preventing `SafePy`'s `Drop`.
+    pub(crate) fn into_inner(mut self) -> Py<T> {
+        // SAFETY: We take the value and forget self so Drop doesn't
+        // double-free.
+        let inner = unsafe { ManuallyDrop::take(&mut self.0) };
+        std::mem::forget(self);
+        inner
+    }
+}
 
 /// Represents a Python object flowing through a Timely dataflow.
 ///
@@ -25,7 +75,7 @@ static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
 #[derive(Clone)]
-pub(crate) struct TdPyAny(Arc<PyObject>);
+pub(crate) struct TdPyAny(Arc<SafePy<PyAny>>);
 
 impl TdPyAny {
     pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
@@ -36,7 +86,7 @@ impl TdPyAny {
 impl From<TdPyAny> for PyObject {
     fn from(x: TdPyAny) -> Self {
         match Arc::try_unwrap(x.0) {
-            Ok(obj) => obj,
+            Ok(safe) => safe.into_inner(),
             Err(arc) => Python::with_gil(|py| (*arc).clone_ref(py)),
         }
     }
@@ -44,13 +94,13 @@ impl From<TdPyAny> for PyObject {
 
 impl From<PyObject> for TdPyAny {
     fn from(x: PyObject) -> Self {
-        Self(Arc::new(x))
+        Self(Arc::new(SafePy::from(x)))
     }
 }
 
 impl From<Bound<'_, PyAny>> for TdPyAny {
     fn from(x: Bound<'_, PyAny>) -> Self {
-        Self(Arc::new(x.unbind()))
+        Self(Arc::new(SafePy::from(x.unbind())))
     }
 }
 
@@ -159,7 +209,7 @@ impl PartialEq for TdPyAny {
 ///
 /// To actually call, you must [`bind`] it and use the bound interface
 /// in order to not need to have a dual `TdPyX` vs `TdBoundX`.
-pub(crate) struct TdPyCallable(PyObject);
+pub(crate) struct TdPyCallable(SafePy<PyAny>);
 
 /// Have PyO3 do type checking to ensure we only make from callable
 /// objects.
@@ -167,7 +217,7 @@ impl<'py> FromPyObject<'py> for TdPyCallable {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         if ob.is_callable() {
             let py = ob.py();
-            Ok(Self(ob.as_unbound().clone_ref(py)))
+            Ok(Self(SafePy::from(ob.as_unbound().clone_ref(py))))
         } else {
             let msg = if let Ok(type_name) = ob.get_type().qualname() {
                 format!("'{type_name}' object is not callable")

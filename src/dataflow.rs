@@ -3,9 +3,10 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::errors::PythonException;
+use crate::pyo3_extensions::SafePy;
 use crate::recovery::StepId;
 
-pub(crate) struct Dataflow(PyObject);
+pub(crate) struct Dataflow(SafePy<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for Dataflow {
@@ -17,7 +18,7 @@ impl<'py> FromPyObject<'py> for Dataflow {
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            Ok(Self(SafePy::from(ob.clone().unbind())))
         }
     }
 }
@@ -27,13 +28,13 @@ impl<'py> IntoPyObject<'py> for Dataflow {
     type Output = Bound<'py, PyAny>;
     type Error = std::convert::Infallible;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(self.0.into_bound(py))
+        Ok(self.0.into_inner().into_bound(py))
     }
 }
 
 impl Dataflow {
     pub(crate) fn clone_ref(&self, py: Python) -> Self {
-        Self(self.0.clone_ref(py))
+        Self(SafePy::from(self.0.clone_ref(py)))
     }
 
     pub(crate) fn substeps(&self, py: Python) -> PyResult<Vec<Operator>> {
@@ -41,7 +42,7 @@ impl Dataflow {
     }
 }
 
-pub(crate) struct Operator(PyObject);
+pub(crate) struct Operator(SafePy<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for Operator {
@@ -53,7 +54,7 @@ impl<'py> FromPyObject<'py> for Operator {
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            Ok(Self(SafePy::from(ob.clone().unbind())))
         }
     }
 }

@@ -3,8 +3,9 @@
 import sys
 from typing import Any, List
 
-from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from typing_extensions import override
+
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 
 class _PrintSinkPartition(StatelessSinkPartition[Any]):

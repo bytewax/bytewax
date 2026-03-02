@@ -36,7 +36,7 @@ def _locate_dataflow(module_name, dataflow_name):
 
     This is adapted from Flask's codebase.
     """
-    from bytewax.dataflow import Dataflow
+    from bytewax.dataflow import Dataflow  # noqa: PLC0415
 
     try:
         __import__(module_name)

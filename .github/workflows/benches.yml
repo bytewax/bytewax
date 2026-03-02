@@ -14,11 +14,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  benchmarks:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: [self-hosted, Linux, X64]
     container:
       image: buildpack-deps:22.04
-      options: --security-opt seccomp=unconfined
     steps:
       - name: Fix workspace permissions
         run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
@@ -27,34 +30,94 @@ jobs:
       - uses: actions/checkout@v3
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
       - uses: dsherret/rust-toolchain-file@v1
       - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
-      - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
         run: |
-          uv venv -p 3.12 venv/
+          uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
-          uv pip sync --strict requirements/build-py3.12.txt
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
-        shell: bash
-        run: |
-          . venv/bin/activate
-          just build
-      - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          run: |
-            . venv/bin/activate
-            WHEEL_FILE=$(ls ./dist/*.whl)
-            uv pip install -v --no-deps $WHEEL_FILE
-            just test-benchmark
+          target: x86_64
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-wheel-${{ matrix.python-version }}
+          path: dist/*.whl
+          retention-days: 1
       - name: Fix workspace permissions
         if: always()
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
+
+  benchmarks:
+    needs: [build]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: [self-hosted, Linux, X64]
+    # No container — runs on bare metal for direct perf_event_open access
+    steps:
+      - uses: actions/checkout@v3
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: extractions/setup-just@v2
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-wheel-${{ matrix.python-version }}
+          path: dist/
+      - name: Prep benchmark venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Install wheel
+        shell: bash
+        run: |
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+      - name: Add cargo bin to PATH
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@v4
+        env:
+          CODSPEED_BENCHMARK_PREFIX: py${{ matrix.python-version }}
+        with:
+          mode: walltime
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          run: |
+            . venv/bin/activate
+            just test-benchmark

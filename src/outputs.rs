@@ -21,6 +21,7 @@ use timely::progress::Timestamp;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::operators::ExtractKeyOp;
+use crate::pyo3_extensions::SafePy;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::*;
@@ -30,7 +31,7 @@ use crate::with_timer;
 
 /// Represents a `bytewax.outputs.Sink` from Python.
 #[derive(Clone)]
-pub(crate) struct Sink(Py<PyAny>);
+pub(crate) struct Sink(SafePy<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for Sink {
@@ -42,7 +43,7 @@ impl<'py> FromPyObject<'py> for Sink {
                 "sink must subclass `bytewax.outputs.Sink`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            Ok(Self(SafePy::from(ob.clone().unbind())))
         }
     }
 }
@@ -52,7 +53,7 @@ impl<'py> IntoPyObject<'py> for Sink {
     type Output = Bound<'py, PyAny>;
     type Error = std::convert::Infallible;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(self.0.into_bound(py))
+        Ok(self.0.into_inner().into_bound(py))
     }
 }
 
@@ -67,7 +68,7 @@ impl Sink {
 
 /// Represents a `bytewax.outputs.PartitionedOutput` from Python.
 #[derive(Clone)]
-pub(crate) struct FixedPartitionedSink(Py<PyAny>);
+pub(crate) struct FixedPartitionedSink(SafePy<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for FixedPartitionedSink {
@@ -81,7 +82,7 @@ impl<'py> FromPyObject<'py> for FixedPartitionedSink {
                 "fixed partitioned sink must subclass `bytewax.outputs.FixedPartitionedSink`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            Ok(Self(SafePy::from(ob.clone().unbind())))
         }
     }
 }
@@ -115,7 +116,7 @@ impl FixedPartitionedSink {
 }
 
 /// Represents a `bytewax.outputs.StatefulSinkPartition` in Python.
-struct StatefulPartition(Py<PyAny>);
+struct StatefulPartition(SafePy<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for StatefulPartition {
@@ -129,7 +130,7 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
                 "stateful sink partition must subclass `bytewax.outputs.StatefulSinkPartition`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            Ok(Self(SafePy::from(ob.clone().unbind())))
         }
     }
 }
@@ -154,6 +155,10 @@ impl StatefulPartition {
 
 impl Drop for StatefulPartition {
     fn drop(&mut self) {
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
         unwrap_any!(
             Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
         );
@@ -409,7 +414,7 @@ where
 
 /// Represents a `bytewax.outputs.DynamicSink` from Python.
 #[derive(Clone)]
-pub(crate) struct DynamicSink(Py<PyAny>);
+pub(crate) struct DynamicSink(SafePy<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for DynamicSink {
@@ -421,7 +426,7 @@ impl<'py> FromPyObject<'py> for DynamicSink {
                 "dynamic sink must subclass `bytewax.outputs.DynamicSink`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            Ok(Self(SafePy::from(ob.clone().unbind())))
         }
     }
 }
@@ -441,7 +446,7 @@ impl DynamicSink {
 }
 
 /// Represents a `bytewax.outputs.StatelessSinkPartition` in Python.
-struct StatelessPartition(Py<PyAny>);
+struct StatelessPartition(SafePy<PyAny>);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for StatelessPartition {
@@ -455,7 +460,7 @@ impl<'py> FromPyObject<'py> for StatelessPartition {
                 "stateless sink partition must subclass `bytewax.outputs.StatelessSinkPartition`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            Ok(Self(SafePy::from(ob.clone().unbind())))
         }
     }
 }
@@ -476,6 +481,10 @@ impl StatelessPartition {
 
 impl Drop for StatelessPartition {
     fn drop(&mut self) {
+        #[cfg(Py_3_13)]
+        if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
+            return;
+        }
         unwrap_any!(Python::with_gil(|py| self
             .close(py)
             .reraise("error closing StatelessSinkPartition")));

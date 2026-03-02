@@ -44,12 +44,13 @@ import json
 from dataclasses import dataclass, field
 from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 
-from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
-from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
 from prometheus_client import Gauge
+
+from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
+from bytewax.outputs import DynamicSink, StatelessSinkPartition
 
 K = TypeVar("K")
 """Type of key in Kafka message."""
@@ -381,6 +382,7 @@ class KafkaSource(
         }
         config.update(self._add_config)
         client = AdminClient(config)
+        client.poll(0)  # Trigger any pending callbacks (e.g. OAUTHBEARER)
 
         return list(_list_parts(client, self._topics))
 
@@ -481,13 +483,23 @@ class _KafkaSinkPartition(
                 err = f"No topic to produce to for {msg}"
                 raise RuntimeError(err)
 
-            self._producer.produce(
-                value=msg.value,
-                key=msg.key,
-                headers=msg.headers,
-                topic=topic,
-                timestamp=msg.timestamp,
-            )
+            try:
+                self._producer.produce(
+                    value=msg.value,
+                    key=msg.key,
+                    headers=msg.headers,
+                    topic=topic,
+                    timestamp=msg.timestamp,
+                )
+            except BufferError:
+                self._producer.flush()
+                self._producer.produce(
+                    value=msg.value,
+                    key=msg.key,
+                    headers=msg.headers,
+                    topic=topic,
+                    timestamp=msg.timestamp,
+                )
             self._producer.poll(0)
         self._producer.flush()
 
