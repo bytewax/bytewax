@@ -121,3 +121,12 @@ jobs:
           run: |
             . venv/bin/activate
             just test-benchmark
+
+  benchmarks-pass:
+    if: always()
+    needs: [benchmarks]
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Fail if any dependency failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
