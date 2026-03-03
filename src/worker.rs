@@ -111,15 +111,15 @@ where
     tracing::info!("Worker start");
 
     let recovery = recovery_config
-        .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))
+        .map(|config| Python::attach(|py| config.borrow(py).build(py)))
         .transpose()?;
 
     let resume_from = recovery
         .as_ref()
         .map(|(bundle, _backup_interval)| -> PyResult<ResumeFrom> {
-            let resume_calc = Python::with_gil(|py| Rc::new(RefCell::new(ResumeCalc::new(py))));
+            let resume_calc = Python::attach(|py| Rc::new(RefCell::new(ResumeCalc::new(py))));
             let resume_calc_d = resume_calc.clone();
-            let probe = Python::with_gil(|py| {
+            let probe = Python::attach(|py| {
                 build_resume_calc_dataflow(py, worker.worker, bundle.clone_ref(py), resume_calc_d)
                     .reraise("error building progress load dataflow")
             })?;
@@ -136,7 +136,7 @@ where
         .transpose()?
         .unwrap_or_default();
 
-    let probe = Python::with_gil(|py| {
+    let probe = Python::attach(|py| {
         build_production_dataflow(
             py,
             worker.worker,

@@ -9,8 +9,9 @@ use crate::recovery::StepId;
 pub(crate) struct Dataflow(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Dataflow {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for Dataflow {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.dataflow")?.getattr("Dataflow")?;
         if !ob.is_instance(&abc)? {
@@ -18,7 +19,7 @@ impl<'py> FromPyObject<'py> for Dataflow {
                 "dataflow must subclass `bytewax.dataflow.Dataflow`",
             ))
         } else {
-            Ok(Self(SafePy::from(ob.clone().unbind())))
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -45,8 +46,9 @@ impl Dataflow {
 pub(crate) struct Operator(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Operator {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for Operator {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.dataflow")?.getattr("Operator")?;
         if !ob.is_instance(&abc)? {
@@ -54,7 +56,7 @@ impl<'py> FromPyObject<'py> for Operator {
                 "operator must subclass `bytewax.dataflow.Operator`",
             ))
         } else {
-            Ok(Self(SafePy::from(ob.clone().unbind())))
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -62,8 +64,9 @@ impl<'py> FromPyObject<'py> for Operator {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StreamId(String);
 
-impl<'py> FromPyObject<'py> for StreamId {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StreamId {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         Ok(Self(ob.extract()?))
     }
 }
@@ -110,7 +113,7 @@ impl Operator {
             .getattr(port_name)
             .reraise_with(|| format!("operator did not have MultiPort {port_name:?}"))?
             .getattr("stream_ids")?;
-        let stream_ids = binding.downcast::<PyDict>()?;
+        let stream_ids = binding.cast::<PyDict>()?;
         stream_ids.values().extract()
     }
 }

@@ -174,8 +174,9 @@ impl<'py> IntoPyObject<'py> for BackupInterval {
     }
 }
 
-impl<'py> FromPyObject<'py> for BackupInterval {
-    fn extract_bound(obj: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for BackupInterval {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(duration) = obj.extract::<TimeDelta>() {
             Ok(Self(duration))
         } else {
@@ -419,7 +420,7 @@ impl RecoveryBundle {
                             panic!("Trying to build RecoveryPartition for {part_key:?} but no path is known");
                         });
 
-                    let part = unwrap_any!(Python::with_gil(|py| RecoveryPart::open(py, path)));
+                    let part = unwrap_any!(Python::attach(|py| RecoveryPart::open(py, path)));
 
                     Rc::new(RefCell::new(part))
                 })
@@ -518,7 +519,7 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
 #[test]
 fn migrations_valid() -> rusqlite_migration::Result<()> {
     pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| get_migrations(py).validate())
+    Python::attach(|py| get_migrations(py).validate())
 }
 
 /// Setup our connection-level pragmas. Run this on each connection.
@@ -994,7 +995,7 @@ impl Committer<u64> for RecoveryCommitter {
 #[test]
 fn gc_leaves_only_final_snap() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let conn = Python::attach(|py| RecoveryPart::init_open_mem(py));
     conn.snap_writer().write_batch(vec![
         SerializedSnapshot(
             StepId(String::from("step_1")),
@@ -1281,7 +1282,7 @@ impl RecoveryPart {
 #[test]
 fn resume_from_only_parts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let conn = Python::attach(|py| RecoveryPart::init_open_mem(py));
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
 
@@ -1293,7 +1294,7 @@ fn resume_from_only_parts() {
 #[test]
 fn resume_from_all_explict_fronts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let conn = Python::attach(|py| RecoveryPart::init_open_mem(py));
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
@@ -1317,7 +1318,7 @@ fn resume_from_all_explict_fronts() {
 #[test]
 fn resume_from_default_fronts() {
     pyo3::prepare_freethreaded_python();
-    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let conn = Python::attach(|py| RecoveryPart::init_open_mem(py));
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
@@ -1340,7 +1341,7 @@ fn resume_from_default_fronts() {
 #[test]
 fn resume_from_inconsistent_error() {
     pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let conn = RecoveryPart::init_open_mem(py);
         conn.part_writer().write_batch(vec![
             PartitionMeta(PartitionIndex(0), PartitionCount(2)),
@@ -1533,14 +1534,14 @@ where
         // Effectively map-with-epoch.
         self.unary(Pipeline, "ser_snap", move |_init_cap, _info| {
             let mut inbuf = Vec::new();
-            let pickle = Python::with_gil(|py| unwrap_any!(py.import("pickle")).unbind());
+            let pickle = Python::attach(|py| unwrap_any!(py.import("pickle")).unbind());
 
             move |snaps_input, ser_snaps_output| {
                 snaps_input.for_each(|cap, incoming| {
                     incoming.swap(&mut inbuf);
 
                     let epoch = cap.time();
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         let ser_snaps =
                             inbuf
                                 .drain(..)
@@ -1555,7 +1556,7 @@ where
                                                         intern!(py, "dumps"),
                                                         (snap.bind(py),),
                                                     )?
-                                                    .downcast::<PyBytes>()?
+                                                    .cast::<PyBytes>()?
                                                     .as_bytes()
                                                     .to_vec())
                                             }(
@@ -1601,7 +1602,7 @@ where
             move |SerializedSnapshot(step_id, state_key, _snap_epoch, ser_change)| {
                 let snap_change = match ser_change {
                     Some(ser_snap) => {
-                        let snap = unwrap_any!(Python::with_gil(|py| -> PyResult<PyObject> {
+                        let snap = unwrap_any!(Python::attach(|py| -> PyResult<PyObject> {
                             let pickle = py.import("pickle")?;
                             Ok(pickle
                                 .call_method1(intern!(py, "loads"), (PyBytes::new(py, &ser_snap),))?

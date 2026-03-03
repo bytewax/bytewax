@@ -34,8 +34,9 @@ use crate::with_timer;
 pub(crate) struct Sink(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for Sink {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for Sink {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.outputs")?.getattr("Sink")?;
         if !ob.is_instance(&abc)? {
@@ -43,7 +44,7 @@ impl<'py> FromPyObject<'py> for Sink {
                 "sink must subclass `bytewax.outputs.Sink`",
             ))
         } else {
-            Ok(Self(SafePy::from(ob.clone().unbind())))
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -60,7 +61,7 @@ impl<'py> IntoPyObject<'py> for Sink {
 impl Sink {
     pub(crate) fn extract<'p, D>(&'p self, py: Python<'p>) -> PyResult<D>
     where
-        D: FromPyObject<'p>,
+        D: FromPyObject<'p, 'p, Error = PyErr>,
     {
         self.0.extract(py)
     }
@@ -71,8 +72,9 @@ impl Sink {
 pub(crate) struct FixedPartitionedSink(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for FixedPartitionedSink {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for FixedPartitionedSink {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
             .import("bytewax.outputs")?
@@ -82,7 +84,7 @@ impl<'py> FromPyObject<'py> for FixedPartitionedSink {
                 "fixed partitioned sink must subclass `bytewax.outputs.FixedPartitionedSink`",
             ))
         } else {
-            Ok(Self(SafePy::from(ob.clone().unbind())))
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -119,8 +121,9 @@ impl FixedPartitionedSink {
 struct StatefulPartition(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatefulPartition {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
             .import("bytewax.outputs")?
@@ -130,7 +133,7 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
                 "stateful sink partition must subclass `bytewax.outputs.StatefulSinkPartition`",
             ))
         } else {
-            Ok(Self(SafePy::from(ob.clone().unbind())))
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -160,7 +163,7 @@ impl Drop for StatefulPartition {
             return;
         }
         unwrap_any!(
-            Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
+            Python::attach(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
         );
     }
 }
@@ -183,8 +186,9 @@ impl PartitionFn<StateKey> for PartitionAssigner {
         // IO operators, we don't have access to batches. TBH probably
         // this will go away with 2PC being worked into `stateful`
         // operator in Python.
-        unwrap_any!(Python::with_gil(|py| self.part_fn(py, key))
-            .reraise("error assigning output partition"))
+        unwrap_any!(
+            Python::attach(|py| self.part_fn(py, key)).reraise("error assigning output partition")
+        )
     }
 }
 
@@ -312,7 +316,7 @@ where
                             // need to ensure that writes happen in epoch
                             // order.
                             if let Some(part_to_items) = items_inbuf.remove(epoch) {
-                                Python::with_gil(|py| {
+                                Python::attach(|py| {
                                     for (part_key, items) in part_to_items {
                                         let part = parts
                                             .entry(part_key.clone())
@@ -363,7 +367,7 @@ where
                                 let state = with_timer!(
                                     snapshot_histogram,
                                     labels,
-                                    unwrap_any!(Python::with_gil(|py| part
+                                    unwrap_any!(Python::attach(|py| part
                                         .snapshot(py)
                                         .reraise("error snapshotting StatefulSink")))
                                 );
@@ -382,7 +386,7 @@ where
                                     if worker == this_worker {
                                         match change {
                                             StateChange::Upsert(state) => {
-                                                let part = unwrap_any!(Python::with_gil(|py| {
+                                                let part = unwrap_any!(Python::attach(|py| {
                                                     sink.build_part(
                                                         py,
                                                         &step_id,
@@ -417,8 +421,9 @@ where
 pub(crate) struct DynamicSink(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for DynamicSink {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for DynamicSink {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py.import("bytewax.outputs")?.getattr("DynamicSink")?;
         if !ob.is_instance(&abc)? {
@@ -426,7 +431,7 @@ impl<'py> FromPyObject<'py> for DynamicSink {
                 "dynamic sink must subclass `bytewax.outputs.DynamicSink`",
             ))
         } else {
-            Ok(Self(SafePy::from(ob.clone().unbind())))
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -449,8 +454,9 @@ impl DynamicSink {
 struct StatelessPartition(SafePy<PyAny>);
 
 /// Do some eager type checking.
-impl<'py> FromPyObject<'py> for StatelessPartition {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for StatelessPartition {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
             .import("bytewax.outputs")?
@@ -460,7 +466,7 @@ impl<'py> FromPyObject<'py> for StatelessPartition {
                 "stateless sink partition must subclass `bytewax.outputs.StatelessSinkPartition`",
             ))
         } else {
-            Ok(Self(SafePy::from(ob.clone().unbind())))
+            Ok(Self(SafePy::from(ob.to_owned().unbind())))
         }
     }
 }
@@ -485,7 +491,7 @@ impl Drop for StatelessPartition {
         if unsafe { pyo3::ffi::Py_IsFinalizing() } == 1 {
             return;
         }
-        unwrap_any!(Python::with_gil(|py| self
+        unwrap_any!(Python::attach(|py| self
             .close(py)
             .reraise("error closing StatelessSinkPartition")));
     }
@@ -555,7 +561,7 @@ where
                         with_timer!(
                             write_batch_histogram,
                             &labels,
-                            unwrap_any!(Python::with_gil(|py| sink
+                            unwrap_any!(Python::attach(|py| sink
                                 .write_batch(py, batch)
                                 .reraise("error writing output batch")))
                         );

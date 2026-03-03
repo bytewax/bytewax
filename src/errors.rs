@@ -3,7 +3,7 @@ use std::panic::Location;
 use pyo3::exceptions::PyException;
 use pyo3::import_exception;
 use pyo3::types::PyTracebackMethods;
-use pyo3::DowncastError;
+use pyo3::CastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
@@ -32,7 +32,7 @@ pub(crate) trait PythonException<T> {
     {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
-            Python::with_gil(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, msg)))
+            Python::attach(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, msg)))
         })
     }
 
@@ -52,7 +52,7 @@ pub(crate) trait PythonException<T> {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             let msg = f();
-            Python::with_gil(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, &msg)))
+            Python::attach(|py| PyErr::new::<PyErrType, _>(build_message(py, caller, &err, &msg)))
         })
     }
 
@@ -71,7 +71,7 @@ pub(crate) trait PythonException<T> {
     {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let new_err = BytewaxRuntimeError::new_err(format!("({caller}): {msg}"));
                 new_err.set_cause(py, Some(err));
                 new_err
@@ -95,7 +95,7 @@ pub(crate) trait PythonException<T> {
         let caller = Location::caller();
         self.into_pyresult().map_err(|err| {
             let msg = f();
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let new_err = BytewaxRuntimeError::new_err(format!("({caller}): {msg}"));
                 new_err.set_cause(py, Some(err));
                 new_err
@@ -142,7 +142,7 @@ impl<T> PythonException<T> for Result<T, Box<dyn std::error::Error>> {
     }
 }
 
-impl<T> PythonException<T> for Result<T, DowncastError<'_, '_>> {
+impl<T> PythonException<T> for Result<T, CastError<'_, '_>> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
     }

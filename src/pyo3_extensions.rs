@@ -43,7 +43,7 @@ impl<T> Deref for SafePy<T> {
 
 impl<T> Clone for SafePy<T> {
     fn clone(&self) -> Self {
-        Python::with_gil(|py| Self(ManuallyDrop::new(self.0.clone_ref(py))))
+        Python::attach(|py| Self(ManuallyDrop::new(self.0.clone_ref(py))))
     }
 }
 
@@ -87,7 +87,7 @@ impl From<TdPyAny> for PyObject {
     fn from(x: TdPyAny) -> Self {
         match Arc::try_unwrap(x.0) {
             Ok(safe) => safe.into_inner(),
-            Err(arc) => Python::with_gil(|py| (*arc).clone_ref(py)),
+            Err(arc) => Python::attach(|py| (*arc).clone_ref(py)),
         }
     }
 }
@@ -107,7 +107,7 @@ impl From<Bound<'_, PyAny>> for TdPyAny {
 /// Allows you to debug print Python objects using their repr.
 impl std::fmt::Debug for TdPyAny {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let s: PyResult<String> = Python::with_gil(|py| {
+        let s: PyResult<String> = Python::attach(|py| {
             let self_ = self.bind(py);
             let binding = self_.repr()?;
             let repr = binding.to_str()?;
@@ -140,7 +140,7 @@ impl serde::Serialize for TdPyAny {
     where
         S: serde::Serializer,
     {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let x = self.bind(py);
             let pickle = PICKLE_MODULE
                 .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
@@ -151,7 +151,7 @@ impl serde::Serialize for TdPyAny {
                 .bind(py)
                 .call_method1(intern!(py, "dumps"), (x,))
                 .map_err(S::Error::custom)?;
-            let bytes = binding.downcast::<PyBytes>().map_err(S::Error::custom)?;
+            let bytes = binding.cast::<PyBytes>().map_err(S::Error::custom)?;
             serializer
                 .serialize_bytes(bytes.as_bytes())
                 .map_err(S::Error::custom)
@@ -172,7 +172,7 @@ impl<'de> serde::de::Visitor<'de> for PickleVisitor {
     where
         E: serde::de::Error,
     {
-        let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
+        let x: Result<TdPyAny, PyErr> = Python::attach(|py| {
             let pickle = py.import("pickle")?;
             let x = pickle
                 .call_method1(intern!(py, "loads"), (bytes,))?
@@ -195,7 +195,7 @@ impl<'de> serde::Deserialize<'de> for TdPyAny {
 /// Re-use Python's value semantics in Rust code.
 impl PartialEq for TdPyAny {
     fn eq(&self, other: &Self) -> bool {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             // Don't use Py.eq or PyAny.eq since it only checks
             // pointer identity.
             let self_ = self.bind(py);
@@ -213,8 +213,9 @@ pub(crate) struct TdPyCallable(SafePy<PyAny>);
 
 /// Have PyO3 do type checking to ensure we only make from callable
 /// objects.
-impl<'py> FromPyObject<'py> for TdPyCallable {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for TdPyCallable {
+    type Error = PyErr;
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         if ob.is_callable() {
             let py = ob.py();
             Ok(Self(SafePy::from(ob.as_unbound().clone_ref(py))))
@@ -231,7 +232,7 @@ impl<'py> FromPyObject<'py> for TdPyCallable {
 
 impl fmt::Debug for TdPyCallable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s: PyResult<String> = Python::with_gil(|py| {
+        let s: PyResult<String> = Python::attach(|py| {
             let name: String = self.0.bind(py).getattr("__name__")?.extract()?;
             Ok(name)
         });

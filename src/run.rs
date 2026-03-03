@@ -40,7 +40,7 @@ fn start_server_runtime(df: Dataflow) -> PyResult<Runtime> {
 
     // Since the dataflow can't change at runtime, we encode it as a
     // string of JSON once, when the webserver starts.
-    let dataflow_json: String = Python::with_gil(|py| -> PyResult<String> {
+    let dataflow_json: String = Python::attach(|py| -> PyResult<String> {
         let vis_mod = PyModule::import(py, "bytewax.visualize")?;
         let to_json = vis_mod.getattr("to_json")?;
 
@@ -122,7 +122,7 @@ pub(crate) fn run_main(
     let epoch_interval = epoch_interval.unwrap_or_default();
     tracing::info!("Using epoch interval of {:?}", epoch_interval);
 
-    let res = py.allow_threads(move || {
+    let res = py.detach(move || {
         std::panic::catch_unwind(|| {
             timely::execute::execute_directly::<(), _>(move |worker| {
                 unwrap_any!(worker_main(
@@ -130,7 +130,7 @@ pub(crate) fn run_main(
                     // Since there are no other threads, directly
                     // detect signals in the dataflow run loop.
                     || {
-                        unwrap_any!(Python::with_gil(
+                        unwrap_any!(Python::attach(
                             |py| Python::check_signals(py).reraise("signal received")
                         ));
                         // We'll panic directly and don't need to
@@ -254,7 +254,7 @@ pub(crate) fn cluster_main(
     let epoch_interval = epoch_interval.unwrap_or_default();
     tracing::info!("Using epoch interval of {:?}", epoch_interval);
 
-    py.allow_threads(move || {
+    py.detach(move || {
         let addresses = addresses.unwrap_or_default();
         let (builders, other) = if addresses.is_empty() {
             timely::CommunicationConfig::Process(worker_count_per_proc)
@@ -282,7 +282,7 @@ pub(crate) fn cluster_main(
 
             let err = if let Some(err) = info.payload().downcast_ref::<PyErr>() {
                 // Panics with PyErr as payload should come from bytewax.
-                Python::with_gil(|py| err.clone_ref(py))
+                Python::attach(|py| err.clone_ref(py))
             } else {
                 // Give up trying to understand the error,
                 // and show the user what we have.
@@ -295,7 +295,7 @@ pub(crate) fn cluster_main(
             // this panic hook is set during runs with `cluster_main`,
             // but can be invoked during subsequent invocations of
             // `run_main`, crashing the test suite.
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let channel_err = err.clone_ref(py);
                 panic_tx.send(channel_err).unwrap_or_else(|_| {
                     err.print(py);
@@ -308,7 +308,7 @@ pub(crate) fn cluster_main(
             other,
             timely::WorkerConfig::default(),
             move |worker| {
-                let (flow, recovery_config) = Python::with_gil(|py| {
+                let (flow, recovery_config) = Python::attach(|py| {
                     (
                         flow.clone_ref(py),
                         recovery_config.as_ref().map(|c| c.clone_ref(py)),
@@ -339,7 +339,7 @@ pub(crate) fn cluster_main(
             thread::sleep(cooldown);
             // The compiler can't figure out the lifetimes work out.
             #[allow(clippy::redundant_closure)]
-            Python::with_gil(|py| Python::check_signals(py)).map_err(|err| {
+            Python::attach(|py| Python::check_signals(py)).map_err(|err| {
                 should_shutdown.store(true, Ordering::Relaxed);
                 err
             })?;
