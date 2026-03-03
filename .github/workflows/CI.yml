@@ -350,3 +350,12 @@ jobs:
   #       run: |
   #         aws s3 sync ./wheels s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }} --delete
   #         aws s3 ls s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }}
+
+  ci-pass:
+    if: always()
+    needs: [repo-checks, linux]
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Fail if any dependency failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
