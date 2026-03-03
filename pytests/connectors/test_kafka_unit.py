@@ -3,7 +3,12 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSource, _KafkaSinkPartition
+from bytewax.connectors.kafka import (
+    KafkaSink,
+    KafkaSinkMessage,
+    KafkaSource,
+    _KafkaSinkPartition,
+)
 
 
 class TestKafkaSinkBufferError:
@@ -123,3 +128,85 @@ class TestKafkaSourceOAuthPoll:
         assert call_config["security.protocol"] == "SASL_SSL"
         assert call_config["sasl.mechanisms"] == "OAUTHBEARER"
         assert call_config["bootstrap.servers"] == "broker1:9092"
+
+
+class TestKafkaGroupIdLeak:
+    """Tests for Fix #377: group.id should not leak to AdminClient/Producer."""
+
+    @patch("bytewax.connectors.kafka._list_parts", return_value=["0-test-topic"])
+    @patch("bytewax.connectors.kafka.AdminClient")
+    def test_list_parts_strips_group_id(self, mock_admin_cls, mock_list_parts):
+        """group.id is stripped from AdminClient config."""
+        mock_admin_cls.return_value = MagicMock()
+
+        source = KafkaSource(
+            ["localhost:9092"],
+            ["test-topic"],
+            tail=False,
+            add_config={"group.id": "my-group", "security.protocol": "SASL_SSL"},
+        )
+        source.list_parts()
+
+        created_config = mock_admin_cls.call_args[0][0]
+        assert "group.id" not in created_config
+        assert created_config["security.protocol"] == "SASL_SSL"
+
+    @patch("bytewax.connectors.kafka._KafkaSourcePartition")
+    def test_build_part_ignores_user_group_id(self, mock_partition_cls):
+        """User group.id is overridden to BYTEWAX_IGNORED."""
+        source = KafkaSource(
+            ["localhost:9092"],
+            ["test-topic"],
+            tail=False,
+            add_config={"group.id": "my-consumer-group"},
+        )
+        source.build_part("step-1", "0-test-topic", None)
+
+        config = mock_partition_cls.call_args[0][1]
+        assert config["group.id"] == "BYTEWAX_IGNORED"
+        assert config["enable.auto.commit"] == "false"
+
+    @patch("bytewax.connectors.kafka._KafkaSourcePartition")
+    def test_build_part_preserves_other_config(self, mock_partition_cls):
+        """Non-group config from add_config is preserved."""
+        source = KafkaSource(
+            ["localhost:9092"],
+            ["test-topic"],
+            tail=False,
+            add_config={"security.protocol": "SASL_SSL", "group.id": "ignored"},
+        )
+        source.build_part("step-1", "0-test-topic", None)
+
+        config = mock_partition_cls.call_args[0][1]
+        assert config["security.protocol"] == "SASL_SSL"
+        assert config["group.id"] == "BYTEWAX_IGNORED"
+
+    @patch("bytewax.connectors.kafka._KafkaSourcePartition")
+    def test_build_part_enforces_auto_commit_false(self, mock_partition_cls):
+        """enable.auto.commit=false cannot be overridden by user config."""
+        source = KafkaSource(
+            ["localhost:9092"],
+            ["test-topic"],
+            tail=False,
+            add_config={"enable.auto.commit": "true"},
+        )
+        source.build_part("step-1", "0-test-topic", None)
+
+        config = mock_partition_cls.call_args[0][1]
+        assert config["enable.auto.commit"] == "false"
+
+    @patch("bytewax.connectors.kafka.Producer")
+    def test_kafka_sink_strips_group_id(self, mock_producer_cls):
+        """group.id is stripped from Producer config."""
+        mock_producer_cls.return_value = MagicMock()
+
+        sink = KafkaSink(
+            ["localhost:9092"],
+            "test-topic",
+            add_config={"group.id": "my-group", "linger.ms": "100"},
+        )
+        sink.build("step-1", 0, 1)
+
+        created_config = mock_producer_cls.call_args[0][0]
+        assert "group.id" not in created_config
+        assert created_config["linger.ms"] == "100"

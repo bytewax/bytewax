@@ -137,7 +137,7 @@ Bytewax provides built-in connectors for common data sources and sinks such as K
 **Testing:**
 - Integration tests: Use `TestingSource` and run flows directly in CI environments.
 - Unit tests: Test individual functions and operators as normal Python code.
-- [More on Testing](https://docs.bytewax.io/stable/guide/contributing/testing.html)
+- [More on Testing](https://docs.bytewax.io/stable/api/bytewax/bytewax.testing.html)
 
 **Production:**
 - Scale horizontally by running multiple workers on multiple machines.
