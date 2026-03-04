@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - cheeeee/fork-cicd
     tags:
       - 'v*'
     paths-ignore:

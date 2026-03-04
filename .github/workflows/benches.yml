@@ -82,6 +82,10 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     # No container — runs on bare metal for direct perf_event_open access
     steps:
+      - name: Fix workspace permissions
+        run: |
+          chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+          rm -rf "${{ github.workspace }}/venv" "${{ github.workspace }}/.ruff_cache" 2>/dev/null || true
       - uses: actions/checkout@v3
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -121,6 +125,9 @@ jobs:
           run: |
             . venv/bin/activate
             just test-benchmark
+      - name: Fix workspace permissions
+        if: always()
+        run: chmod -R a+rwX "$GITHUB_WORKSPACE" 2>/dev/null || true
 
   benchmarks-pass:
     if: always()
