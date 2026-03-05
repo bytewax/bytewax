@@ -218,113 +218,114 @@ jobs:
         if: always()
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"
 
-  # NOTE: macOS job commented out — cross-compilation from Linux not viable
-  # for PyO3 extensions (requires macOS SDK/frameworks). Uncomment when
-  # macOS runners are available.
-  #
-  # macos:
-  #   strategy:
-  #     matrix:
-  #       python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-  #       target: ['x86_64', 'aarch64']
-  #   runs-on: macos-latest
-  #   env:
-  #     MACOSX_DEPLOYMENT_TARGET: 10.9
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #     - uses: astral-sh/setup-uv@v7
-  #       with:
-  #         python-version: ${{ matrix.python-version }}
-  #     - run: uv python install
-  #     - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-  #     - uses: extractions/setup-just@v2
-  #     - name: Prep build venv
-  #       shell: bash
-  #       run: |
-  #         uv venv -p ${{ matrix.python-version }} venv/
-  #         . venv/bin/activate
-  #         uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
-  #     - name: Build wheel
-  #       uses: PyO3/maturin-action@v1
-  #       env:
-  #         RUSTFLAGS: -C force-frame-pointers=yes
-  #         PIP_BREAK_SYSTEM_PACKAGES: "1"
-  #       with:
-  #         target: ${{ matrix.target }}
-  #         args: --release --out dist/ -i ${{ matrix.python-version }}
-  #     - name: Run Python tests
-  #       # Only run tests for the host architecture, as x86_64 is
-  #       # cross-compiled on macOS runners.
-  #       # Note: Kafka tests are skipped on macOS (no Docker service
-  #       # container support). They run on Linux x86_64 instead.
-  #       if: ${{ matrix.target == 'aarch64' }}
-  #       shell: bash
-  #       run: |
-  #         . venv/bin/activate
-  #         WHEEL_FILE=$(ls ./dist/*.whl)
-  #         uv pip install -v --no-deps $WHEEL_FILE
-  #         just test-py
-  #     - name: Upload wheels
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: wheels-macos-${{ matrix.target }}-${{ matrix.python-version }}
-  #         path: dist
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+        target: ['x86_64', 'aarch64']
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv python install
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: extractions/setup-just@v2
+      - uses: dsherret/rust-toolchain-file@v1
+      - name: Prep build venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+      - name: Run Python tests
+        # Only run tests for the host architecture (aarch64 on macos-latest).
+        # x86_64 wheels are cross-compiled; Kafka tests are skipped (no Docker).
+        if: ${{ matrix.target == 'aarch64' }}
+        shell: bash
+        run: |
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+          just test-py
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}-${{ matrix.python-version }}
+          path: dist
 
-  # NOTE: Windows job commented out — cross-compilation from Linux has
-  # runtime reliability concerns. Uncomment when Windows runners are available.
-  #
-  # windows:
-  #   strategy:
-  #     matrix:
-  #       python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-  #   runs-on: windows-latest
-  #   steps:
-  #     - uses: ilammy/msvc-dev-cmd@v1
-  #     - shell: cmd
-  #       run: |
-  #         set PATH=%PATH%;%wix%bin;"%WindowsSdkVerBinPath%"\x86
-  #     - uses: actions/checkout@v3
-  #     - uses: actions/cache@v4
-  #       with:
-  #         path: |
-  #           ~/.cargo/bin/
-  #           ~/.cargo/registry/index/
-  #           ~/.cargo/registry/cache/
-  #           ~/.cargo/git/db/
-  #           target/
-  #         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-  #     - uses: astral-sh/setup-uv@v7
-  #       with:
-  #         python-version: ${{ matrix.python-version }}
-  #     - run: uv python install
-  #     - shell: bash
-  #       run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-  #     - uses: extractions/setup-just@v2
-  #     - name: Prep build venv
-  #       run: |
-  #         uv venv -p ${{ matrix.python-version }} venv/
-  #         venv/Scripts/activate
-  #         uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
-  #     - name: Build wheel
-  #       uses: PyO3/maturin-action@v1
-  #       env:
-  #         RUSTFLAGS: -C force-frame-pointers=yes
-  #         PIP_BREAK_SYSTEM_PACKAGES: "1"
-  #       with:
-  #         target: ${{ matrix.target }}
-  #         args: --release --out dist/ -i ${{ matrix.python-version }}
-  #         sccache: true
-  #     - name: Run Python tests
-  #       run: |
-  #         venv/Scripts/activate
-  #         $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-  #         uv pip install -v --no-deps $WHEEL_FILE
-  #         just test-py
-  #     - name: Upload wheels
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: wheels-windows-${{ matrix.target }}-${{ matrix.python-version }}
-  #         path: dist
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv python install
+      - shell: bash
+        run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: extractions/setup-just@v2
+      - uses: dsherret/rust-toolchain-file@v1
+      - name: Prep build venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/Scripts/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        with:
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Run Python tests
+        shell: bash
+        run: |
+          . venv/Scripts/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+          just test-py
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.python-version }}
+          path: dist
 
   # NOTE: S3 upload job commented out — using GitHub Actions artifacts instead.
   # Uncomment and configure AWS secrets to re-enable S3 wheel storage.
@@ -353,7 +354,7 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [repo-checks, linux]
+    needs: [repo-checks, linux, macos, windows]
     runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Fail if any dependency failed
