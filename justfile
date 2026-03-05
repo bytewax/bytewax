@@ -33,7 +33,7 @@ get-started:
 _assert-venv:
     #!/usr/bin/env python
     import sys
-    p = sys.prefix
+    p = sys.prefix.rstrip("/")
     if not (p.endswith("venvs/dev") or p.endswith("venv")):
         print("You must activate the `dev` venv with `. venvs/dev/bin/activate` before running this command", file=sys.stderr)
         sys.exit(1)
