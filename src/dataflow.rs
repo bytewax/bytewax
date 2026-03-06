@@ -72,7 +72,7 @@ impl<'py> FromPyObject<'_, 'py> for StreamId {
 }
 
 impl Operator {
-    pub(crate) fn get_arg(&self, py: Python, attr_name: &str) -> PyResult<PyObject> {
+    pub(crate) fn get_arg(&self, py: Python, attr_name: &str) -> PyResult<Py<PyAny>> {
         self.0.getattr(py, attr_name)
     }
 

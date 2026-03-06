@@ -99,7 +99,7 @@ impl FixedPartitionedSink {
         py: Python,
         step_id: &StepId,
         for_part: &StateKey,
-        resume_state: Option<PyObject>,
+        resume_state: Option<Py<PyAny>>,
     ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(
@@ -139,7 +139,7 @@ impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
 }
 
 impl StatefulPartition {
-    fn write_batch(&self, py: Python, values: Vec<PyObject>) -> PyResult<()> {
+    fn write_batch(&self, py: Python, values: Vec<Py<PyAny>>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (values,))?;
@@ -472,7 +472,7 @@ impl<'py> FromPyObject<'_, 'py> for StatelessPartition {
 }
 
 impl StatelessPartition {
-    fn write_batch(&self, py: Python, items: Vec<PyObject>) -> PyResult<()> {
+    fn write_batch(&self, py: Python, items: Vec<Py<PyAny>>) -> PyResult<()> {
         let _ = self
             .0
             .call_method1(py, intern!(py, "write_batch"), (items,))?;
@@ -552,7 +552,7 @@ where
 
                         let mut output_session = output.session(&cap);
 
-                        let batch: Vec<PyObject> = tmp_incoming
+                        let batch: Vec<Py<PyAny>> = tmp_incoming
                             .split_off(0)
                             .into_iter()
                             .map(|item| item.into())

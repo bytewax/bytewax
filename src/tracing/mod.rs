@@ -154,7 +154,7 @@ impl BytewaxTracer {
 ///
 /// ```python
 /// from bytewax.tracing import setup_tracing
-
+///
 /// tracer = setup_tracing()
 /// ```
 ///
@@ -170,7 +170,7 @@ impl BytewaxTracer {
 #[pyfunction]
 #[pyo3(signature = (tracing_config=None, log_level=None))]
 fn setup_tracing(
-    py: Python,
+    py: Python<'_>,
     tracing_config: Option<Py<TracingConfig>>,
     log_level: Option<String>,
 ) -> PyResult<Bound<'_, BytewaxTracer>> {

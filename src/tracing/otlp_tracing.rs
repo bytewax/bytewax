@@ -36,7 +36,7 @@ use super::TracingConfig;
 ///     `1.0`.
 ///
 /// :type sampling_ratio: float
-#[pyclass(module="bytewax.tracing", extends=TracingConfig)]
+#[pyclass(module="bytewax.tracing", extends=TracingConfig, from_py_object)]
 #[derive(Clone)]
 pub(crate) struct OtlpTracingConfig {
     #[pyo3(get)]

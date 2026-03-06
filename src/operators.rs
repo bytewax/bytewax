@@ -103,7 +103,7 @@ where
 fn next_batch(
     outbuf: &mut Vec<TdPyAny>,
     mapper: &Bound<'_, PyAny>,
-    in_batch: Vec<PyObject>,
+    in_batch: Vec<Py<PyAny>>,
 ) -> PyResult<()> {
     let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
     let iter = res.try_iter().reraise_with(|| {
@@ -198,7 +198,7 @@ where
 
                                 unwrap_any!(Python::attach(|py| -> PyResult<()> {
                                     let batch: Vec<_> =
-                                        batch.into_iter().map(PyObject::from).collect();
+                                        batch.into_iter().map(<Py<PyAny>>::from).collect();
                                     let mapper = mapper.bind(py);
 
                                     with_timer!(
@@ -390,9 +390,9 @@ where
                         let mut downstream_session = downstream_handle.session(&time);
                         unwrap_any!(|| -> PyResult<()> {
                             for item in inbuf.drain(..) {
-                                let item = PyObject::from(item);
+                                let item = <Py<PyAny>>::from(item);
                                 let (key, value) = item
-                                    .extract::<(Bound<'_, PyAny>, PyObject)>(py)
+                                    .extract::<(Bound<'_, PyAny>, Py<PyAny>)>(py)
                                     .raise_with::<PyTypeError>(|| {
                                         format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
                                             unwrap_any!(item.bind(py).get_type().qualname()),
@@ -429,9 +429,9 @@ where
 {
     fn wrap_key(&self) -> Stream<S, TdPyAny> {
         self.map(move |(key, value)| {
-            let value = PyObject::from(value);
+            let value = <Py<PyAny>>::from(value);
 
-            let item: PyObject =
+            let item: Py<PyAny> =
                 Python::attach(|py| (key, value).into_pyobject(py).unwrap().unbind().into());
 
             TdPyAny::from(item)
@@ -495,7 +495,7 @@ impl<'py> FromPyObject<'_, 'py> for IsComplete {
 }
 
 impl StatefulBatchLogic {
-    fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<PyObject>, IsComplete)> {
+    fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
         let (iter, is_complete) = res
             .extract::<(Bound<'_, PyAny>, Bound<'_, PyAny>)>()
             .reraise_with(|| {
@@ -518,8 +518,8 @@ impl StatefulBatchLogic {
     fn on_batch<'py>(
         &'py self,
         py: Python<'py>,
-        items: Vec<PyObject>,
-    ) -> PyResult<(Vec<PyObject>, IsComplete)> {
+        items: Vec<Py<PyAny>>,
+    ) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
         let res = self
             .0
             .bind(py)
@@ -527,29 +527,27 @@ impl StatefulBatchLogic {
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
+    fn on_notify<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
         let res = self.0.bind(py).call_method0(intern!(py, "on_notify"))?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
-    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<PyObject>, IsComplete)> {
+    fn on_eof<'py>(&'py self, py: Python<'py>) -> PyResult<(Vec<Py<PyAny>>, IsComplete)> {
         let res = self.0.bind(py).call_method0("on_eof")?;
         Self::extract_ret(res).reraise("error extracting `(emit, is_complete)`")
     }
 
     fn notify_at(&self, py: Python) -> PyResult<Option<DateTime<Utc>>> {
         let res = self.0.bind(py).call_method0(intern!(py, "notify_at"))?;
-        res.extract::<Option<DateTime<Utc>>>()
-            .map_err(Into::<PyErr>::into)
-            .reraise_with(|| {
-                format!(
-                    "did not return a `datetime`; got a `{}` instead",
-                    unwrap_any!(res.get_type().qualname())
-                )
-            })
+        res.extract::<Option<DateTime<Utc>>>().reraise_with(|| {
+            format!(
+                "did not return a `datetime`; got a `{}` instead",
+                unwrap_any!(res.get_type().qualname())
+            )
+        })
     }
 
-    fn snapshot(&self, py: Python) -> PyResult<PyObject> {
+    fn snapshot(&self, py: Python) -> PyResult<Py<PyAny>> {
         self.0.call_method0(py, intern!(py, "snapshot"))
     }
 }
@@ -763,10 +761,10 @@ where
                             if let Some(items) = inbuf.remove(&epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
 
-                                let mut keyed_items: BTreeMap<StateKey, Vec<PyObject>> = BTreeMap::new();
+                                let mut keyed_items: BTreeMap<StateKey, Vec<Py<PyAny>>> = BTreeMap::new();
                                 for (worker, (key, value)) in items {
                                     assert!(worker == this_worker);
-                                    keyed_items.entry(key).or_default().push(PyObject::from(value));
+                                    keyed_items.entry(key).or_default().push(<Py<PyAny>>::from(value));
                                 }
 
                                 unwrap_any!(Python::attach(|py| -> PyResult<()> {
@@ -780,7 +778,7 @@ where
                                             logics.entry(key.clone()).or_insert_with(|| {
                                                 unwrap_any!((|| {
                                                     builder
-                                                        .call1((None::<PyObject>, ))?
+                                                        .call1((None::<Py<PyAny>>, ))?
                                                         .extract::<StatefulBatchLogic>()
                                                 })(
                                                 ))
@@ -989,7 +987,7 @@ where
                                             assert!(worker == this_worker);
                                             match change {
                                                 StateChange::Upsert(state) => {
-                                                    let state: PyObject = state.into();
+                                                    let state: Py<PyAny> = state.into();
 
                                                     let logic = builder
                                                         .call1((Some(state),))?

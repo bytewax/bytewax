@@ -6,7 +6,7 @@ use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
@@ -14,7 +14,7 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::sync::Arc;
 
-static PICKLE_MODULE: GILOnceCell<SafePy<PyModule>> = GILOnceCell::new();
+static PICKLE_MODULE: PyOnceLock<SafePy<PyModule>> = PyOnceLock::new();
 
 /// Wrapper around [`Py<T>`] that prevents segfaults during Python
 /// 3.13+ interpreter finalization. On 3.13+, `Py<T>::Drop` calls
@@ -67,7 +67,7 @@ impl<T> SafePy<T> {
 /// Represents a Python object flowing through a Timely dataflow.
 ///
 /// As soon as you need to manipulate this object, convert it into a
-/// [`PyObject`] or bind it into a [`Bound`]. This should only exist
+/// [`Py<PyAny>`] or bind it into a [`Bound`]. This should only exist
 /// within the dataflow.
 ///
 /// A newtype for [`Py`]<[`PyAny`]> so we can
@@ -83,7 +83,7 @@ impl TdPyAny {
     }
 }
 
-impl From<TdPyAny> for PyObject {
+impl From<TdPyAny> for Py<PyAny> {
     fn from(x: TdPyAny) -> Self {
         match Arc::try_unwrap(x.0) {
             Ok(safe) => safe.into_inner(),
@@ -92,8 +92,8 @@ impl From<TdPyAny> for PyObject {
     }
 }
 
-impl From<PyObject> for TdPyAny {
-    fn from(x: PyObject) -> Self {
+impl From<Py<PyAny>> for TdPyAny {
+    fn from(x: Py<PyAny>) -> Self {
         Self(Arc::new(SafePy::from(x)))
     }
 }
@@ -161,20 +161,25 @@ impl serde::Serialize for TdPyAny {
 
 pub(crate) struct PickleVisitor;
 
-impl<'de> serde::de::Visitor<'de> for PickleVisitor {
+impl serde::de::Visitor<'_> for PickleVisitor {
     type Value = TdPyAny;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("a pickled byte array")
     }
 
-    fn visit_bytes<'py, E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+    fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::attach(|py| {
-            let pickle = py.import("pickle")?;
-            let x = pickle
+            let loaded_pickle = PICKLE_MODULE
+                .get_or_try_init(py, || -> PyResult<SafePy<PyModule>> {
+                    Ok(py.import("pickle")?.unbind().into())
+                })
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+            let x = loaded_pickle
+                .bind(py)
                 .call_method1(intern!(py, "loads"), (bytes,))?
                 .unbind()
                 .into();

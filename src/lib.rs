@@ -21,7 +21,7 @@ pub(crate) mod macros;
 ///
 /// These are re-imported elsewhere in the public `bytewax` module for
 /// use.
-#[pymodule]
+#[pymodule(gil_used = true)]
 #[pyo3(name = "_bytewax")]
 fn mod_bytewax(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     inputs::register(py, m)?;

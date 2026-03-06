@@ -151,7 +151,7 @@ pub(crate) fn run_main(
         eprintln!();
         if let Some(err) = panic_err.downcast_ref::<PyErr>() {
             // Special case for keyboard interrupt.
-            if err.get_type(py).is(&PyType::new::<PyKeyboardInterrupt>(py)) {
+            if err.get_type(py).is(PyType::new::<PyKeyboardInterrupt>(py)) {
                 tracked_err::<PyKeyboardInterrupt>(
                     "interrupt signal received, all processes have been shut down",
                 )
@@ -339,9 +339,8 @@ pub(crate) fn cluster_main(
             thread::sleep(cooldown);
             // The compiler can't figure out the lifetimes work out.
             #[allow(clippy::redundant_closure)]
-            Python::attach(|py| Python::check_signals(py)).map_err(|err| {
+            Python::attach(|py| Python::check_signals(py)).inspect_err(|_err| {
                 should_shutdown.store(true, Ordering::Relaxed);
-                err
             })?;
         }
         for maybe_worker_panic in guards.join() {

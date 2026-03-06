@@ -215,7 +215,7 @@ impl FixedPartitionedSource {
         py: Python,
         step_id: &StepId,
         for_part: &StateKey,
-        resume_state: Option<PyObject>,
+        resume_state: Option<Py<PyAny>>,
     ) -> PyResult<StatefulPartition> {
         self.0
             .call_method1(
@@ -615,7 +615,7 @@ impl<'py> FromPyObject<'_, 'py> for StatefulPartition {
 enum BatchResult {
     Eof,
     Abort,
-    Batch(Vec<PyObject>),
+    Batch(Vec<Py<PyAny>>),
 }
 
 impl StatefulPartition {
@@ -632,7 +632,7 @@ impl StatefulPartition {
                     )
                 })?;
                 let batch = iter
-                    .map(|res| res.map(PyObject::from))
+                    .map(|res| res.map(<Py<PyAny>>::from))
                     .collect::<PyResult<Vec<_>>>()
                     .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))
@@ -915,7 +915,7 @@ impl StatelessPartition {
                     )
                 })?;
                 let batch = iter
-                    .map(|res| res.map(PyObject::from))
+                    .map(|res| res.map(<Py<PyAny>>::from))
                     .collect::<PyResult<Vec<_>>>()
                     .reraise("error while iterating through batch")?;
                 Ok(BatchResult::Batch(batch))

@@ -24,7 +24,6 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use pyo3::types::PyString;
 use rusqlite::Connection;
@@ -34,6 +33,7 @@ use rusqlite_migration::M;
 use seahash::SeaHasher;
 use serde::Deserialize;
 use serde::Serialize;
+use std::sync::LazyLock;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Broadcast;
@@ -167,10 +167,7 @@ impl<'py> IntoPyObject<'py> for BackupInterval {
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.0
-            .into_pyobject(py)
-            .map(|b| b.into_any())
-            .map_err(Into::into)
+        self.0.into_pyobject(py).map(|b| b.into_any())
     }
 }
 
@@ -335,7 +332,7 @@ impl RecoveryConfig {
     /// Build the Rust-side bundle from the Python-side recovery
     /// config.
     #[instrument(name = "build_recovery", skip_all)]
-    pub(crate) fn build(&self, py: Python) -> PyResult<(RecoveryBundle, BackupInterval)> {
+    pub(crate) fn build(&self) -> PyResult<(RecoveryBundle, BackupInterval)> {
         let mut part_paths = HashMap::new();
         let sqlite_ext = OsStr::new("sqlite3");
         if !self.db_dir.is_dir() {
@@ -346,9 +343,8 @@ impl RecoveryConfig {
         }
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
             let path = entry.reraise("Error accessing recovery DB file")?.path();
-            if path.extension().map_or(false, |ext| *ext == *sqlite_ext) {
-                let part =
-                    RecoveryPart::open(py, &path).reraise("Error opening recovery DB file")?;
+            if path.extension().is_some_and(|ext| *ext == *sqlite_ext) {
+                let part = RecoveryPart::open(&path).reraise("Error opening recovery DB file")?;
                 let mut part_loader = part.part_loader();
                 while let Some(batch) = part_loader.next_batch() {
                     for PartitionMeta(index, _count) in batch {
@@ -420,7 +416,7 @@ impl RecoveryBundle {
                             panic!("Trying to build RecoveryPartition for {part_key:?} but no path is known");
                         });
 
-                    let part = unwrap_any!(Python::attach(|py| RecoveryPart::open(py, path)));
+                    let part = unwrap_any!(Python::attach(|_py| RecoveryPart::open(path)));
 
                     Rc::new(RefCell::new(part))
                 })
@@ -451,59 +447,53 @@ struct RecoveryPart {
 
 // The `'static` lifetime within [`Migrations`] is saying that the
 // [`str`]s composing the migrations are `'static`.
-//
-// Use [`GILOnceCell`] so we don't have to bring in a `lazy_static`
-// crate dep.
-static MIGRATIONS: GILOnceCell<Migrations<'static>> = GILOnceCell::new();
-
-fn get_migrations(py: Python) -> &Migrations<'static> {
-    MIGRATIONS.get_or_init(py, || {
-        Migrations::new(vec![
-            M::up(
-                "CREATE TABLE parts (
+static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
+    Migrations::new(vec![
+        M::up(
+            "CREATE TABLE parts (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  part_index INTEGER PRIMARY KEY NOT NULL CHECK (part_index >= 0),
                  part_count INTEGER NOT NULL CHECK (part_count > 0),
                  CHECK (part_index < part_count)
                  ) STRICT",
-            ),
-            // This is a sharded table.
-            M::up(
-                "CREATE TABLE exs (
+        ),
+        // This is a sharded table.
+        M::up(
+            "CREATE TABLE exs (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  ex_num INTEGER NOT NULL PRIMARY KEY,
                  worker_count INTEGER NOT NULL CHECK (worker_count > 0),
                  resume_epoch INTEGER NOT NULL
                  ) STRICT",
-            ),
-            // This is a sharded table.
-            //
-            // We can't do a foreign key constraint because we don't
-            // know what partition the row in `ex` will be in; we'd
-            // need a "sharded foreign key" kinda thing.
-            M::up(
-                "CREATE TABLE fronts (
+        ),
+        // This is a sharded table.
+        //
+        // We can't do a foreign key constraint because we don't
+        // know what partition the row in `ex` will be in; we'd
+        // need a "sharded foreign key" kinda thing.
+        M::up(
+            "CREATE TABLE fronts (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  ex_num INTEGER NOT NULL,
                  worker_index INTEGER NOT NULL CHECK (worker_index >= 0),
                  worker_frontier INTEGER NOT NULL,
                  PRIMARY KEY (ex_num, worker_index)
                  ) STRICT",
-            ),
-            // This is _not_ a sharded table. Commits affect a whole
-            // partition and thus will only be written to the same
-            // shard as partition definitions. We don't use a foreign
-            // key here, though so we don't have to deal with flow_id.
-            M::up(
-                "CREATE TABLE commits (
+        ),
+        // This is _not_ a sharded table. Commits affect a whole
+        // partition and thus will only be written to the same
+        // shard as partition definitions. We don't use a foreign
+        // key here, though so we don't have to deal with flow_id.
+        M::up(
+            "CREATE TABLE commits (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  part_index INTEGER PRIMARY KEY NOT NULL,
                  commit_epoch INTEGER NOT NULL
                  ) STRICT",
-            ),
-            // This is a sharded table.
-            M::up(
-                "CREATE TABLE snaps (
+        ),
+        // This is a sharded table.
+        M::up(
+            "CREATE TABLE snaps (
                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                  step_id TEXT NOT NULL,
                  state_key TEXT NOT NULL,
@@ -511,19 +501,17 @@ fn get_migrations(py: Python) -> &Migrations<'static> {
                  ser_change BLOB,
                  PRIMARY KEY (step_id, state_key, snap_epoch)
                  ) STRICT",
-            ),
-        ])
-    })
-}
+        ),
+    ])
+});
 
 #[test]
 fn migrations_valid() -> rusqlite_migration::Result<()> {
-    pyo3::prepare_freethreaded_python();
-    Python::attach(|py| get_migrations(py).validate())
+    MIGRATIONS.validate()
 }
 
 /// Setup our connection-level pragmas. Run this on each connection.
-fn setup_conn(py: Python, conn: &Rc<RefCell<Connection>>) {
+fn setup_conn(conn: &Rc<RefCell<Connection>>) {
     let mut conn = conn.borrow_mut();
 
     rusqlite::vtab::series::load_module(&conn).unwrap();
@@ -531,7 +519,7 @@ fn setup_conn(py: Python, conn: &Rc<RefCell<Connection>>) {
     // These are recommended by Litestream.
     conn.pragma_update(None, "journal_mode", "WAL").unwrap();
     conn.pragma_update(None, "busy_timeout", "5000").unwrap();
-    get_migrations(py).to_latest(&mut conn).unwrap();
+    MIGRATIONS.to_latest(&mut conn).unwrap();
 }
 
 struct PartitionMetaWriter {
@@ -994,8 +982,8 @@ impl Committer<u64> for RecoveryCommitter {
 
 #[test]
 fn gc_leaves_only_final_snap() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::attach(|py| RecoveryPart::init_open_mem(py));
+    pyo3::Python::initialize();
+    let conn = RecoveryPart::init_open_mem();
     conn.snap_writer().write_batch(vec![
         SerializedSnapshot(
             StepId(String::from("step_1")),
@@ -1075,7 +1063,7 @@ create_exception!(
 );
 
 impl RecoveryPart {
-    fn init(py: Python, file: &Path, index: PartitionIndex, count: PartitionCount) -> PyResult<()> {
+    fn init(file: &Path, index: PartitionIndex, count: PartitionCount) -> PyResult<()> {
         tracing::debug!("Init recovery partition {index:?} / {count:?} at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
@@ -1086,7 +1074,7 @@ impl RecoveryPart {
             )
             .reraise("can't open recovery DB")?,
         ));
-        setup_conn(py, &conn);
+        setup_conn(&conn);
 
         let _self = Self { conn };
         _self
@@ -1096,7 +1084,7 @@ impl RecoveryPart {
         Ok(())
     }
 
-    fn open(py: Python, file: &Path) -> PyResult<Self> {
+    fn open(file: &Path) -> PyResult<Self> {
         tracing::debug!("Opening recovery partition at {file:?}");
         let conn = Rc::new(RefCell::new(
             Connection::open_with_flags(
@@ -1105,14 +1093,14 @@ impl RecoveryPart {
             )
             .reraise("can't open recovery DB")?,
         ));
-        setup_conn(py, &conn);
+        setup_conn(&conn);
 
         Ok(Self { conn })
     }
 
-    fn init_open_mem(py: Python) -> Self {
+    fn init_open_mem() -> Self {
         let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
-        setup_conn(py, &conn);
+        setup_conn(&conn);
 
         Self { conn }
     }
@@ -1281,8 +1269,8 @@ impl RecoveryPart {
 
 #[test]
 fn resume_from_only_parts() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::attach(|py| RecoveryPart::init_open_mem(py));
+    pyo3::Python::initialize();
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
 
@@ -1293,8 +1281,8 @@ fn resume_from_only_parts() {
 
 #[test]
 fn resume_from_all_explict_fronts() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::attach(|py| RecoveryPart::init_open_mem(py));
+    pyo3::Python::initialize();
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
@@ -1317,8 +1305,8 @@ fn resume_from_all_explict_fronts() {
 
 #[test]
 fn resume_from_default_fronts() {
-    pyo3::prepare_freethreaded_python();
-    let conn = Python::attach(|py| RecoveryPart::init_open_mem(py));
+    pyo3::Python::initialize();
+    let conn = RecoveryPart::init_open_mem();
     conn.part_writer()
         .write_batch(vec![PartitionMeta(PartitionIndex(0), PartitionCount(1))]);
     conn.ex_writer().write_batch(vec![ExecutionMeta(
@@ -1340,9 +1328,9 @@ fn resume_from_default_fronts() {
 
 #[test]
 fn resume_from_inconsistent_error() {
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
     Python::attach(|py| {
-        let conn = RecoveryPart::init_open_mem(py);
+        let conn = RecoveryPart::init_open_mem();
         conn.part_writer().write_batch(vec![
             PartitionMeta(PartitionIndex(0), PartitionCount(2)),
             PartitionMeta(PartitionIndex(1), PartitionCount(2)),
@@ -1376,7 +1364,7 @@ fn resume_from_inconsistent_error() {
 ///
 /// :type count: int
 #[pyfunction]
-fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
+fn init_db_dir(_py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<()> {
     tracing::warn!("Creating {count:?} recovery partitions in {db_dir:?}");
     if !db_dir.is_dir() {
         return Err(PyFileNotFoundError::new_err(format!(
@@ -1386,7 +1374,7 @@ fn init_db_dir(py: Python, db_dir: PathBuf, count: PartitionCount) -> PyResult<(
     }
     for index in count.iter() {
         let part_file = db_dir.join(format!("part-{}.sqlite3", index.0));
-        RecoveryPart::init(py, &part_file, index, count)
+        RecoveryPart::init(&part_file, index, count)
             .reraise("error init-ing recovery partition")?;
     }
     Ok(())
@@ -1463,7 +1451,7 @@ where
                         let frontier = input_frontiers.simplify();
                         // EOF counts as progress. This will also filter
                         // out the flash of 0 epoch upon resume.
-                        let frontier_progressed = frontier.map_or(true, |f| f > *cap.time());
+                        let frontier_progressed = frontier.is_none_or(|f| f > *cap.time());
                         if frontier_progressed {
                             // There's no way to guarantee that "last
                             // frontier + 1" is actually the resume epoch
@@ -1548,7 +1536,7 @@ where
                                 .map(|Snapshot(step_id, state_key, snap_change)| {
                                     let ser_change = match snap_change {
                                         StateChange::Upsert(snap) => {
-                                            let snap = PyObject::from(snap);
+                                            let snap = <Py<PyAny>>::from(snap);
                                             let bytes = unwrap_any!(|| -> PyResult<Vec<u8>> {
                                                 Ok(pickle
                                                     .bind(py)
@@ -1602,7 +1590,7 @@ where
             move |SerializedSnapshot(step_id, state_key, _snap_epoch, ser_change)| {
                 let snap_change = match ser_change {
                     Some(ser_snap) => {
-                        let snap = unwrap_any!(Python::attach(|py| -> PyResult<PyObject> {
+                        let snap = unwrap_any!(Python::attach(|py| -> PyResult<Py<PyAny>> {
                             let pickle = py.import("pickle")?;
                             Ok(pickle
                                 .call_method1(intern!(py, "loads"), (PyBytes::new(py, &ser_snap),))?
@@ -1837,8 +1825,8 @@ impl ReadProgressOp for RecoveryBundle {
 pub(crate) struct ResumeCalc(RecoveryPart);
 
 impl ResumeCalc {
-    pub(crate) fn new(py: Python) -> Self {
-        Self(RecoveryPart::init_open_mem(py))
+    pub(crate) fn new() -> Self {
+        Self(RecoveryPart::init_open_mem())
     }
 
     pub(crate) fn resume_from(&self) -> PyResult<ResumeFrom> {
