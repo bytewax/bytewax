@@ -14,7 +14,7 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::sync::Arc;
 
-static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+static PICKLE_MODULE: GILOnceCell<SafePy<PyModule>> = GILOnceCell::new();
 
 /// Wrapper around [`Py<T>`] that prevents segfaults during Python
 /// 3.13+ interpreter finalization. On 3.13+, `Py<T>::Drop` calls
@@ -143,8 +143,8 @@ impl serde::Serialize for TdPyAny {
         Python::attach(|py| {
             let x = self.bind(py);
             let pickle = PICKLE_MODULE
-                .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
-                    Ok(py.import("pickle")?.unbind())
+                .get_or_try_init(py, || -> PyResult<SafePy<PyModule>> {
+                    Ok(py.import("pickle")?.unbind().into())
                 })
                 .map_err(S::Error::custom)?;
             let binding = pickle

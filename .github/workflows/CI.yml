@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - cheeeee/fork-cicd
     tags:
       - 'v*'
     paths-ignore:
@@ -51,14 +50,20 @@ jobs:
     # buildpack-deps:22.04 includes gcc, make, pkg-config, libssl-dev, git, curl.
     container:
       image: buildpack-deps:22.04
+    env:
+      UV_LINK_MODE: copy
     steps:
+      - name: Fix workspace permissions
+        run: chmod -R a+rwX "${{ github.workspace }}" 2>/dev/null || true
+      - name: Create sudo wrapper
+        run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
       # actions/checkout sets safe.directory in a temp HOME; re-set it
       # globally so git works in subsequent steps (pre-commit, etc.)
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -67,15 +72,20 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-repo-checks-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-repo-checks-
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
           enable-cache: true
+          cache-dependency-glob: "requirements/**"
       - run: uv python install
-      - uses: extractions/setup-just@v2
+      - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
+      - uses: extractions/setup-just@v3
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
       - uses: dsherret/rust-toolchain-file@v1
+      - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
       - name: Install cbfmt
         run: |
             mkdir /tmp/cbfmt && cd $_
@@ -89,7 +99,7 @@ jobs:
       - name: Prep pre-commit venv
         shell: bash
         run: |
-          uv venv -p 3.12 venv
+          uv venv -p 3.12 venv/
           . venv/bin/activate
           uv pip install pre-commit ruff
       - name: Check pre-commit hooks
@@ -97,12 +107,33 @@ jobs:
         run: |
           . venv/bin/activate
           just lint-pc
-      # Full venv with bytewax (triggers Rust compilation via -e .)
-      - name: Prep full venv
+      # Build wheel via maturin-action (avoids OOM from in-process
+      # cargo build during `uv pip sync -e .`). No sccache — the GHA
+      # sccache server can't start reliably inside container jobs.
+      - name: Prep build venv
         shell: bash
         run: |
           . venv/bin/activate
-          uv pip sync --strict requirements/dev.txt
+          uv pip sync --strict requirements/build-py3.12.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: -C force-frame-pointers=yes
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        with:
+          target: x86_64
+          args: --release --out dist/ -i 3.12
+          sccache: false
+      - name: Install wheel and dev dependencies
+        shell: bash
+        run: |
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+          # Install all pinned dev deps except `-e .` (bytewax already installed from wheel)
+          sed '/^-e /d' requirements/dev.txt > /tmp/dev-deps.txt
+          uv pip install -r /tmp/dev-deps.txt
       - name: Run lints
         shell: bash
         run: |
@@ -138,6 +169,8 @@ jobs:
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
         - /usr/bin/docker:/usr/bin/docker
+    env:
+      UV_LINK_MODE: copy
     # Kafka service container for integration tests (KRaft mode, no Zookeeper).
     # Only used for x86_64 tests (cross-compiled targets skip tests).
     services:
@@ -163,10 +196,10 @@ jobs:
       # Container runs as root so sudo is unnecessary; provide a no-op wrapper.
       - name: Create sudo wrapper
         run: printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Mark workspace safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -175,13 +208,16 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+          cache-dependency-glob: "requirements/**"
       - run: uv python install
       - run: echo "$(dirname $(uv python find))" >> $GITHUB_PATH
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v3
       - uses: dsherret/rust-toolchain-file@v1
       - run: rustup default "$(rustup toolchain list | awk '{print $1}' | head -1)"
       - name: Prep build venv
@@ -189,10 +225,40 @@ jobs:
         run: |
           uv venv -p ${{ matrix.python-version }} venv/
           . venv/bin/activate
-          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt || {
+            echo "::warning::uv pip sync failed, clearing cache and retrying"
+            uv cache clean
+            uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+          }
+      # Cross-compile targets (aarch64, armv7) use Docker-in-Docker via
+      # maturin-action. The action creates a script at $RUNNER_TEMP/run-maturin-action.sh
+      # but Docker (on the host) bind-mounts it via /__w/_temp/. The pre-pull job
+      # creates the /__w -> /opt/actions-runner/_work symlink on ONE runner; ensure
+      # it exists on THIS runner too.
+      - name: Ensure Docker-in-Docker path symlink
+        if: ${{ matrix.target != 'x86_64' }}
+        run: |
+          docker run --rm -v /:/host alpine:latest sh -c '
+            if [ -d /host/__w ] && [ ! -L /host/__w ]; then
+              rm -rf /host/__w
+            fi
+            ln -sfn /opt/actions-runner/_work /host/__w
+          '
+      # Also clean stale directory at the script path — if a previous job
+      # crashed before cleanup, Docker may have auto-created a directory there.
+      - name: Clean stale maturin temp script
+        if: ${{ matrix.target != 'x86_64' }}
+        run: |
+          for SCRIPT in "${{ runner.temp }}/run-maturin-action.sh" "/__w/_temp/run-maturin-action.sh"; do
+            if [ -d "$SCRIPT" ]; then
+              echo "::warning::Removing stale directory at $SCRIPT"
+              rm -rf "$SCRIPT"
+            fi
+          done
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
+          CARGO_INCREMENTAL: "0"
           RUSTFLAGS: -C force-frame-pointers=yes
           PIP_BREAK_SYSTEM_PACKAGES: "1"
         with:
@@ -210,10 +276,11 @@ jobs:
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-${{ matrix.target }}-${{ matrix.python-version }}
           path: dist
+          retention-days: 7
       - name: Fix workspace permissions
         if: always()
         run: chmod -R a+rwX "$GITHUB_WORKSPACE"

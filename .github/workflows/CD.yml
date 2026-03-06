@@ -37,7 +37,7 @@ jobs:
 
       # Download wheels from CI workflow artifacts (replaces S3)
       - name: Download wheels from CI
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v16
         with:
           workflow: CI.yml
           commit: ${{ github.sha }}

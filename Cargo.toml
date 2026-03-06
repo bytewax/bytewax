@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 axum = { version = "0.5.17" }
 chrono = { version = "0.4", default_features = false, features = ["clock", "serde"] }
-fastrand = { version = "1.9.0" }
+fastrand = { version = "1.9" }
 num = { version = "0.4.0" }
 opentelemetry = { version = "0.20", features = ["rt-tokio", "metrics"] }
 opentelemetry_sdk = { version = "0.20", features = ["metrics"] }
@@ -22,11 +22,11 @@ pyo3 = { version = "0.27", features = [ "macros", "chrono", "py-clone"] }
 rusqlite = { version = "0.30.0", features = ["bundled", "series"] }
 rusqlite_migration = { version = "1.1.0" }
 seahash = { version = "4.1.0" }
-serde = { version = "1.0.134", features = ["derive"] }
-serde_json = { version = "1.0.96" }
-serde_test = { version = "1.0.134" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+serde_test = { version = "1.0" }
 timely = { git = "https://github.com/TimelyDataflow/timely-dataflow.git", rev = "432ef57", features = ["bincode"] }
-tokio = { version = "1.20.1", features = ["full"] }
+tokio = { version = "1.20", features = ["full"] }
 tracing = { version = "0.1" }
 tracing-opentelemetry = { version = "0.20" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
