@@ -1,5 +1,6 @@
 [project]
 name = "bytewax"
+dynamic = ["version"]
 requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -69,6 +70,15 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "jsonpickle.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "river.*",
+    "fake_web_events.*",
+    "pyarrow.*",
+    "aiohttp_sse_client.*",
+]
 ignore_missing_imports = true
 
 [tool.ruff.lint]

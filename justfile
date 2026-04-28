@@ -66,10 +66,8 @@ lint: _assert-venv
     vermin --config-file vermin-lib.ini pysrc/ pytests/ examples/
     vermin --config-file vermin-dev.ini docs/ *.py
     ruff check pysrc/ pytests/ docs/ examples/ *.py
-    # TODO: Add `examples/` to mypy checking. Will require a lot of
-    # fixup?
     mypy -p bytewax
-    mypy pytests/ docs/ *.py
+    mypy pytests/ docs/ examples/ *.py
     cargo clippy
 
 # Manually check that all pre-commit hooks pass; runs in CI

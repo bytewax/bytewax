@@ -71,10 +71,10 @@ State: TypeAlias = Tuple[float, float, float, int]
 
 
 def key_init(line: bytes) -> Tuple[str, State]:
-    key, x = line.split(b";")
+    key, x_bytes = line.split(b";")
     # `float(b"1.0\n")` parses correctly so we don't have to strip or
     # decode.
-    x = float(x)
+    x = float(x_bytes)
     return (key.decode(), (x, x, x, 1))
 
 

@@ -28,12 +28,16 @@ def add(acc, x):
     return acc
 
 
+def merge(acc1, acc2):
+    return acc1 + acc2
+
+
 flow = Dataflow("bench")
 wo = (
     op.input("in", flow, TestingSource(inp, BATCH_COUNT))
     .then(op.key_on, "key-on", lambda _: str(random.randrange(0, 2)))
-    .then(w.fold_window, "fold-window", clock_config, windower, list, add, list.__add__)
+    .then(w.fold_window, "fold-window", clock_config, windower, list, add, merge)
 )
-flat = op.flat_map("flatten-window", wo.down, lambda xs: (y for y in xs))
+flat = op.flat_map("flatten-window", wo.down, lambda xs: (y for y in xs[1]))
 filtered_out = op.filter("filter_all", flat, lambda _x: False)
 op.output("stdout", filtered_out, StdOutSink())
