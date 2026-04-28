@@ -18,6 +18,8 @@ get-started:
     test -d venvs/dev/ || uv venv -p 3.12 venvs/dev/
     @echo 'Installing all the tools and dependencies'
     just venv-sync dev
+    @echo 'Checking that you have `cbfmt` installed'
+    command -v cbfmt >/dev/null || cargo install cbfmt
     @echo 'Ensuring Git pre-commit hooks are installed'
     venvs/dev/bin/pre-commit install
     @echo 'All done!'
