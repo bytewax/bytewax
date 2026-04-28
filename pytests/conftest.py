@@ -22,13 +22,22 @@ def kafka_server():
     """
     import os
 
+    import pytest
+
     if "TEST_KAFKA_BROKER" in os.environ:
         yield os.environ["TEST_KAFKA_BROKER"]
     else:
-        from testcontainers.kafka import KafkaContainer
+        try:
+            from testcontainers.kafka import KafkaContainer
+            from testcontainers.core.exceptions import DockerException
+        except ImportError:
+            pytest.skip("`testcontainers` not installed; skip Kafka tests")
 
-        with KafkaContainer("confluentinc/cp-kafka:7.6.0") as kafka:
-            yield kafka.get_bootstrap_server()
+        try:
+            with KafkaContainer("confluentinc/cp-kafka:7.6.0") as kafka:
+                yield kafka.get_bootstrap_server()
+        except (DockerException, Exception) as e:
+            pytest.skip(f"Docker not available or Testcontainers failed: {e}")
 
 
 @fixture(params=["run_main", "cluster_main-1thread", "cluster_main-2thread"])

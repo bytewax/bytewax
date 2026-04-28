@@ -9,6 +9,4 @@ pre-commit
 ruff
 sphinx-autobuild
 types-docutils
-types-requests
 vermin
-testcontainers[kafka]

@@ -30,7 +30,7 @@ extras = [
 [project.optional-dependencies]
 kafka = [
     "requests>=2.0",
-    "fastavro>=1.8",
+    "fastavro>=1.9.5",
     "confluent-kafka>=2.0.2",
 ]
 
