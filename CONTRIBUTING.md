@@ -102,6 +102,30 @@ The Rust code base contains:
 
 - Recovery system machinery.
 
+### Running Tests
+
+Before committing your changes, you should run the test suite to ensure
+everything is working as expected.
+
+```console
+$ just test-py
+$ just test-rs
+```
+
+#### Kafka Integration Tests
+
+Bytewax includes a suite of integration tests for Kafka. These tests
+require a running Kafka broker.
+
+- **Automatic Setup**: If you have Docker installed, the tests will
+  automatically spin up a Kafka container using
+  [Testcontainers](https://testcontainers.com/) and run against it. No
+  manual configuration is needed.
+
+- **Manual Setup**: If you want to run the tests against a specific
+  external broker, set the `TEST_KAFKA_BROKER` environment variable:
+  `export TEST_KAFKA_BROKER="localhost:9092"`.
+
 Commit the changes once you are happy with them. Be sure to [sign your
 commit](https://docs.github.com/en/organizations/managing-organization-settings/managing-the-commit-signoff-policy-for-your-organization#about-commit-signoffs)
 if using the command line interface.
