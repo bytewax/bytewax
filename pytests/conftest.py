@@ -12,6 +12,25 @@ from bytewax.tracing import setup_tracing
 from pytest import fixture
 
 
+@fixture(scope="session")
+def kafka_server():
+    """Start a Kafka container using testcontainers if no broker is provided.
+
+    If the `TEST_KAFKA_BROKER` environment variable is set, it will be
+    used instead of starting a container.
+
+    """
+    import os
+
+    if "TEST_KAFKA_BROKER" in os.environ:
+        yield os.environ["TEST_KAFKA_BROKER"]
+    else:
+        from testcontainers.kafka import KafkaContainer
+
+        with KafkaContainer("confluentinc/cp-kafka:7.6.0") as kafka:
+            yield kafka.get_bootstrap_server()
+
+
 @fixture(params=["run_main", "cluster_main-1thread", "cluster_main-2thread"])
 def entry_point_name(request):
     """Run a version of the test for each execution point.

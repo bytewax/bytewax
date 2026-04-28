@@ -78,6 +78,7 @@ module = [
     "fake_web_events.*",
     "pyarrow.*",
     "aiohttp_sse_client.*",
+    "testcontainers.*",
 ]
 ignore_missing_imports = true
 

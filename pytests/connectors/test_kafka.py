@@ -1,4 +1,3 @@
-import os
 import re
 import uuid
 from concurrent.futures import wait
@@ -22,34 +21,17 @@ from confluent_kafka import (
     TopicPartition,
 )
 from confluent_kafka.admin import AdminClient, NewTopic
-from pytest import fixture, mark, raises
-
-pytestmark = mark.skipif(
-    "TEST_KAFKA_BROKER" not in os.environ,
-    reason="Set `TEST_KAFKA_BROKER` env var to run",
-)
-KAFKA_BROKER = os.environ.get("TEST_KAFKA_BROKER", "localhost")
-CLUSTER_API_KEY = os.environ.get("CLUSTER_API_KEY")
-CLUSTER_API_SECRET = os.environ.get("CLUSTER_API_SECRET")
-
-if CLUSTER_API_KEY is not None and CLUSTER_API_SECRET is not None:
-    config = {
-        "bootstrap.servers": KAFKA_BROKER,
-        "security.protocol": "SASL_SSL",
-        "sasl.mechanisms": "PLAIN",
-        "sasl.username": CLUSTER_API_KEY,
-        "sasl.password": CLUSTER_API_SECRET,
-        "debug": "all",
-    }
-else:
-    config = {
-        "bootstrap.servers": KAFKA_BROKER,
-    }
+from pytest import fixture, raises
 
 
 @fixture
-def tmp_topic(request):
-    client = AdminClient(config)
+def kafka_config(kafka_server):
+    return {"bootstrap.servers": kafka_server}
+
+
+@fixture
+def tmp_topic(kafka_config, request):
+    client = AdminClient(kafka_config)
     topic_name = f"pytest_{request.node.name}_{uuid.uuid4()}"
     wait(
         # 3 partitions.
@@ -67,9 +49,9 @@ def as_k_v(m: KafkaSourceMessage) -> Tuple[bytes, bytes]:
     return m.key, m.value
 
 
-def test_input(tmp_topic1, tmp_topic2):
+def test_input(kafka_server, kafka_config, tmp_topic1, tmp_topic2):
     topics = [tmp_topic1, tmp_topic2]
-    producer = Producer(config)
+    producer = Producer(kafka_config)
     inp = []
     for i, topic in enumerate(topics):
         for j in range(3):
@@ -82,7 +64,9 @@ def test_input(tmp_topic1, tmp_topic2):
 
     flow = Dataflow("test_df")
     s = op.input(
-        "inp", flow, KafkaSource([KAFKA_BROKER], topics, tail=False, add_config=config)
+        "inp",
+        flow,
+        KafkaSource([kafka_server], topics, tail=False, add_config=kafka_config),
     )
     vals = op.map("vals", s, as_k_v)
     op.output("out", vals, TestingSink(out))
@@ -92,10 +76,10 @@ def test_input(tmp_topic1, tmp_topic2):
     assert sorted(out) == sorted(inp)
 
 
-def test_input_resume_state(tmp_topic):
+def test_input_resume_state(kafka_server, kafka_config, tmp_topic):
     topics = [tmp_topic]
     partition = 0
-    producer = Producer(config)
+    producer = Producer(kafka_config)
     inp = []
     for i, topic in enumerate(topics):
         for j in range(3):
@@ -106,7 +90,7 @@ def test_input_resume_state(tmp_topic):
     producer.flush()
 
     inp = KafkaSource(
-        [KAFKA_BROKER], topics, batch_size=1, tail=False, add_config=config
+        [kafka_server], topics, batch_size=1, tail=False, add_config=kafka_config
     )
     part = inp.build_part("test", f"{partition}-{tmp_topic}", None)
     assert list(map(as_k_v, poll_next_batch(part))) == [(b"key-0-0", b"value-0-0")]
@@ -115,7 +99,7 @@ def test_input_resume_state(tmp_topic):
     assert list(map(as_k_v, poll_next_batch(part))) == [(b"key-0-2", b"value-0-2")]
     part.close()
 
-    inp = KafkaSource([KAFKA_BROKER], topics, tail=False, add_config=config)
+    inp = KafkaSource([kafka_server], topics, tail=False, add_config=kafka_config)
     part = inp.build_part("test", f"{partition}-{tmp_topic}", resume_state)
     assert part.snapshot() == resume_state
     assert list(map(as_k_v, poll_next_batch(part))) == [(b"key-0-2", b"value-0-2")]
@@ -124,14 +108,16 @@ def test_input_resume_state(tmp_topic):
     part.close()
 
 
-def test_input_raises_on_topic_not_exist():
+def test_input_raises_on_topic_not_exist(kafka_server, kafka_config):
     out = []
 
     flow = Dataflow("test_df")
     s = op.input(
         "inp",
         flow,
-        KafkaSource([KAFKA_BROKER], ["missing-topic"], tail=False, add_config=config),
+        KafkaSource(
+            [kafka_server], ["missing-topic"], tail=False, add_config=kafka_config
+        ),
     )
     op.output("out", s, TestingSink(out))
 
@@ -139,19 +125,19 @@ def test_input_raises_on_topic_not_exist():
         run_main(flow)
 
 
-def test_input_raises_on_str_brokers(tmp_topic):
+def test_input_raises_on_str_brokers(kafka_server, tmp_topic):
     expect = "brokers must be an iterable and not a string"
     with raises(TypeError, match=re.escape(expect)):
-        KafkaSource(KAFKA_BROKER, [tmp_topic], tail=False)
+        KafkaSource(kafka_server, [tmp_topic], tail=False)
 
 
-def test_input_raises_on_str_topics(tmp_topic):
+def test_input_raises_on_str_topics(kafka_server, tmp_topic):
     expect = "topics must be an iterable and not a string"
     with raises(TypeError, match=re.escape(expect)):
-        KafkaSource([KAFKA_BROKER], tmp_topic, tail=False)
+        KafkaSource([kafka_server], tmp_topic, tail=False)
 
 
-def test_output(tmp_topic):
+def test_output(kafka_server, kafka_config, tmp_topic):
     flow = Dataflow("test_df")
 
     inp = [
@@ -160,11 +146,11 @@ def test_output(tmp_topic):
         KafkaSinkMessage(b"key-0-2", b"value-0-2", topic=tmp_topic),
     ]
     s = op.input("inp", flow, TestingSource(inp))
-    op.output("out", s, KafkaSink([KAFKA_BROKER], tmp_topic, add_config=config))
+    op.output("out", s, KafkaSink([kafka_server], tmp_topic, add_config=kafka_config))
 
     run_main(flow)
 
-    group_config = config.copy()
+    group_config = kafka_config.copy()
     group_config["group.id"] = "BYTEWAX_UNIT_TEST"
     # Don't leave around a consumer group for this.
     group_config["enable.auto.commit"] = "false"
