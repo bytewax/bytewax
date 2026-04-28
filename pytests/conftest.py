@@ -28,8 +28,8 @@ def kafka_server():
         yield os.environ["TEST_KAFKA_BROKER"]
     else:
         try:
-            from testcontainers.kafka import KafkaContainer
             from testcontainers.core.exceptions import DockerException
+            from testcontainers.kafka import KafkaContainer
         except ImportError:
             pytest.skip("`testcontainers` not installed; skip Kafka tests")
 

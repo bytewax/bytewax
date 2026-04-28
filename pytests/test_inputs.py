@@ -160,11 +160,14 @@ def test_dynamic_source_next_awake():
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
+    # Give some tolerance for system timer precision (especially on
+    # Windows).
+    tolerance = timedelta(milliseconds=1)
     for x, y in pairwise(out):
         x_time, _ = x
         y_time, _ = y
         td = y_time - x_time
-        assert td >= interval
+        assert td >= interval - tolerance
 
 
 def test_dynamic_source_advances_epoch_even_if_not_awoken():
@@ -250,11 +253,14 @@ def test_fixed_partitioned_source_next_awake():
     op.output("out", s, TestingSink(out))
 
     run_main(flow)
+    # Give some tolerance for system timer precision (especially on
+    # Windows).
+    tolerance = timedelta(milliseconds=1)
     for x, y in pairwise(out):
         x_time, _ = x
         y_time, _ = y
         td = y_time - x_time
-        assert td >= interval
+        assert td >= interval - tolerance
 
 
 def test_fixed_partitioned_source_advances_epoch_even_if_not_awoken():
