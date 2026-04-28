@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - name: Install uv
         run: python3 -m pip install uv
       - uses: mkroening/rust-toolchain-toml@main
@@ -29,9 +29,9 @@ jobs:
       - name: Prep build venv
         shell: bash
         run: |
-          uv venv -p 3.12 venv/
+          uv venv -p 3.13 venv/
           . venv/bin/activate
-          uv pip sync --strict requirements/build-py3.12.txt
+          uv pip sync --strict requirements/build-py3.13.txt
       - name: Build wheel
         shell: bash
         run: |
