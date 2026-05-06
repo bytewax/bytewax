@@ -65,7 +65,7 @@ jobs:
   linux:
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
         target: ['x86_64', 'aarch64', 'armv7']
     runs-on: ubuntu-20.04
     steps:
@@ -123,7 +123,7 @@ jobs:
   macos:
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
         target: ['x86_64', 'aarch64']
     runs-on: macos-latest
     env:
@@ -173,7 +173,7 @@ jobs:
   windows:
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: windows-latest
     steps:
       - uses: ilammy/msvc-dev-cmd@v1

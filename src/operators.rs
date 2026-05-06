@@ -105,10 +105,10 @@ fn next_batch(
     in_batch: Vec<PyObject>,
 ) -> PyResult<()> {
     let res = mapper.call1((in_batch,)).reraise("error calling mapper")?;
-    let iter = res.iter().reraise_with(|| {
+    let iter = res.try_iter().reraise_with(|| {
         format!(
             "mapper must return an iterable; got a `{}` instead",
-            unwrap_any!(res.get_type().name()),
+            unwrap_any!(res.get_type().qualname()),
         )
     })?;
     for res in iter {
@@ -242,7 +242,7 @@ where
 impl<S> InspectDebugOp<S> for Stream<S, TdPyAny>
 where
     S: Scope,
-    S::Timestamp: IntoPy<PyObject> + TotalOrder,
+    S::Timestamp: for<'a> IntoPyObject<'a> + TotalOrder,
 {
     fn inspect_debug(
         &self,
@@ -391,16 +391,16 @@ where
                             for item in inbuf.drain(..) {
                                 let item = PyObject::from(item);
                                 let (key, value) = item
-                                    .extract::<(&PyAny, PyObject)>(py)
+                                    .extract::<(Bound<'_, PyAny>, PyObject)>(py)
                                     .raise_with::<PyTypeError>(|| {
                                         format!("step {for_step_id} requires `(key, value)` 2-tuple from upstream for routing; got a `{}` instead",
-                                            unwrap_any!(item.bind(py).get_type().name()),
+                                            unwrap_any!(item.bind(py).get_type().qualname()),
                                         )
                                     })?;
 
                                 let key = key.extract::<StateKey>().raise_with::<PyTypeError>(|| {
                                     format!("step {for_step_id} requires `str` keys in `(key, value)` from upstream; got a `{}` instead",
-                                        unwrap_any!(key.get_type().name()),
+                                        unwrap_any!(key.get_type().qualname()),
                                     )
                                 })?;
                                 downstream_session.give((key, TdPyAny::from(value)));
@@ -430,7 +430,9 @@ where
         self.map(move |(key, value)| {
             let value = PyObject::from(value);
 
-            let item = Python::with_gil(|py| IntoPy::<PyObject>::into_py((key, value), py));
+            let item: PyObject = Python::with_gil(|py| {
+                (key, value).into_pyobject(py).unwrap().unbind().into()
+            });
 
             TdPyAny::from(item)
         })
@@ -458,14 +460,14 @@ impl<'py> FromPyObject<'py> for StatefulBatchLogic {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
         let abc = py
-            .import_bound("bytewax.operators")?
+            .import("bytewax.operators")?
             .getattr("StatefulBatchLogic")?;
         if !ob.is_instance(&abc)? {
             Err(PyTypeError::new_err(
                 "logic must subclass `bytewax.operators.StatefulBatchLogic`",
             ))
         } else {
-            Ok(Self(ob.to_object(py)))
+            Ok(Self(ob.clone().unbind()))
         }
     }
 }
@@ -480,7 +482,7 @@ impl<'py> FromPyObject<'py> for IsComplete {
         if ob.extract::<bool>().reraise_with(|| {
             format!(
                 "`is_complete` was not a `bool`; got a `{}` instead",
-                unwrap_any!(ob.get_type().name())
+                unwrap_any!(ob.get_type().qualname())
             )
         })? {
             Ok(IsComplete::Discard)
@@ -492,17 +494,17 @@ impl<'py> FromPyObject<'py> for IsComplete {
 
 impl StatefulBatchLogic {
     fn extract_ret(res: Bound<'_, PyAny>) -> PyResult<(Vec<PyObject>, IsComplete)> {
-        let (iter, is_complete) = res.extract::<(&PyAny, &PyAny)>().reraise_with(|| {
+        let (iter, is_complete) = res.extract::<(Bound<'_, PyAny>, Bound<'_, PyAny>)>().reraise_with(|| {
             format!(
                 "did not return a 2-tuple of `(emit, is_complete)`; got a `{}` instead",
-                unwrap_any!(res.get_type().name())
+                unwrap_any!(res.get_type().qualname())
             )
         })?;
         let is_complete = is_complete.extract::<IsComplete>()?;
         let emit = iter.extract::<Vec<_>>().reraise_with(|| {
             format!(
                 "`emit` was not a `list`; got a `{}` instead",
-                unwrap_any!(iter.get_type().name())
+                unwrap_any!(iter.get_type().qualname())
             )
         })?;
 
@@ -536,7 +538,7 @@ impl StatefulBatchLogic {
         res.extract().reraise_with(|| {
             format!(
                 "did not return a `datetime`; got a `{}` instead",
-                unwrap_any!(res.get_type().name())
+                unwrap_any!(res.get_type().qualname())
             )
         })
     }

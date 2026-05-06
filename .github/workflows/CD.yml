@@ -45,7 +45,7 @@ jobs:
       - name: Check the Version and Quantity of Wheel files
         env:
           NEEDED_VERSION: ${{steps.get-info.outputs.bytewax-version}}
-          WHEELS: 30
+          WHEELS: 42
         run: |
           cat << EOF > ./check_versions.sh
           #!/bin/bash
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
     - uses: actions/checkout@v2
     - name: Set up QEMU
