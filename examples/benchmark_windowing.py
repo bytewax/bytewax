@@ -2,11 +2,11 @@ import random
 from datetime import datetime, timedelta, timezone
 
 import bytewax.operators as op
-import bytewax.operators.windowing as w
+import bytewax.windowing as w
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import EventClock, TumblingWindower
 from bytewax.testing import TestingSource
+from bytewax.windowing import EventClock, TumblingWindower
 
 BATCH_SIZE = 100_000
 BATCH_COUNT = 10

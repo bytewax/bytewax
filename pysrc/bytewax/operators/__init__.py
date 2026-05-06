@@ -1193,7 +1193,7 @@ def collect(
     collect_eg.out: ('b', [{'key': 'b', 'val': 6}, {'key': 'b', 'val': 8}])
     ```
 
-    See {py:obj}`bytewax.operators.windowing.collect_window` for more
+    See {py:obj}`bytewax.windowing.collect_window` for more
     control over time.
 
     :arg step_id: Unique ID.
@@ -1253,7 +1253,7 @@ def count_final(
 
     This only works on finite data streams and only return counts once
     the upstream is EOF. You'll need to use
-    {py:obj}`bytewax.operators.windowing.count_window` on infinite
+    {py:obj}`bytewax.windowing.count_window` on infinite
     data.
 
     :arg step_id: Unique ID.
@@ -1952,7 +1952,7 @@ def fold_final(
 
     This only works on finite data streams and only returns a result
     once the upstream is EOF. You'll need to use
-    {py:obj}`bytewax.operators.windowing.fold_window` or
+    {py:obj}`bytewax.windowing.fold_window` or
     {py:obj}`bytewax.operators.stateful_flat_map` on infinite data.
 
     It is like {py:obj}`reduce_final` but uses a function to build the
@@ -2631,7 +2631,7 @@ def max_final(
 
     This only works on finite data streams and only returns a result
     once the upstream is EOF. You'll need to use
-    {py:obj}`bytewax.operators.windowing.max_window` on infinite data.
+    {py:obj}`bytewax.windowing.max_window` on infinite data.
 
     ```{testcode}
     from bytewax.dataflow import Dataflow
@@ -2699,7 +2699,7 @@ def min_final(
 
     This only works on finite data streams and only returns a result
     once the upstream is EOF. You'll need to use
-    {py:obj}`bytewax.operators.windowing.min_window` on infinite data.
+    {py:obj}`bytewax.windowing.min_window` on infinite data.
 
     ```{testcode}
     from bytewax.dataflow import Dataflow
@@ -2790,7 +2790,7 @@ def reduce_final(
 
     This only works on finite data streams and only returns a result
     once the upstream is EOF. You'll need to use
-    {py:obj}`bytewax.operators.windowing.reduce_window` or
+    {py:obj}`bytewax.windowing.reduce_window` or
     {py:obj}`bytewax.operators.stateful_flat_map` on infinite data.
 
     It is like {py:obj}`fold_final` but the first value is the initial

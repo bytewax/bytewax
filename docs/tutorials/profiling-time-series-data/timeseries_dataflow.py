@@ -17,7 +17,7 @@ from bytewax.connectors.files import CSVSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
 from bytewax.operators import windowing as wop
-from bytewax.operators.windowing import EventClock, TumblingWindower
+from bytewax.windowing import EventClock, TumblingWindower
 from ydata_profiling import ProfileReport  # type: ignore
 
 # end-imports

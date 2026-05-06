@@ -44,13 +44,13 @@ specific instance of a clock must be able to answer two questions:
 2. What is the current watermark?
 
 All clocks are an instance of
-{py:obj}`~bytewax.operators.windowing.Clock`. Let's discuss how each of
+{py:obj}`~bytewax.windowing.Clock`. Let's discuss how each of
 the built-in clocks answers these two questions.
 
 ### System Time
 
 By instantiating a
-{py:obj}`~bytewax.operators.windowing.SystemClock` you can use system
+{py:obj}`~bytewax.windowing.SystemClock` you can use system
 time in your windowing definition.
 
 1. The current system time is assigned to each value.
@@ -62,11 +62,11 @@ processing happens ASAP.
 
 ### Event Time
 
-By instantiating a {py:obj}`~bytewax.operators.windowing.EventClock` you
+By instantiating a {py:obj}`~bytewax.windowing.EventClock` you
 can use event time in your windowing definition. This is more nuanced.
 
 1. The callback function
-   {py:obj}`~bytewax.operators.windowing.EventClock.ts_getter` is used
+   {py:obj}`~bytewax.windowing.EventClock.ts_getter` is used
    to extract the timestamp within each value. If this timestamp is
    the largest ever seen, that and the current system time are stored
    internally. (System time never affects the timestamp assigned to an
@@ -93,7 +93,7 @@ processed. The watermark is always advancing by the system time, the
 watermark can be fast-forwarded if new timestamps are seen that show
 that time has progressed, and items before the current watermark are
 late. We will effectively wait for up to
-{py:obj}`~bytewax.operators.windowing.EventClock.wait_for_system_duration`
+{py:obj}`~bytewax.windowing.EventClock.wait_for_system_duration`
 real-time for late data, then move on if we don't see any.
 
 In the following tables:
@@ -174,7 +174,7 @@ In the batch replay case, values will be being ingested much faster
 than real-time, thus the watermark will almost never advance on its
 own due to waiting, it will only be pushed forward by encountering
 data with new timestamps. In this regime,
-{py:obj}`~bytewax.operators.windowing.EventClock.wait_for_system_duration` specifies
+{py:obj}`~bytewax.windowing.EventClock.wait_for_system_duration` specifies
 the maximum out-of-order-ness of the timestamps in the dataset. This
 causes the system to identify late items in a similar way _as if the
 data had been received in real-time_.
@@ -190,7 +190,7 @@ exhausted. In this case setting `wait_for_system_duration = `
 Now that we have a definition of time due to the clock, we separately
 pick a **windower** which defines how items are grouped together in
 time. All clocks are an instance of
-{py:obj}`~bytewax.operators.windowing.Windower`.
+{py:obj}`~bytewax.windowing.Windower`.
 
 Windows are **closed** once the watermark passes their close time.
 This means no more data should arrive that could modify the window
@@ -200,7 +200,7 @@ state, so correct output can be emitted downstream.
 
 **Sliding windows** are windows which have a fixed length, origin time
 (the `align_to` argument), and spacing between starts of the windows.
-Create them with {py:obj}`~bytewax.operators.windowing.SlidingWindower`.
+Create them with {py:obj}`~bytewax.windowing.SlidingWindower`.
 
 Windows must be aligned to a fixed and known origin time so that they
 are consistent across failures and restarts.
@@ -240,7 +240,7 @@ gantt
 
 **Tumbling windows** are sliding windows where `offset == length` so
 they are not overlapping and also contain no gaps. Create them with
-{py:obj}`~bytewax.operators.windowing.TumblingWindower`.
+{py:obj}`~bytewax.windowing.TumblingWindower`.
 
 The following are 1 hour windows, aligned to a specific midnight.
 
@@ -259,7 +259,7 @@ gantt
 
 **Session windows** are windows that are dynamically created whenever
 there is a big enough gap in timestamps. Create them with
-{py:obj}`~bytewax.operators.windowing.SessionWindower`.
+{py:obj}`~bytewax.windowing.SessionWindower`.
 
 The following are the session windows resulting from these values with
 a 30 minute gap.
@@ -290,11 +290,11 @@ should be grouped together in a window, we now pick a **windowing
 operator** which gives you patterns for how to combine the values in
 each window to produce a result.
 
-See the {py:obj}`bytewax.operators.windowing` module for a list of our
+See the {py:obj}`bytewax.windowing` module for a list of our
 windowing operators and their behavior.
 
 All windowing operators emit `(key, (metadata, value))` nested tuples
-downstream. The {py:obj}`~bytewax.operators.windowing.WindowMetadata`
+downstream. The {py:obj}`~bytewax.windowing.WindowMetadata`
 contains info about the window so you can do further processing. You
 can also add a {py:obj}`~bytewax.operators.map` step to drop the data
 if it is not needed.
@@ -326,7 +326,7 @@ as possible.
 
 Some clocks don't have a single correct answer on what to do during
 resume. E.g. if you use
-{py:obj}`~bytewax.operators.windowing.SystemClock` with 10 minute
+{py:obj}`~bytewax.windowing.SystemClock` with 10 minute
 windows, but then resume on a 15 minute mark, the system will
 immediately close out the half-completed window started in the
 previous execution when the next execution resumes.

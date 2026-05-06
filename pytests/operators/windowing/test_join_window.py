@@ -3,11 +3,11 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 import bytewax.operators as op
-import bytewax.operators.windowing as win
+import bytewax.windowing as win
 from bytewax.dataflow import Dataflow
 from bytewax.operators import JoinEmitMode, JoinInsertMode
-from bytewax.operators.windowing import EventClock, SessionWindower
 from bytewax.testing import TestingSink, TestingSource, run_main
+from bytewax.windowing import EventClock, SessionWindower
 
 
 @dataclass(frozen=True)

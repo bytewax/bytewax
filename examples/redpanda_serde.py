@@ -45,12 +45,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 import bytewax.operators as op
-import bytewax.operators.windowing as win
+import bytewax.windowing as win
 from bytewax.connectors.kafka import KafkaSinkMessage, KafkaSourceMessage
 from bytewax.connectors.kafka import operators as kop
 from bytewax.connectors.kafka.serde import PlainAvroDeserializer, PlainAvroSerializer
 from bytewax.dataflow import Dataflow
-from bytewax.operators.windowing import SystemClock, TumblingWindower
+from bytewax.windowing import SystemClock, TumblingWindower
 from confluent_kafka.schema_registry import SchemaRegistryClient
 
 logger = logging.getLogger(__name__)

@@ -35,15 +35,19 @@ __all__ = [
     "Source",
     "StatefulSourcePartition",
     "StatelessSourcePartition",
-    "X",
+    "X_co",
     "batch",
     "batch_async",
     "batch_getter",
     "batch_getter_ex",
 ]
 
-X = TypeVar("X")
+X_co = TypeVar("X_co", covariant=True)
 """Type emitted by a {py:obj}`Source`."""
+
+
+X = TypeVar("X")
+"""Type of an item."""
 
 
 S = TypeVar("S")
@@ -54,7 +58,7 @@ Sn = TypeVar("Sn", default=None)
 """Type of state snapshots but defaults to `None`."""
 
 
-class Source(ABC, Generic[X]):  # noqa: B024
+class Source(ABC, Generic[X_co]):  # noqa: B024
     """A location to read input items from.
 
     Base class for all input sources. Do not subclass this.
@@ -67,11 +71,11 @@ class Source(ABC, Generic[X]):  # noqa: B024
     pass
 
 
-class StatefulSourcePartition(ABC, Generic[X, S]):
+class StatefulSourcePartition(ABC, Generic[X_co, S]):
     """Input partition that maintains state of its position."""
 
     @abstractmethod
-    def next_batch(self) -> Iterable[X]:
+    def next_batch(self) -> Iterable[X_co]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -140,7 +144,7 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
         return
 
 
-class FixedPartitionedSource(Source[X], Generic[X, S]):
+class FixedPartitionedSource(Source[X_co], Generic[X_co, S]):
     """An input source with a fixed number of independent partitions.
 
     Will maintain the state of each source and re-build using it
@@ -170,7 +174,7 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
         step_id: str,
         for_part: str,
         resume_state: Optional[S],
-    ) -> StatefulSourcePartition[X, S]:
+    ) -> StatefulSourcePartition[X_co, S]:
         """Build anew or resume an input partition.
 
         Will be called once per execution for each partition key on a
@@ -196,11 +200,11 @@ class FixedPartitionedSource(Source[X], Generic[X, S]):
         ...
 
 
-class StatelessSourcePartition(ABC, Generic[X]):
+class StatelessSourcePartition(ABC, Generic[X_co]):
     """Input partition that is stateless."""
 
     @abstractmethod
-    def next_batch(self) -> Iterable[X]:
+    def next_batch(self) -> Iterable[X_co]:
         """Attempt to get the next batch of input items.
 
         This must participate in a kind of cooperative multi-tasking,
@@ -250,7 +254,7 @@ class StatelessSourcePartition(ABC, Generic[X]):
         return
 
 
-class DynamicSource(Source[X]):
+class DynamicSource(Source[X_co]):
     """An input source where all workers can read distinct items.
 
     Does not support storing any resume state. Thus these kind of
@@ -265,7 +269,7 @@ class DynamicSource(Source[X]):
     @abstractmethod
     def build(
         self, step_id: str, worker_index: int, worker_count: int
-    ) -> StatelessSourcePartition[X]:
+    ) -> StatelessSourcePartition[X_co]:
         """Build an input source for a worker.
 
         Will be called once on each worker.
@@ -282,13 +286,13 @@ class DynamicSource(Source[X]):
         ...
 
 
-class _SimplePollingPartition(StatefulSourcePartition[X, S]):
+class _SimplePollingPartition(StatefulSourcePartition[X_co, S]):
     def __init__(
         self,
         now: datetime,
         interval: timedelta,
         align_to: Optional[datetime],
-        getter: Callable[[], X],
+        getter: Callable[[], X_co],
         snapshot: Callable[[], S],
     ):
         self._interval = interval
@@ -310,7 +314,7 @@ class _SimplePollingPartition(StatefulSourcePartition[X, S]):
             self._next_awake = now
 
     @override
-    def next_batch(self) -> List[X]:
+    def next_batch(self) -> List[X_co]:
         try:
             item = self._getter()
             self._next_awake += self._interval
@@ -330,7 +334,7 @@ class _SimplePollingPartition(StatefulSourcePartition[X, S]):
         return self._snapshot()
 
 
-class SimplePollingSource(FixedPartitionedSource[X, Sn]):
+class SimplePollingSource(FixedPartitionedSource[X_co, Sn]):
     """Calls a user defined function at a regular interval.
 
     ```{testcode}
@@ -397,7 +401,7 @@ class SimplePollingSource(FixedPartitionedSource[X, Sn]):
         _step_id: str,
         for_part: str,
         resume_state: Optional[Sn],
-    ) -> _SimplePollingPartition[X, Sn]:
+    ) -> _SimplePollingPartition[X_co, Sn]:
         now = datetime.now(timezone.utc)
 
         if resume_state is not None:
@@ -412,7 +416,7 @@ class SimplePollingSource(FixedPartitionedSource[X, Sn]):
         )
 
     @abstractmethod
-    def next_item(self) -> X:
+    def next_item(self) -> X_co:
         """Override with custom logic to poll your source.
 
         :returns: Next item to emit into the dataflow. If `None`, no

@@ -152,7 +152,7 @@ We will create helper functions to accumulate and merge the data:
 :lineno-match:
 ```
 
-We can then initialize windowing configuration using the Bytewax {py:obj}`~bytewax.operators.windowing.EventClock` to configure the event time, and {py:obj}`~bytewax.operators.windowing.TumblingWindower` to configure the window
+We can then initialize windowing configuration using the Bytewax {py:obj}`~bytewax.windowing.EventClock` to configure the event time, and {py:obj}`~bytewax.windowing.TumblingWindower` to configure the window
 
 ```{literalinclude} timeseries_dataflow.py
 :caption: dataflow.py
@@ -162,7 +162,7 @@ We can then initialize windowing configuration using the Bytewax {py:obj}`~bytew
 :lineno-match:
 ```
 
-We can then apply the helper functions we created and combine it with the configured windowing using {py:obj}`~bytewax.operators.windowing.fold_window` as follows. In the code below we use the alias `wop` for {py:obj}`~bytewax.operators.windowing`:
+We can then apply the helper functions we created and combine it with the configured windowing using {py:obj}`~bytewax.windowing.fold_window` as follows. In the code below we use the alias `wop` for {py:obj}`~bytewax.windowing`:
 
 ```{literalinclude} timeseries_dataflow.py
 :caption: dataflow.py
