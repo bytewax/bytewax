@@ -430,12 +430,13 @@ impl FixedPartitionedSource {
                             );
                             let epoch = *part_state.downstream_cap.time();
 
+                            let is_ahead = probe.less_than(&epoch);
                             // When we increment the epoch for this
                             // partition, wait until all ouputs have
                             // finished the previous epoch before
                             // emitting more data to have
                             // backpressure.
-                            if !probe.less_than(&epoch) {
+                            if !is_ahead {
                                 let mut eof = false;
                                 // Separately check wheither we should
                                 // call `next_batch` because we need
@@ -498,6 +499,10 @@ impl FixedPartitionedSource {
                                 // this if-block) otherwise you can
                                 // get cascading advancement and never
                                 // poll input.
+                                //
+                                // Well, it turns out, we do not catch up for just one spin.
+                                // We have to ignore all this time in waiting.
+                                //
                                 if now - part_state.epoch_started >= epoch_interval.0 || eof {
                                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                         let state = with_timer!(
@@ -526,6 +531,35 @@ impl FixedPartitionedSource {
                                         Ok(())
                                     }));
                                 }
+                            } else {
+                                tracing::debug!("partition is ahead of others and must wait");
+                                // TODO could use a notificator here?
+                                // Need to wait for the next epoch of the probe somehow.
+                                // Without this extra time, we would spin up again and waste cycles.
+                                let delta = TimeDelta::try_milliseconds(100).unwrap();
+                                part_state.next_awake = default_next_awake(Some(now + delta), 0, now);
+                                // A dirty hack?
+                                // Trying to resolve an issue when one partition
+                                // increasingly lags behind of another in multiworker setup.
+                                //
+                                // The bug appears when a pair of kafka consumers
+                                // read from uneven number of partitions.
+                                //
+                                // So, the first worker gets one extra parition
+                                // and always has work to do.
+                                //
+                                // And the second worker, given some time, starts to spend
+                                // most of its time waiting for another.
+                                //
+                                // The problem is, this waiting time counts towards its snapshot.
+                                // So, when the first worker finally makes its own snapshot
+                                // and the output epoch increases, the second worker gets
+                                // to run only one `next_batch`, after which it is time
+                                // to make a snapshot and wait again.
+                                //
+                                // This way, we do not count time towards snapshot while waiting for another partition.
+                                // And the partition can read all it can after the snapshot of its late neighbor.
+                                part_state.epoch_started = now;
                             }
                         });
                     }
