@@ -1,0 +1,65 @@
+name: triage
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  label-new-issues:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.payload.issue.assignees.length > 0) return;
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels: ['needs triage'],
+            });
+
+  welcome-first-time-contributor:
+    if: >
+      github.event_name == 'pull_request_target' &&
+      (github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' ||
+       github.event.pull_request.author_association == 'FIRST_TIMER' ||
+       github.event.pull_request.author_association == 'NONE')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              creator: context.payload.pull_request.user.login,
+              per_page: 2,
+            });
+            if (prs.length > 1) return; // not their first PR
+
+            const body = [
+              `Thanks for opening your first PR against Bytewax, @${context.payload.pull_request.user.login}! 🎉`,
+              ``,
+              `A few quick notes:`,
+              `- Bytewax is now community-maintained — see [MAINTAINERS.md](https://github.com/bytewax/bytewax/blob/main/MAINTAINERS.md) for context. Reviews may take a little while; please be patient.`,
+              `- Make sure your commits are signed off (DCO): \`git commit -s\`. If you forgot, \`git commit -s --amend\` (or rebase) and force-push.`,
+              `- If this fixes an issue, please add \`Closes #<issue>\` to the PR description so it auto-closes on merge.`,
+              ``,
+              `If you're interested in helping maintain the project longer-term, take a look at the path to becoming a maintainer in MAINTAINERS.md — we're actively looking for new maintainers.`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
