@@ -19,12 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-      - uses: actions/setup-python@v3
+        uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8
         with:
-          python-version: 3.12
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+          version: "0.11.11"
+          python-version: "3.12"
       - uses: extractions/setup-just@v2
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
@@ -67,9 +66,9 @@ jobs:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
         target: ['x86_64', 'aarch64', 'armv7']
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
           path: |
@@ -83,8 +82,9 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - uses: astral-sh/setup-uv@v8
+        with:
+          version: "0.11.11"
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -129,13 +129,14 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: 10.9
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - uses: astral-sh/setup-uv@v8
+        with:
+          version: "0.11.11"
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -180,7 +181,7 @@ jobs:
       - shell: cmd
         run: |
           set PATH=%PATH%;%wix%bin;"%WindowsSdkVerBinPath%"\x86
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
           path: |
@@ -194,8 +195,9 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - uses: astral-sh/setup-uv@v8
+        with:
+          version: "0.11.11"
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         run: |
@@ -224,7 +226,7 @@ jobs:
 
   upload:
     name: Store wheels in S3
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     if: "github.ref == 'refs/heads/main'"
     needs: [ linux, macos, windows ]
     steps:
@@ -234,7 +236,7 @@ jobs:
           path: wheels
           merge-multiple: true
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.ECR_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.ECR_SECRET_KEY }}

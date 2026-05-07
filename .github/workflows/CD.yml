@@ -19,11 +19,11 @@ jobs:
         id: get-info
         run: |
           BYTEWAX_VERSION=${GITHUB_REF:11}
-          echo "::set-output name=bytewax-version::${BYTEWAX_VERSION}"
+          echo "bytewax-version=${BYTEWAX_VERSION}" >> "$GITHUB_OUTPUT"
           REPOSITORY=bytewax/bytewax
           IMAGE_TAG="${REPOSITORY}:${GITHUB_REF:11}"
-          echo "::set-output name=version-image-tag::${IMAGE_TAG}"
-          echo "::set-output name=latest-image-tag::${REPOSITORY}:latest"
+          echo "version-image-tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "latest-image-tag=${REPOSITORY}:latest" >> "$GITHUB_OUTPUT"
       - name: Report Info
         run: |
           [ -n "${{steps.get-info.outputs.bytewax-version}}" ]
@@ -33,7 +33,7 @@ jobs:
           [ -n "${{steps.get-info.outputs.latest-image-tag}}" ]
           echo "::notice title=Latest Tag::${{ steps.get-info.outputs.latest-image-tag }}"
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.ECR_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.ECR_SECRET_KEY }}
@@ -76,7 +76,7 @@ jobs:
           EOF
           chmod +x ./check_versions.sh
           ./check_versions.sh
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.9
       - name: Publish to PyPI
@@ -128,19 +128,19 @@ jobs:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Set up QEMU
-      uses: docker/setup-qemu-action@v2
+      uses: docker/setup-qemu-action@v3
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
+      uses: docker/setup-buildx-action@v3
     - name: Login to Docker Hub
-      uses: docker/login-action@v1
+      uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_PASSWORD }}
     - name: Build and push to Docker Hub
       id: docker_build
-      uses: docker/build-push-action@v4
+      uses: docker/build-push-action@v6
       with:
         push: true
         platforms: linux/amd64, linux/arm64
