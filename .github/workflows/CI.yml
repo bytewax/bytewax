@@ -69,16 +69,20 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "0.11.11"
-          python-version: ${{ matrix.python-version }}
-          activate-environment: true
-          venv-path: venv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
-        run: uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
@@ -97,6 +101,7 @@ jobs:
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
+          . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
@@ -116,16 +121,20 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: 10.9
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "0.11.11"
-          python-version: ${{ matrix.python-version }}
-          activate-environment: true
-          venv-path: venv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
-        run: uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
@@ -143,6 +152,7 @@ jobs:
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
+          . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
@@ -172,15 +182,19 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "0.11.11"
-          python-version: ${{ matrix.python-version }}
-          activate-environment: true
-          venv-path: venv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
-        run: uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          venv/Scripts/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
@@ -191,6 +205,7 @@ jobs:
           sccache: true
       - name: Run Python tests
         run: |
+          venv/Scripts/activate
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
