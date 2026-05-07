@@ -117,8 +117,6 @@ jobs:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
         target: ['x86_64', 'aarch64']
     runs-on: macos-latest
-    env:
-      MACOSX_DEPLOYMENT_TARGET: 10.9
     steps:
       - uses: actions/checkout@v4
       - name: Setup Python
@@ -139,6 +137,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
+          MACOSX_DEPLOYMENT_TARGET: 10.9
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
