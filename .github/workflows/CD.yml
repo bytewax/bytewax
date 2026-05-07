@@ -76,16 +76,13 @@ jobs:
           EOF
           chmod +x ./check_versions.sh
           ./check_versions.sh
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v8
         with:
-          python-version: 3.9
+          version: "0.11.11"
       - name: Publish to PyPI
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          pip install --upgrade twine
-          twine upload --skip-existing *.whl
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: uv publish --check-url https://pypi.org/simple/ *.whl
 
   check-pypi:
     name: Check PyPI

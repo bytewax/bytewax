@@ -24,6 +24,8 @@ jobs:
         with:
           version: "0.11.11"
           python-version: "3.12"
+          activate-environment: true
+          venv-path: venv
       - uses: extractions/setup-just@v2
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
@@ -36,30 +38,19 @@ jobs:
             mv cbfmt /usr/local/bin/
       - name: Prep venv
         shell: bash
-        run: |
-          uv venv -p 3.12 venv
-          . venv/bin/activate
-          uv pip sync --strict requirements/dev.txt
+        run: uv pip sync --strict requirements/dev.txt
       - name: Check pre-commit hooks
         shell: bash
-        run: |
-          . venv/bin/activate
-          just lint-pc
+        run: just lint-pc
       - name: Run lints
         shell: bash
-        run: |
-          . venv/bin/activate
-          just lint
+        run: just lint
       - name: Run Rust tests
         shell: bash
-        run: |
-          . venv/bin/activate
-          just test-rs
+        run: just test-rs
       - name: Run documentation tests
         shell: bash
-        run: |
-          . venv/bin/activate
-          just test-doc
+        run: just test-doc
 
   linux:
     strategy:
@@ -78,20 +69,16 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v8
         with:
           version: "0.11.11"
+          python-version: ${{ matrix.python-version }}
+          activate-environment: true
+          venv-path: venv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
-        run: |
-          uv venv -p ${{ matrix.python-version }} venv/
-          . venv/bin/activate
-          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+        run: uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
@@ -110,7 +97,6 @@ jobs:
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
-          . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
@@ -130,20 +116,16 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: 10.9
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v8
         with:
           version: "0.11.11"
+          python-version: ${{ matrix.python-version }}
+          activate-environment: true
+          venv-path: venv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
-        run: |
-          uv venv -p ${{ matrix.python-version }} venv/
-          . venv/bin/activate
-          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+        run: uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
@@ -161,7 +143,6 @@ jobs:
           CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
           CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
         run: |
-          . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
@@ -191,19 +172,15 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v8
         with:
           version: "0.11.11"
+          python-version: ${{ matrix.python-version }}
+          activate-environment: true
+          venv-path: venv
       - uses: extractions/setup-just@v2
       - name: Prep build venv
-        run: |
-          uv venv -p ${{ matrix.python-version }} venv/
-          venv/Scripts/activate
-          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+        run: uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         env:
@@ -214,7 +191,6 @@ jobs:
           sccache: true
       - name: Run Python tests
         run: |
-          venv/Scripts/activate
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
