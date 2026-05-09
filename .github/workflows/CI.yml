@@ -97,9 +97,12 @@ jobs:
         if: ${{ matrix.target == 'x86_64' }}
         shell: bash
         env:
-          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
-          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
-          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
+          # Only inject Kafka broker secrets on push events; PR runs
+          # leave the env unset so tests in pytests/connectors/test_kafka.py
+          # cleanly skip via their pytestmark gate.
+          TEST_KAFKA_BROKER: ${{ github.event_name == 'push' && secrets.TEST_KAFKA_BROKER || '' }}
+          CLUSTER_API_KEY: ${{ github.event_name == 'push' && secrets.CLUSTER_API_KEY || '' }}
+          CLUSTER_API_SECRET: ${{ github.event_name == 'push' && secrets.CLUSTER_API_SECRET || '' }}
         run: |
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
@@ -147,9 +150,12 @@ jobs:
         if: ${{ matrix.target == 'aarch64' }}
         shell: bash
         env:
-          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
-          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
-          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
+          # Only inject Kafka broker secrets on push events; PR runs
+          # leave the env unset so tests in pytests/connectors/test_kafka.py
+          # cleanly skip via their pytestmark gate.
+          TEST_KAFKA_BROKER: ${{ github.event_name == 'push' && secrets.TEST_KAFKA_BROKER || '' }}
+          CLUSTER_API_KEY: ${{ github.event_name == 'push' && secrets.CLUSTER_API_KEY || '' }}
+          CLUSTER_API_SECRET: ${{ github.event_name == 'push' && secrets.CLUSTER_API_SECRET || '' }}
         run: |
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
