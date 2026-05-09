@@ -25,8 +25,8 @@ from confluent_kafka.admin import AdminClient, NewTopic
 from pytest import fixture, mark, raises
 
 pytestmark = mark.skipif(
-    "TEST_KAFKA_BROKER" not in os.environ,
-    reason="Set `TEST_KAFKA_BROKER` env var to run",
+    not os.environ.get("TEST_KAFKA_BROKER"),
+    reason="Set `TEST_KAFKA_BROKER` env var (non-empty) to run",
 )
 KAFKA_BROKER = os.environ.get("TEST_KAFKA_BROKER", "localhost")
 CLUSTER_API_KEY = os.environ.get("CLUSTER_API_KEY")
