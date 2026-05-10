@@ -216,8 +216,12 @@ jobs:
       # Docker Desktop is no longer pre-installed on windows-2022 or
       # windows-2025; this action installs Docker (Linux containers)
       # via WSL2 backend so docker compose can run our broker.
+      # Pin Docker version explicitly because the action's "latest"
+      # detection constructs a wrong download URL on Windows.
       - name: Set up Docker (Windows, Linux containers via WSL2)
         uses: crazy-max/ghaction-setup-docker@v3
+        with:
+          version: v25.0.5
       - name: Start Kafka
         run: docker compose -f examples/utils/docker-compose.yml up -d --wait
       - name: Run Python tests
