@@ -145,27 +145,24 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-      - name: Set up Docker (macOS via colima)
-        if: ${{ matrix.target == 'aarch64' }}
-        uses: docker/setup-docker-action@v4
-      - name: Start Kafka
-        if: ${{ matrix.target == 'aarch64' }}
-        run: docker compose -f examples/utils/docker-compose.yml up -d --wait
+      # GH Apple Silicon runners do not enable nested virtualization,
+      # so neither colima/VZ nor lima/QEMU can boot a Linux VM (the
+      # latter fails with HV_UNSUPPORTED from Hypervisor.framework).
+      # Docker is therefore unavailable on macOS GH runners and the
+      # kafka integration tests cannot run here. Linux and Windows
+      # still cover the same code path. Leaving TEST_KAFKA_BROKER
+      # unset means the pytestmark gate in
+      # pytests/connectors/test_kafka.py cleanly skips the suite.
       - name: Run Python tests
         # Only run tests for the host architecture, as x86_64 is
         # cross-compiled on macOS runners.
         if: ${{ matrix.target == 'aarch64' }}
         shell: bash
-        env:
-          TEST_KAFKA_BROKER: localhost:9092
         run: |
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl)
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
-      - name: Stop Kafka
-        if: ${{ always() && matrix.target == 'aarch64' }}
-        run: docker compose -f examples/utils/docker-compose.yml down
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -216,17 +213,11 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Switch Docker Desktop to Linux engine
-        shell: pwsh
-        run: |
-          & "$Env:ProgramFiles\Docker\Docker\DockerCli.exe" -SwitchLinuxEngine
-          $deadline = (Get-Date).AddSeconds(120)
-          while ((Get-Date) -lt $deadline) {
-            docker info > $null 2>&1
-            if ($LASTEXITCODE -eq 0) { break }
-            Start-Sleep -Seconds 3
-          }
-          docker version
+      # Docker Desktop is no longer pre-installed on windows-2022 or
+      # windows-2025; this action installs Docker (Linux containers)
+      # via WSL2 backend so docker compose can run our broker.
+      - name: Set up Docker (Windows, Linux containers via WSL2)
+        uses: crazy-max/ghaction-setup-docker@v3
       - name: Start Kafka
         run: docker compose -f examples/utils/docker-compose.yml up -d --wait
       - name: Run Python tests
