@@ -1,5 +1,9 @@
 /target
 
+# Local Kafka tarball + state, populated by scripts/ci-kafka.sh
+.kafka/
+.kafka-logs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 .pytest_cache/

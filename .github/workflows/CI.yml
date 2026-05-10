@@ -19,12 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-      - uses: actions/setup-python@v3
+        uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
-          python-version: 3.12
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+          version: "0.11.11"
+          python-version: "3.12"
+          activate-environment: true
+          venv-path: venv
       - uses: extractions/setup-just@v2
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
@@ -37,39 +38,36 @@ jobs:
             mv cbfmt /usr/local/bin/
       - name: Prep venv
         shell: bash
-        run: |
-          uv venv -p 3.12 venv
-          . venv/bin/activate
-          uv pip sync --strict requirements/dev.txt
+        run: uv pip sync --strict requirements/dev.txt
       - name: Check pre-commit hooks
         shell: bash
-        run: |
-          . venv/bin/activate
-          just lint-pc
+        run: just lint-pc
       - name: Run lints
         shell: bash
-        run: |
-          . venv/bin/activate
-          just lint
+        run: just lint
       - name: Run Rust tests
         shell: bash
-        run: |
-          . venv/bin/activate
-          just test-rs
+        run: just test-rs
       - name: Run documentation tests
         shell: bash
-        run: |
-          . venv/bin/activate
-          just test-doc
+        run: just test-doc
 
   linux:
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
         target: ['x86_64', 'aarch64', 'armv7']
-    runs-on: ubuntu-20.04
+        include:
+          - target: x86_64
+            runs-on: ubuntu-24.04
+          - target: aarch64
+            runs-on: ubuntu-24.04-arm
+          - target: armv7
+            runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
           path: |
@@ -78,13 +76,14 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.11.11"
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -100,20 +99,105 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
+      # Native test path (x86_64 + aarch64): JVM Kafka tarball started
+      # locally via scripts/ci-kafka.sh, then pytest runs in the host
+      # venv against it. Same script reused on every platform.
+      - name: Cache Apache Kafka tarball
+        if: ${{ matrix.target == 'x86_64' || matrix.target == 'aarch64' }}
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          key: kafka-3.8.0-${{ runner.os }}-${{ matrix.target }}
+      - name: Start Kafka
+        if: ${{ matrix.target == 'x86_64' || matrix.target == 'aarch64' }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh start
       - name: Run Python tests
-        # Only run tests for the host architecture, as aarch64 and
-        # armv7 are cross-compiled on Ubuntu runners.
-        if: ${{ matrix.target == 'x86_64' }}
+        if: ${{ matrix.target == 'x86_64' || matrix.target == 'aarch64' }}
         shell: bash
         env:
-          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
-          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
-          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
+          TEST_KAFKA_BROKER: localhost:9092
         run: |
           . venv/bin/activate
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip install -v --no-deps $WHEEL_FILE
-          just test-py
+          WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+          uv pip install -v --no-deps "$WHEEL_FILE"
+          uv pip install pytest-timeout
+          # -v: print each test name, -s: don't capture stdout (so logs
+          # surface in real time), --tb=long: full traceback, timeout
+          # bounds each test so a hang fails fast with a stack trace.
+          pytest -v -s --tb=long --benchmark-skip \
+            --timeout=180 --timeout-method=thread pytests
+      - name: Dump kafka broker log on failure
+        if: ${{ failure() && (matrix.target == 'x86_64' || matrix.target == 'aarch64') }}
+        shell: bash
+        run: |
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+          echo '=== zk.log (tail 100) ==='
+          tail -100 .kafka-logs/zk.log || true
+      - name: Stop Kafka
+        if: ${{ always() && (matrix.target == 'x86_64' || matrix.target == 'aarch64') }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh stop
+      # armv7 has no native GH-hosted runner; run pytest + kafka under
+      # qemu via uraimo/run-on-arch-action. Slow (JVM under qemu can
+      # take 5+ minutes to boot, and confluent-kafka has no armv7
+      # wheel so its C extension is built from source under emulation,
+      # adding ~10-15 min) but covers the matrix.
+      #
+      # Python 3.8 is excluded: python-build-standalone (uv's source
+      # for managed Pythons) has no armv7 build for 3.8, and Ubuntu
+      # noble's apt has no python3.8 either. The wheel still builds
+      # for armv7+3.8 (maturin uses a cross-compile toolchain that
+      # supports it); only the runtime test step is skipped.
+      - name: Run Python tests + kafka under qemu (armv7)
+        if: ${{ matrix.target == 'armv7' && matrix.python-version != '3.8' }}
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: armv7
+          distro: ubuntu_latest
+          githubToken: ${{ github.token }}
+          dockerRunArgs: |
+            --volume "${PWD}:/work"
+            --workdir /work
+          install: |
+            # default-jre-headless: Apache Kafka runtime.
+            # build-essential + librdkafka-dev + pkg-config: needed to
+            # build confluent-kafka's C extension from sdist (no armv7
+            # wheel exists). Ubuntu 24.04 ships librdkafka-dev 2.3.0,
+            # which matches our pinned confluent-kafka==2.3.0 ABI.
+            apt-get update && apt-get install -y --no-install-recommends \
+              default-jre-headless curl tar ca-certificates \
+              build-essential librdkafka-dev pkg-config
+          env: |
+            TEST_KAFKA_BROKER: localhost:9092
+            # Kafka's default JVM perf flags include -XX:MaxInlineLevel=15,
+            # which the armhf openjdk build rejects ("Unrecognized VM
+            # option") because that flavour uses a JIT-less interpreter.
+            # Override with the bare minimum so the broker starts.
+            KAFKA_JVM_PERFORMANCE_OPTS: "-Djava.awt.headless=true"
+          run: |
+            # Bootstrap uv (it has armv7 builds for 3.9+) and use it
+            # to install a Python matching the matrix version + the
+            # test deps. We skip requirements/build-py*.txt because
+            # the hashed pins target x86_64 wheels and would force
+            # source builds of pure-deps that don't ship armv7 wheels.
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="/root/.local/bin:$PATH"
+            uv venv -p ${{ matrix.python-version }} /tmp/venv
+            . /tmp/venv/bin/activate
+            uv pip install pytest pytest-benchmark
+            # The literal "./dist/*.whl[kafka]" doesn't expand cleanly
+            # in sh because [kafka] is a glob character class; capture
+            # the wheel path first, then append the extras suffix.
+            WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+            # Pin confluent-kafka to the same 2.3.0 we pin everywhere
+            # else; this also matches the apt librdkafka-dev version,
+            # avoiding a librdkafka/Python-extension ABI mismatch.
+            uv pip install "${WHEEL_FILE}[kafka]" "confluent-kafka==2.3.0"
+            ./scripts/ci-kafka.sh start
+            pytest --benchmark-skip pytests/connectors/test_kafka.py
+            ./scripts/ci-kafka.sh stop
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -122,20 +206,25 @@ jobs:
 
   macos:
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
         target: ['x86_64', 'aarch64']
-    runs-on: macos-latest
-    env:
-      MACOSX_DEPLOYMENT_TARGET: 10.9
+        include:
+          - target: x86_64
+            runs-on: macos-13            # Intel
+          - target: aarch64
+            runs-on: macos-latest        # Apple Silicon
+    runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.11.11"
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
@@ -147,23 +236,41 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           RUSTFLAGS: -C force-frame-pointers=yes
+          MACOSX_DEPLOYMENT_TARGET: 10.9
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
+      - name: Cache Apache Kafka tarball
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          key: kafka-3.8.0-${{ runner.os }}-${{ matrix.target }}
+      - name: Start Kafka
+        shell: bash
+        run: ./scripts/ci-kafka.sh start
       - name: Run Python tests
-        # Only run tests for the host architecture, as x86_64 is
-        # cross-compiled on macOS runners.
-        if: ${{ matrix.target == 'aarch64' }}
         shell: bash
         env:
-          TEST_KAFKA_BROKER: ${{ secrets.TEST_KAFKA_BROKER }}
-          CLUSTER_API_KEY: ${{ secrets.CLUSTER_API_KEY }}
-          CLUSTER_API_SECRET: ${{ secrets.CLUSTER_API_SECRET }}
+          TEST_KAFKA_BROKER: localhost:9092
         run: |
           . venv/bin/activate
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip install -v --no-deps $WHEEL_FILE
-          just test-py
+          WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+          uv pip install -v --no-deps "$WHEEL_FILE"
+          uv pip install pytest-timeout
+          pytest -v -s --tb=long --benchmark-skip \
+            --timeout=180 --timeout-method=thread pytests
+      - name: Dump kafka broker log on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+          echo '=== zk.log (tail 100) ==='
+          tail -100 .kafka-logs/zk.log || true
+      - name: Stop Kafka
+        if: always()
+        shell: bash
+        run: ./scripts/ci-kafka.sh stop
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -172,6 +279,7 @@ jobs:
 
   windows:
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
     runs-on: windows-latest
@@ -180,7 +288,7 @@ jobs:
       - shell: cmd
         run: |
           set PATH=%PATH%;%wix%bin;"%WindowsSdkVerBinPath%"\x86
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
           path: |
@@ -191,16 +299,18 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set up uv
-        run: curl -LsSf https://astral.sh/uv/0.3.5/install.sh | sh
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.11.11"
       - uses: extractions/setup-just@v2
       - name: Prep build venv
+        shell: bash
         run: |
           uv venv -p ${{ matrix.python-version }} venv/
-          venv/Scripts/activate
+          . venv/Scripts/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
@@ -210,12 +320,46 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Run Python tests
+      - name: Cache Apache Kafka tarball
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          key: kafka-3.8.0-${{ runner.os }}
+      # Start kafka, run pytest, stop kafka — all in a single bash
+      # step. On Git Bash for Windows, when one step's bash session
+      # ends MSYS reaps orphaned children of that shell ~4 seconds
+      # later, taking the kafka broker JVM with it (verified via a
+      # liveness watcher: java=2 + port9092=LISTEN at step start,
+      # java=1 + port9092=none three seconds later). Keeping the
+      # whole lifecycle in one shell avoids the cleanup pass.
+      - name: Run kafka + pytest in one shell
+        shell: bash
+        env:
+          TEST_KAFKA_BROKER: localhost:9092
         run: |
-          venv/Scripts/activate
-          $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-          uv pip install -v --no-deps $WHEEL_FILE
-          just test-py
+          ./scripts/ci-kafka.sh start
+          . venv/Scripts/activate
+          WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+          uv pip install -v --no-deps "$WHEEL_FILE"
+          uv pip install pytest-timeout
+          set +e
+          pytest -v -s --tb=long --benchmark-skip \
+            --timeout=180 --timeout-method=thread pytests
+          rc=$?
+          ./scripts/ci-kafka.sh stop || true
+          exit "$rc"
+      - name: Diagnose kafka broker on failure (windows)
+        if: failure()
+        shell: bash
+        run: |
+          echo '=== Is broker listening on 9092? ==='
+          netstat -an | grep -E ':9092\b' || echo '(no listener)'
+          echo '=== Java processes on host ==='
+          tasklist //FI "IMAGENAME eq java.exe" 2>/dev/null || true
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+          echo '=== zk.log (tail 100) ==='
+          tail -100 .kafka-logs/zk.log || true
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -224,7 +368,7 @@ jobs:
 
   upload:
     name: Store wheels in S3
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     if: "github.ref == 'refs/heads/main'"
     needs: [ linux, macos, windows ]
     steps:
@@ -234,7 +378,7 @@ jobs:
           path: wheels
           merge-multiple: true
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.ECR_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.ECR_SECRET_KEY }}

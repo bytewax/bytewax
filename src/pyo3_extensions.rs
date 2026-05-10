@@ -107,7 +107,7 @@ impl serde::Serialize for TdPyAny {
 
 pub(crate) struct PickleVisitor;
 
-impl<'de> serde::de::Visitor<'de> for PickleVisitor {
+impl serde::de::Visitor<'_> for PickleVisitor {
     type Value = TdPyAny;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
