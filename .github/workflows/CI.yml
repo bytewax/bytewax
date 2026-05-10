@@ -325,59 +325,41 @@ jobs:
         with:
           path: .kafka
           key: kafka-3.8.0-${{ runner.os }}
-      - name: Start Kafka
-        shell: bash
-        run: ./scripts/ci-kafka.sh start
-      - name: Run Python tests
+      # Start kafka, run pytest, stop kafka — all in a single bash
+      # step. On Git Bash for Windows, when one step's bash session
+      # ends MSYS reaps orphaned children of that shell ~4 seconds
+      # later, taking the kafka broker JVM with it (verified via a
+      # liveness watcher: java=2 + port9092=LISTEN at step start,
+      # java=1 + port9092=none three seconds later). Keeping the
+      # whole lifecycle in one shell avoids the cleanup pass.
+      - name: Run kafka + pytest in one shell
         shell: bash
         env:
           TEST_KAFKA_BROKER: localhost:9092
         run: |
+          ./scripts/ci-kafka.sh start
           . venv/Scripts/activate
           WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
           uv pip install -v --no-deps "$WHEEL_FILE"
           uv pip install pytest-timeout
-          # Background liveness watcher: every 3s, log whether the
-          # broker is still reachable + how many java.exe processes
-          # exist. Lets the failure-diagnostic step show the exact
-          # moment the broker disappears during a pytest run.
-          (
-            while sleep 3; do
-              ts=$(date -u +%H:%M:%S)
-              jcount=$(tasklist //FI 'IMAGENAME eq java.exe' 2>/dev/null \
-                | grep -c java.exe || true)
-              port=$(netstat -an | grep -E ':9092 .* LISTEN' | head -n1 || true)
-              echo "[$ts] java=$jcount port9092=${port:-none}"
-            done
-          ) > .kafka-logs/broker-liveness.log 2>&1 &
-          WATCHER=$!
           set +e
           pytest -v -s --tb=long --benchmark-skip \
             --timeout=180 --timeout-method=thread pytests
           rc=$?
-          kill "$WATCHER" 2>/dev/null || true
+          ./scripts/ci-kafka.sh stop || true
           exit "$rc"
       - name: Diagnose kafka broker on failure (windows)
         if: failure()
         shell: bash
         run: |
-          echo '=== broker-liveness.log (full) ==='
-          cat .kafka-logs/broker-liveness.log 2>/dev/null || echo '(no liveness log)'
           echo '=== Is broker listening on 9092? ==='
           netstat -an | grep -E ':9092\b' || echo '(no listener)'
-          echo '=== Broker API versions probe ==='
-          ./.kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 \
-            || echo '(probe failed: broker is unreachable)'
           echo '=== Java processes on host ==='
           tasklist //FI "IMAGENAME eq java.exe" 2>/dev/null || true
           echo '=== broker.log (tail 300) ==='
           tail -300 .kafka-logs/broker.log || true
           echo '=== zk.log (tail 100) ==='
           tail -100 .kafka-logs/zk.log || true
-      - name: Stop Kafka
-        if: always()
-        shell: bash
-        run: ./scripts/ci-kafka.sh stop
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
