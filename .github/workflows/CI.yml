@@ -213,29 +213,19 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      # Docker Desktop is no longer pre-installed on windows-2022 or
-      # windows-2025; this action installs Docker (Linux containers)
-      # via WSL2 backend so docker compose can run our broker.
-      # Pin Docker version explicitly because the action's "latest"
-      # detection constructs a wrong download URL on Windows.
-      - name: Set up Docker (Windows, Linux containers via WSL2)
-        uses: crazy-max/ghaction-setup-docker@v3
-        with:
-          version: v25.0.5
-      - name: Start Kafka
-        run: docker compose -f examples/utils/docker-compose.yml up -d --wait
+      # Kafka integration tests do not run on Windows GH runners:
+      # Docker Desktop is no longer pre-installed and
+      # `crazy-max/ghaction-setup-docker` installs a Windows-container
+      # Docker, which can't run our Linux apache/kafka image. Linux
+      # carries the kafka integration coverage. Leaving
+      # TEST_KAFKA_BROKER unset means the pytestmark gate in
+      # pytests/connectors/test_kafka.py cleanly skips the suite.
       - name: Run Python tests
-        shell: pwsh
-        env:
-          TEST_KAFKA_BROKER: localhost:9092
         run: |
           venv/Scripts/activate
           $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
           uv pip install -v --no-deps $WHEEL_FILE
           just test-py
-      - name: Stop Kafka
-        if: ${{ always() }}
-        run: docker compose -f examples/utils/docker-compose.yml down
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
