@@ -128,7 +128,9 @@ jobs:
         run: ./scripts/ci-kafka.sh stop
       # armv7 has no native GH-hosted runner; run pytest + kafka under
       # qemu via uraimo/run-on-arch-action. Slow (JVM under qemu can
-      # take 5+ minutes to boot) but covers the matrix.
+      # take 5+ minutes to boot, and confluent-kafka has no armv7
+      # wheel so its C extension is built from source under emulation,
+      # adding ~10-15 min) but covers the matrix.
       - name: Run Python tests + kafka under qemu (armv7)
         if: ${{ matrix.target == 'armv7' }}
         uses: uraimo/run-on-arch-action@v3
@@ -140,8 +142,14 @@ jobs:
             --volume "${PWD}:/work"
             --workdir /work
           install: |
+            # default-jre-headless: Apache Kafka runtime.
+            # build-essential + librdkafka-dev + pkg-config: needed to
+            # build confluent-kafka's C extension from sdist (no armv7
+            # wheel exists). Ubuntu 24.04 ships librdkafka-dev 2.3.0,
+            # which matches our pinned confluent-kafka==2.3.0 ABI.
             apt-get update && apt-get install -y --no-install-recommends \
-              default-jre-headless curl tar ca-certificates
+              default-jre-headless curl tar ca-certificates \
+              build-essential librdkafka-dev pkg-config
           env: |
             TEST_KAFKA_BROKER: localhost:9092
           run: |
@@ -159,7 +167,10 @@ jobs:
             # in sh because [kafka] is a glob character class; capture
             # the wheel path first, then append the extras suffix.
             WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
-            uv pip install "${WHEEL_FILE}[kafka]"
+            # Pin confluent-kafka to the same 2.3.0 we pin everywhere
+            # else; this also matches the apt librdkafka-dev version,
+            # avoiding a librdkafka/Python-extension ABI mismatch.
+            uv pip install "${WHEEL_FILE}[kafka]" "confluent-kafka==2.3.0"
             ./scripts/ci-kafka.sh start
             pytest --benchmark-skip pytests/connectors/test_kafka.py
             ./scripts/ci-kafka.sh stop
