@@ -131,8 +131,14 @@ jobs:
       # take 5+ minutes to boot, and confluent-kafka has no armv7
       # wheel so its C extension is built from source under emulation,
       # adding ~10-15 min) but covers the matrix.
+      #
+      # Python 3.8 is excluded: python-build-standalone (uv's source
+      # for managed Pythons) has no armv7 build for 3.8, and Ubuntu
+      # noble's apt has no python3.8 either. The wheel still builds
+      # for armv7+3.8 (maturin uses a cross-compile toolchain that
+      # supports it); only the runtime test step is skipped.
       - name: Run Python tests + kafka under qemu (armv7)
-        if: ${{ matrix.target == 'armv7' }}
+        if: ${{ matrix.target == 'armv7' && matrix.python-version != '3.8' }}
         uses: uraimo/run-on-arch-action@v3
         with:
           arch: armv7
@@ -153,11 +159,11 @@ jobs:
           env: |
             TEST_KAFKA_BROKER: localhost:9092
           run: |
-            # Bootstrap uv (it has armv7 builds) and use it to install
-            # a Python matching the matrix version + the test deps.
-            # We skip requirements/build-py*.txt because the hashed
-            # pins target x86_64 wheels and would force source builds
-            # of pure-deps that don't ship armv7 wheels.
+            # Bootstrap uv (it has armv7 builds for 3.9+) and use it
+            # to install a Python matching the matrix version + the
+            # test deps. We skip requirements/build-py*.txt because
+            # the hashed pins target x86_64 wheels and would force
+            # source builds of pure-deps that don't ship armv7 wheels.
             curl -LsSf https://astral.sh/uv/install.sh | sh
             export PATH="/root/.local/bin:$PATH"
             uv venv -p ${{ matrix.python-version }} /tmp/venv
