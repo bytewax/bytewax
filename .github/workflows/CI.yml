@@ -337,12 +337,32 @@ jobs:
           WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
           uv pip install -v --no-deps "$WHEEL_FILE"
           uv pip install pytest-timeout
+          # Background liveness watcher: every 3s, log whether the
+          # broker is still reachable + how many java.exe processes
+          # exist. Lets the failure-diagnostic step show the exact
+          # moment the broker disappears during a pytest run.
+          (
+            while sleep 3; do
+              ts=$(date -u +%H:%M:%S)
+              jcount=$(tasklist //FI 'IMAGENAME eq java.exe' 2>/dev/null \
+                | grep -c java.exe || true)
+              port=$(netstat -an | grep -E ':9092 .* LISTEN' | head -n1 || true)
+              echo "[$ts] java=$jcount port9092=${port:-none}"
+            done
+          ) > .kafka-logs/broker-liveness.log 2>&1 &
+          WATCHER=$!
+          set +e
           pytest -v -s --tb=long --benchmark-skip \
             --timeout=180 --timeout-method=thread pytests
+          rc=$?
+          kill "$WATCHER" 2>/dev/null || true
+          exit "$rc"
       - name: Diagnose kafka broker on failure (windows)
         if: failure()
         shell: bash
         run: |
+          echo '=== broker-liveness.log (full) ==='
+          cat .kafka-logs/broker-liveness.log 2>/dev/null || echo '(no liveness log)'
           echo '=== Is broker listening on 9092? ==='
           netstat -an | grep -E ':9092\b' || echo '(no listener)'
           echo '=== Broker API versions probe ==='
