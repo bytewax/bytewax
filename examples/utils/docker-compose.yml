@@ -2,7 +2,6 @@
 services:
   zookeeper:
     image: zookeeper:3.9
-    container_name: zookeeper
     environment:
       ZOO_4LW_COMMANDS_WHITELIST: srvr,ruok
       ZOO_TICK_TIME: 2000
@@ -15,7 +14,6 @@ services:
 
   broker:
     image: apache/kafka:3.8.0
-    container_name: broker
     ports:
       - "9092:9092"
     depends_on:

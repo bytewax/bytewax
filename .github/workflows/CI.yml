@@ -54,10 +54,18 @@ jobs:
 
   linux:
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
         target: ['x86_64', 'aarch64', 'armv7']
-    runs-on: ubuntu-24.04
+        include:
+          - target: x86_64
+            runs-on: ubuntu-24.04
+          - target: aarch64
+            runs-on: ubuntu-24.04-arm
+          - target: armv7
+            runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -68,7 +76,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -91,24 +99,60 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
+      # Native test path (x86_64 + aarch64): JVM Kafka tarball started
+      # locally via scripts/ci-kafka.sh, then pytest runs in the host
+      # venv against it. Same script reused on every platform.
+      - name: Cache Apache Kafka tarball
+        if: ${{ matrix.target == 'x86_64' || matrix.target == 'aarch64' }}
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          key: kafka-3.8.0-${{ runner.os }}-${{ matrix.target }}
       - name: Start Kafka
-        if: ${{ matrix.target == 'x86_64' }}
-        run: docker compose -f examples/utils/docker-compose.yml up -d --wait
+        if: ${{ matrix.target == 'x86_64' || matrix.target == 'aarch64' }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh start
       - name: Run Python tests
-        # Only run tests for the host architecture, as aarch64 and
-        # armv7 are cross-compiled on Ubuntu runners.
-        if: ${{ matrix.target == 'x86_64' }}
+        if: ${{ matrix.target == 'x86_64' || matrix.target == 'aarch64' }}
         shell: bash
         env:
           TEST_KAFKA_BROKER: localhost:9092
         run: |
           . venv/bin/activate
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip install -v --no-deps $WHEEL_FILE
+          WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+          uv pip install -v --no-deps "$WHEEL_FILE"
           just test-py
       - name: Stop Kafka
-        if: ${{ always() && matrix.target == 'x86_64' }}
-        run: docker compose -f examples/utils/docker-compose.yml down
+        if: ${{ always() && (matrix.target == 'x86_64' || matrix.target == 'aarch64') }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh stop
+      # armv7 has no native GH-hosted runner; run pytest + kafka under
+      # qemu via uraimo/run-on-arch-action. Slow (JVM under qemu can
+      # take 5+ minutes to boot) but covers the matrix.
+      - name: Run Python tests + kafka under qemu (armv7)
+        if: ${{ matrix.target == 'armv7' }}
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: armv7
+          distro: ubuntu_latest
+          githubToken: ${{ github.token }}
+          dockerRunArgs: |
+            --volume "${PWD}:/work"
+            --workdir /work
+          install: |
+            apt-get update && apt-get install -y --no-install-recommends \
+              python3 python3-venv python3-pip \
+              default-jre-headless curl tar ca-certificates
+          env: |
+            TEST_KAFKA_BROKER: localhost:9092
+          run: |
+            python3 -m venv /tmp/venv
+            . /tmp/venv/bin/activate
+            pip install --quiet -r requirements/build-py${{ matrix.python-version }}.txt
+            pip install --no-deps ./dist/*.whl
+            ./scripts/ci-kafka.sh start
+            pytest --benchmark-skip pytests/
+            ./scripts/ci-kafka.sh stop
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -117,10 +161,16 @@ jobs:
 
   macos:
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
         target: ['x86_64', 'aarch64']
-    runs-on: macos-latest
+        include:
+          - target: x86_64
+            runs-on: macos-13            # Intel
+          - target: aarch64
+            runs-on: macos-latest        # Apple Silicon
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup Python
@@ -145,24 +195,27 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-      # GH Apple Silicon runners do not enable nested virtualization,
-      # so neither colima/VZ nor lima/QEMU can boot a Linux VM (the
-      # latter fails with HV_UNSUPPORTED from Hypervisor.framework).
-      # Docker is therefore unavailable on macOS GH runners and the
-      # kafka integration tests cannot run here. Linux and Windows
-      # still cover the same code path. Leaving TEST_KAFKA_BROKER
-      # unset means the pytestmark gate in
-      # pytests/connectors/test_kafka.py cleanly skips the suite.
-      - name: Run Python tests
-        # Only run tests for the host architecture, as x86_64 is
-        # cross-compiled on macOS runners.
-        if: ${{ matrix.target == 'aarch64' }}
+      - name: Cache Apache Kafka tarball
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          key: kafka-3.8.0-${{ runner.os }}-${{ matrix.target }}
+      - name: Start Kafka
         shell: bash
+        run: ./scripts/ci-kafka.sh start
+      - name: Run Python tests
+        shell: bash
+        env:
+          TEST_KAFKA_BROKER: localhost:9092
         run: |
           . venv/bin/activate
-          WHEEL_FILE=$(ls ./dist/*.whl)
-          uv pip install -v --no-deps $WHEEL_FILE
+          WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+          uv pip install -v --no-deps "$WHEEL_FILE"
           just test-py
+      - name: Stop Kafka
+        if: always()
+        shell: bash
+        run: ./scripts/ci-kafka.sh stop
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -171,12 +224,10 @@ jobs:
 
   windows:
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
-    # windows-2025 (the current windows-latest) removed Docker Desktop;
-    # pin to windows-2022 which still ships it pre-installed for the
-    # `Switch Docker Desktop to Linux engine` step below.
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
       - uses: ilammy/msvc-dev-cmd@v1
       - shell: cmd
@@ -201,9 +252,10 @@ jobs:
           version: "0.11.11"
       - uses: extractions/setup-just@v2
       - name: Prep build venv
+        shell: bash
         run: |
           uv venv -p ${{ matrix.python-version }} venv/
-          venv/Scripts/activate
+          . venv/Scripts/activate
           uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
       - name: Build wheel
         uses: PyO3/maturin-action@v1
@@ -213,19 +265,27 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      # Kafka integration tests do not run on Windows GH runners:
-      # Docker Desktop is no longer pre-installed and
-      # `crazy-max/ghaction-setup-docker` installs a Windows-container
-      # Docker, which can't run our Linux apache/kafka image. Linux
-      # carries the kafka integration coverage. Leaving
-      # TEST_KAFKA_BROKER unset means the pytestmark gate in
-      # pytests/connectors/test_kafka.py cleanly skips the suite.
+      - name: Cache Apache Kafka tarball
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          key: kafka-3.8.0-${{ runner.os }}
+      - name: Start Kafka
+        shell: bash
+        run: ./scripts/ci-kafka.sh start
       - name: Run Python tests
+        shell: bash
+        env:
+          TEST_KAFKA_BROKER: localhost:9092
         run: |
-          venv/Scripts/activate
-          $WHEEL_FILE=@((gci -path dist *.whl|Resolve-path -relative) -replace "","")[0]
-          uv pip install -v --no-deps $WHEEL_FILE
+          . venv/Scripts/activate
+          WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+          uv pip install -v --no-deps "$WHEEL_FILE"
           just test-py
+      - name: Stop Kafka
+        if: always()
+        shell: bash
+        run: ./scripts/ci-kafka.sh stop
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
