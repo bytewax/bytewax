@@ -158,6 +158,11 @@ jobs:
               build-essential librdkafka-dev pkg-config
           env: |
             TEST_KAFKA_BROKER: localhost:9092
+            # Kafka's default JVM perf flags include -XX:MaxInlineLevel=15,
+            # which the armhf openjdk build rejects ("Unrecognized VM
+            # option") because that flavour uses a JIT-less interpreter.
+            # Override with the bare minimum so the broker starts.
+            KAFKA_JVM_PERFORMANCE_OPTS: "-Djava.awt.headless=true"
           run: |
             # Bootstrap uv (it has armv7 builds for 3.9+) and use it
             # to install a Python matching the matrix version + the
