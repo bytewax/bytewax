@@ -155,7 +155,11 @@ jobs:
             uv venv -p ${{ matrix.python-version }} /tmp/venv
             . /tmp/venv/bin/activate
             uv pip install pytest pytest-benchmark
-            uv pip install ./dist/*.whl[kafka]
+            # The literal "./dist/*.whl[kafka]" doesn't expand cleanly
+            # in sh because [kafka] is a glob character class; capture
+            # the wheel path first, then append the extras suffix.
+            WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+            uv pip install "${WHEEL_FILE}[kafka]"
             ./scripts/ci-kafka.sh start
             pytest --benchmark-skip pytests/connectors/test_kafka.py
             ./scripts/ci-kafka.sh stop

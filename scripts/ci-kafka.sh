@@ -35,8 +35,9 @@ EOF
 
   nohup "$KAFKA_DIR/bin/zookeeper-server-start.sh" \
     "$KAFKA_DIR/config/zk-test.properties" \
-    > "$KAFKA_LOG_DIRS/zk.log" 2>&1 &
+    </dev/null > "$KAFKA_LOG_DIRS/zk.log" 2>&1 &
   echo $! > "$KAFKA_LOG_DIRS/zk.pid"
+  disown 2>/dev/null || true
 
   # Wait up to 60s for ZK to accept TCP connections on its client port.
   for _ in $(seq 1 60); do
@@ -55,8 +56,9 @@ EOF
     "$props" && rm -f "${props}.bak"
 
   nohup "$KAFKA_DIR/bin/kafka-server-start.sh" "$props" \
-    > "$KAFKA_LOG_DIRS/broker.log" 2>&1 &
+    </dev/null > "$KAFKA_LOG_DIRS/broker.log" 2>&1 &
   echo $! > "$KAFKA_LOG_DIRS/broker.pid"
+  disown 2>/dev/null || true
 
   for _ in $(seq 1 90); do
     if "$KAFKA_DIR/bin/kafka-broker-api-versions.sh" \
