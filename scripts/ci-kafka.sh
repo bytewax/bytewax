@@ -21,6 +21,37 @@ ensure_kafka() {
   mv "$(dirname "$KAFKA_DIR")/kafka_${SCALA_VERSION}-${KAFKA_VERSION}" "$KAFKA_DIR"
 }
 
+is_windows() {
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; *) return 1 ;; esac
+}
+
+# Launch a JVM-backed Kafka script in the background, redirecting
+# output to a log file. On Linux/macOS, bash's nohup+disown is
+# sufficient. On Windows Git Bash, bash's job control is not enough
+# to keep the JVM alive across step boundaries — the broker dies
+# silently when "Start Kafka"'s shell exits — so we shell out to
+# cmd.exe `start /B` (a true Windows-side detach) and use the .bat
+# variants under bin/windows/, which translate paths correctly for
+# Java (the .sh scripts feed Java a /d/a/... path that fails to
+# resolve on Windows).
+spawn_kafka() {
+  local sh_script="$1" arg_path="$2" log_path="$3" pidfile="$4"
+  if is_windows; then
+    local bat_name; bat_name="$(basename "${sh_script%.sh}").bat"
+    local bat_win; bat_win="$(cygpath -w "$KAFKA_DIR/bin/windows/$bat_name")"
+    local arg_win; arg_win="$(cygpath -w "$arg_path")"
+    local log_win; log_win="$(cygpath -w "$log_path")"
+    cmd.exe //c "start /B \"\" \"$bat_win\" \"$arg_win\" > \"$log_win\" 2>&1"
+    # cmd.exe `start` doesn't return a usable PID. Drop a marker file
+    # so stop() knows we're on the windows path.
+    echo windows > "$pidfile"
+  else
+    nohup "$sh_script" "$arg_path" </dev/null > "$log_path" 2>&1 &
+    echo $! > "$pidfile"
+    disown 2>/dev/null || true
+  fi
+}
+
 start() {
   ensure_kafka
   rm -rf "$KAFKA_LOG_DIRS"
@@ -33,11 +64,10 @@ maxClientCnxns=0
 admin.enableServer=false
 EOF
 
-  nohup "$KAFKA_DIR/bin/zookeeper-server-start.sh" \
+  spawn_kafka "$KAFKA_DIR/bin/zookeeper-server-start.sh" \
     "$KAFKA_DIR/config/zk-test.properties" \
-    </dev/null > "$KAFKA_LOG_DIRS/zk.log" 2>&1 &
-  echo $! > "$KAFKA_LOG_DIRS/zk.pid"
-  disown 2>/dev/null || true
+    "$KAFKA_LOG_DIRS/zk.log" \
+    "$KAFKA_LOG_DIRS/zk.pid"
 
   # Wait up to 60s for ZK to accept TCP connections on its client port.
   for _ in $(seq 1 60); do
@@ -55,10 +85,8 @@ EOF
     -e "s|^zookeeper.connect=.*|zookeeper.connect=localhost:2181|" \
     "$props" && rm -f "${props}.bak"
 
-  nohup "$KAFKA_DIR/bin/kafka-server-start.sh" "$props" \
-    </dev/null > "$KAFKA_LOG_DIRS/broker.log" 2>&1 &
-  echo $! > "$KAFKA_LOG_DIRS/broker.pid"
-  disown 2>/dev/null || true
+  spawn_kafka "$KAFKA_DIR/bin/kafka-server-start.sh" "$props" \
+    "$KAFKA_LOG_DIRS/broker.log" "$KAFKA_LOG_DIRS/broker.pid"
 
   for _ in $(seq 1 90); do
     if "$KAFKA_DIR/bin/kafka-broker-api-versions.sh" \
@@ -74,6 +102,13 @@ EOF
 }
 
 stop() {
+  if is_windows; then
+    # cmd.exe `start /B` doesn't give us a PID, so kill any java.exe.
+    # Fine in CI where we're the only Java workload on the runner.
+    taskkill //F //IM java.exe 2>/dev/null || true
+    rm -f "$KAFKA_LOG_DIRS/broker.pid" "$KAFKA_LOG_DIRS/zk.pid"
+    return
+  fi
   for name in broker zk; do
     local pidfile="$KAFKA_LOG_DIRS/${name}.pid"
     if [[ -f "$pidfile" ]]; then
