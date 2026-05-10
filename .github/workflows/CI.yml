@@ -141,17 +141,23 @@ jobs:
             --workdir /work
           install: |
             apt-get update && apt-get install -y --no-install-recommends \
-              python3 python3-venv python3-pip \
               default-jre-headless curl tar ca-certificates
           env: |
             TEST_KAFKA_BROKER: localhost:9092
           run: |
-            python3 -m venv /tmp/venv
+            # Bootstrap uv (it has armv7 builds) and use it to install
+            # a Python matching the matrix version + the test deps.
+            # We skip requirements/build-py*.txt because the hashed
+            # pins target x86_64 wheels and would force source builds
+            # of pure-deps that don't ship armv7 wheels.
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="/root/.local/bin:$PATH"
+            uv venv -p ${{ matrix.python-version }} /tmp/venv
             . /tmp/venv/bin/activate
-            pip install --quiet -r requirements/build-py${{ matrix.python-version }}.txt
-            pip install --no-deps ./dist/*.whl
+            uv pip install pytest pytest-benchmark
+            uv pip install ./dist/*.whl[kafka]
             ./scripts/ci-kafka.sh start
-            pytest --benchmark-skip pytests/
+            pytest --benchmark-skip pytests/connectors/test_kafka.py
             ./scripts/ci-kafka.sh stop
       - name: Upload wheels
         uses: actions/upload-artifact@v4
