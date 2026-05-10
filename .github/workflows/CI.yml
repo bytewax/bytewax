@@ -339,10 +339,17 @@ jobs:
           uv pip install pytest-timeout
           pytest -v -s --tb=long --benchmark-skip \
             --timeout=180 --timeout-method=thread pytests
-      - name: Dump kafka broker log on failure
+      - name: Diagnose kafka broker on failure (windows)
         if: failure()
         shell: bash
         run: |
+          echo '=== Is broker listening on 9092? ==='
+          netstat -an | grep -E ':9092\b' || echo '(no listener)'
+          echo '=== Broker API versions probe ==='
+          ./.kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 \
+            || echo '(probe failed: broker is unreachable)'
+          echo '=== Java processes on host ==='
+          tasklist //FI "IMAGENAME eq java.exe" 2>/dev/null || true
           echo '=== broker.log (tail 300) ==='
           tail -300 .kafka-logs/broker.log || true
           echo '=== zk.log (tail 100) ==='
