@@ -145,12 +145,9 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-      - name: Install colima + docker CLI
+      - name: Set up Docker (macOS via colima)
         if: ${{ matrix.target == 'aarch64' }}
-        run: brew install --quiet colima docker docker-compose
-      - name: Start colima (arm64 native; apache/kafka has arm64 manifests)
-        if: ${{ matrix.target == 'aarch64' }}
-        run: colima start --cpu 2 --memory 4 --runtime docker
+        uses: docker/setup-docker-action@v4
       - name: Start Kafka
         if: ${{ matrix.target == 'aarch64' }}
         run: docker compose -f examples/utils/docker-compose.yml up -d --wait
@@ -179,7 +176,10 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
-    runs-on: windows-latest
+    # windows-2025 (the current windows-latest) removed Docker Desktop;
+    # pin to windows-2022 which still ships it pre-installed for the
+    # `Switch Docker Desktop to Linux engine` step below.
+    runs-on: windows-2022
     steps:
       - uses: ilammy/msvc-dev-cmd@v1
       - shell: cmd
