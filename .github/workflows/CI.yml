@@ -121,7 +121,20 @@ jobs:
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
           uv pip install -v --no-deps "$WHEEL_FILE"
-          just test-py
+          uv pip install pytest-timeout
+          # -v: print each test name, -s: don't capture stdout (so logs
+          # surface in real time), --tb=long: full traceback, timeout
+          # bounds each test so a hang fails fast with a stack trace.
+          pytest -v -s --tb=long --benchmark-skip \
+            --timeout=180 --timeout-method=thread pytests
+      - name: Dump kafka broker log on failure
+        if: ${{ failure() && (matrix.target == 'x86_64' || matrix.target == 'aarch64') }}
+        shell: bash
+        run: |
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+          echo '=== zk.log (tail 100) ==='
+          tail -100 .kafka-logs/zk.log || true
       - name: Stop Kafka
         if: ${{ always() && (matrix.target == 'x86_64' || matrix.target == 'aarch64') }}
         shell: bash
@@ -243,7 +256,17 @@ jobs:
           . venv/bin/activate
           WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
           uv pip install -v --no-deps "$WHEEL_FILE"
-          just test-py
+          uv pip install pytest-timeout
+          pytest -v -s --tb=long --benchmark-skip \
+            --timeout=180 --timeout-method=thread pytests
+      - name: Dump kafka broker log on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+          echo '=== zk.log (tail 100) ==='
+          tail -100 .kafka-logs/zk.log || true
       - name: Stop Kafka
         if: always()
         shell: bash
@@ -313,7 +336,17 @@ jobs:
           . venv/Scripts/activate
           WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
           uv pip install -v --no-deps "$WHEEL_FILE"
-          just test-py
+          uv pip install pytest-timeout
+          pytest -v -s --tb=long --benchmark-skip \
+            --timeout=180 --timeout-method=thread pytests
+      - name: Dump kafka broker log on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+          echo '=== zk.log (tail 100) ==='
+          tail -100 .kafka-logs/zk.log || true
       - name: Stop Kafka
         if: always()
         shell: bash
