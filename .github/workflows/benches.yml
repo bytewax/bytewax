@@ -17,31 +17,26 @@ jobs:
   benchmarks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
+          version: "0.11.11"
           python-version: "3.12"
-      - name: Install uv
-        run: python3 -m pip install uv
-      - uses: mkroening/rust-toolchain-toml@main
+          activate-environment: true
+          venv-path: venv
+      - uses: dsherret/rust-toolchain-file@v1
       - uses: extractions/setup-just@v2
       - name: Prep build venv
         shell: bash
-        run: |
-          uv venv -p 3.12 venv/
-          . venv/bin/activate
-          uv pip sync --strict requirements/build-py3.12.txt
+        run: uv pip sync --strict requirements/build-py3.12.txt
       - name: Build wheel
         shell: bash
-        run: |
-          . venv/bin/activate
-          just build
+        run: just build
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
           run: |
-            . venv/bin/activate
             WHEEL_FILE=$(ls ./dist/*.whl)
             uv pip install -v --no-deps $WHEEL_FILE
             just test-benchmark

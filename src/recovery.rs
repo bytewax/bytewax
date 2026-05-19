@@ -337,7 +337,7 @@ impl RecoveryConfig {
         }
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
             let path = entry.reraise("Error accessing recovery DB file")?.path();
-            if path.extension().map_or(false, |ext| *ext == *sqlite_ext) {
+            if path.extension().is_some_and(|ext| *ext == *sqlite_ext) {
                 let part =
                     RecoveryPart::open(py, &path).reraise("Error opening recovery DB file")?;
                 let mut part_loader = part.part_loader();
@@ -1454,7 +1454,7 @@ where
                         let frontier = input_frontiers.simplify();
                         // EOF counts as progress. This will also filter
                         // out the flash of 0 epoch upon resume.
-                        let frontier_progressed = frontier.map_or(true, |f| f > *cap.time());
+                        let frontier_progressed = frontier.is_none_or(|f| f > *cap.time());
                         if frontier_progressed {
                             // There's no way to guarantee that "last
                             // frontier + 1" is actually the resume epoch

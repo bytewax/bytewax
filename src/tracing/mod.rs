@@ -154,7 +154,7 @@ impl BytewaxTracer {
 ///
 /// ```python
 /// from bytewax.tracing import setup_tracing
-
+///
 /// tracer = setup_tracing()
 /// ```
 ///
