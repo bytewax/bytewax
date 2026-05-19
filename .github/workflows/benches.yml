@@ -4,13 +4,10 @@ on:
   push:
     branches:
       - "main"
-  pull_request:
-  # `workflow_dispatch` allows CodSpeed to trigger backtest
-  # performance analysis in order to generate initial data.
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -33,10 +30,8 @@ jobs:
         shell: bash
         run: just build
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
-        with:
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          run: |
-            WHEEL_FILE=$(ls ./dist/*.whl)
-            uv pip install -v --no-deps $WHEEL_FILE
-            just test-benchmark
+        shell: bash
+        run: |
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+          just test-benchmark
