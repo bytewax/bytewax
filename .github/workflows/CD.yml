@@ -6,10 +6,20 @@ on:
     - published
 
 jobs:
+  build-wheels:
+    if: "startsWith(github.ref, 'refs/tags/')"
+    uses: ./.github/workflows/build-wheels.yml
+    secrets: inherit
+    with:
+      # Tests already ran on `main` when the tagged commit landed.
+      # CD just needs the wheels.
+      run-tests: false
+
   release:
     name: Release
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
+    needs: [build-wheels]
     outputs:
       bytewax-version: ${{ steps.get-info.outputs.bytewax-version }}
       version-image-tag: ${{ steps.get-info.outputs.version-image-tag }}
@@ -32,16 +42,12 @@ jobs:
           echo "::notice title=Base Tag::${{ steps.get-info.outputs.version-image-tag }}"
           [ -n "${{steps.get-info.outputs.latest-image-tag}}" ]
           echo "::notice title=Latest Tag::${{ steps.get-info.outputs.latest-image-tag }}"
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Download wheels from build job
+        uses: actions/download-artifact@v4
         with:
-          aws-access-key-id: ${{ secrets.ECR_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.ECR_SECRET_KEY }}
-          aws-region: us-west-2
-      - name: Download files from S3 with AWS CLI
-        run: |
-          aws s3 sync s3://${{ secrets.WHEELS_S3_BUCKET }}/${{ github.sha }} .
-          tree
+          pattern: wheels-*-*
+          path: .
+          merge-multiple: true
       - name: Check the Version and Quantity of Wheel files
         env:
           NEEDED_VERSION: ${{steps.get-info.outputs.bytewax-version}}
