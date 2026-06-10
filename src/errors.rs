@@ -2,9 +2,8 @@ use std::panic::Location;
 
 use pyo3::exceptions::PyException;
 use pyo3::import_exception;
-use pyo3::prelude::*;
 use pyo3::types::PyTracebackMethods;
-use pyo3::PyDowncastError;
+use pyo3::DowncastError;
 use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
@@ -143,7 +142,7 @@ impl<T> PythonException<T> for Result<T, Box<dyn std::error::Error>> {
     }
 }
 
-impl<T> PythonException<T> for Result<T, PyDowncastError<'_>> {
+impl<T> PythonException<T> for Result<T, DowncastError<'_, '_>> {
     fn into_pyresult(self) -> PyResult<T> {
         self.map_err(|err| PyErr::new::<PyException, _>(format!("{err}")))
     }
@@ -167,7 +166,7 @@ fn build_message(py: Python, caller: &Location, err: &PyErr, msg: &str) -> Strin
 }
 
 fn get_traceback(py: Python, err: &PyErr) -> Option<String> {
-    err.traceback_bound(py).map(|tb| {
+    err.traceback(py).map(|tb| {
         tb.format()
             .unwrap_or_else(|_| "Unable to print traceback".to_string())
     })
