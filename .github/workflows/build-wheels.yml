@@ -76,7 +76,12 @@ jobs:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
         target: ['x86_64', 'aarch64']
-    runs-on: macos-latest
+        include:
+          - target: x86_64
+            runner: macos-15-intel
+          - target: aarch64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup Python
@@ -102,9 +107,7 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
       - name: Run Python tests
-        # Only run tests for the host architecture, as x86_64 is
-        # cross-compiled on macOS runners.
-        if: ${{ inputs.run-tests && matrix.target == 'aarch64' }}
+        if: ${{ inputs.run-tests }}
         shell: bash
         env:
           TEST_KAFKA_BROKER: ${{ github.event_name == 'push' && secrets.TEST_KAFKA_BROKER || '' }}
@@ -174,3 +177,94 @@ jobs:
         with:
           name: wheels-windows-${{ matrix.target }}-${{ matrix.python-version }}
           path: dist
+
+  verify-wheels:
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*-*
+          path: wheels
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify wheel artifact set
+        shell: python
+        run: |
+          from collections import defaultdict
+          from pathlib import Path
+          import sys
+
+          python_tags = ["cp38", "cp39", "cp310", "cp311", "cp312", "cp313", "cp314"]
+          platform_tags = [
+              "linux_x86_64",
+              "linux_aarch64",
+              "linux_armv7",
+              "macos_x86_64",
+              "macos_aarch64",
+              "windows_x86_64",
+          ]
+          expected = {(py_tag, platform_tag) for py_tag in python_tags for platform_tag in platform_tags}
+
+          def platform_key(platform_tag):
+              if platform_tag.startswith("macosx"):
+                  if "x86_64" in platform_tag:
+                      return "macos_x86_64"
+                  if "arm64" in platform_tag:
+                      return "macos_aarch64"
+              if platform_tag == "win_amd64":
+                  return "windows_x86_64"
+              if "manylinux" in platform_tag:
+                  if "x86_64" in platform_tag:
+                      return "linux_x86_64"
+                  if "aarch64" in platform_tag:
+                      return "linux_aarch64"
+                  if "armv7l" in platform_tag:
+                      return "linux_armv7"
+              return None
+
+          wheels = sorted(Path("wheels").rglob("*.whl"))
+          wheel_names = [wheel.name for wheel in wheels]
+          duplicates = sorted(name for name in set(wheel_names) if wheel_names.count(name) > 1)
+          found = defaultdict(list)
+          unrecognized = []
+
+          for wheel in wheels:
+              try:
+                  _distribution, _version, py_tag, _abi_tag, platform_tag = wheel.name[:-4].rsplit("-", 4)
+              except ValueError:
+                  print(f"Malformed wheel filename: {wheel}", file=sys.stderr)
+                  sys.exit(1)
+
+              key = platform_key(platform_tag)
+              if key is not None:
+                  found[(py_tag, key)].append(wheel.name)
+              else:
+                  unrecognized.append(wheel.name)
+
+          missing = sorted(expected - set(found))
+          unexpected = sorted(set(found) - expected)
+          duplicate_tags = {
+              key: names
+              for key, names in found.items()
+              if len(names) > 1
+          }
+          wrong_count = len(wheels) != len(expected)
+
+          if duplicates or duplicate_tags or unrecognized or missing or unexpected or wrong_count:
+              print(f"Expected {len(expected)} wheels, found {len(wheels)}", file=sys.stderr)
+              if duplicates:
+                  print(f"Duplicate wheel names: {duplicates}", file=sys.stderr)
+              if duplicate_tags:
+                  print(f"Duplicate wheel tags: {duplicate_tags}", file=sys.stderr)
+              if unrecognized:
+                  print(f"Unrecognized wheel tags: {unrecognized}", file=sys.stderr)
+              if missing:
+                  print(f"Missing wheel tags: {missing}", file=sys.stderr)
+              if unexpected:
+                  print(f"Unexpected wheel tags: {unexpected}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Verified {len(wheels)} wheels across {len(python_tags)} Python versions and {len(platform_tags)} platforms.")
