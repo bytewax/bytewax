@@ -77,6 +77,8 @@ def tmp_topic(request):
         msg = f"topic {topic_name!r} partitions never got a leader"
         raise RuntimeError(msg)
     yield topic_name
+    if os.environ.get("TEST_KAFKA_SKIP_TOPIC_DELETE"):
+        return
     wait(client.delete_topics([topic_name], operation_timeout=5.0).values())
 
 

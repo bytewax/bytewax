@@ -114,6 +114,13 @@ def pairwise(ib):
     return zip(a, b)
 
 
+_CLOCK_TOLERANCE = timedelta(milliseconds=1) if sys.platform == "win32" else timedelta()
+
+
+def assert_interval_elapsed(td, interval):
+    assert td + _CLOCK_TOLERANCE >= interval
+
+
 class _DynamicMetronomePartition(StatelessSourcePartition[Tuple[datetime, int]]):
     def __init__(self, interval: timedelta, count: int, next_awake: datetime, n: int):
         self._interval = interval
@@ -164,7 +171,7 @@ def test_dynamic_source_next_awake():
         x_time, _ = x
         y_time, _ = y
         td = y_time - x_time
-        assert td >= interval
+        assert_interval_elapsed(td, interval)
 
 
 def test_dynamic_source_advances_epoch_even_if_not_awoken():
@@ -185,7 +192,7 @@ def test_dynamic_source_advances_epoch_even_if_not_awoken():
         x_time, _ = x
         y_time, _ = y
         td = y_time - x_time
-        assert td >= fast_interval
+        assert_interval_elapsed(td, fast_interval)
 
 
 class _MetronomePartition(
@@ -254,7 +261,7 @@ def test_fixed_partitioned_source_next_awake():
         x_time, _ = x
         y_time, _ = y
         td = y_time - x_time
-        assert td >= interval
+        assert_interval_elapsed(td, interval)
 
 
 def test_fixed_partitioned_source_advances_epoch_even_if_not_awoken():
@@ -275,7 +282,7 @@ def test_fixed_partitioned_source_advances_epoch_even_if_not_awoken():
         x_time, _ = x
         y_time, _ = y
         td = y_time - x_time
-        assert td >= fast_interval
+        assert_interval_elapsed(td, fast_interval)
 
 
 class SimpleListSource(SimplePollingSource[str, int]):

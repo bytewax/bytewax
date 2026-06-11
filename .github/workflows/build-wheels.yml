@@ -217,6 +217,7 @@ jobs:
         env:
           PYTEST_ADDOPTS: -vv
           TEST_KAFKA_BROKER: localhost:9092
+          TEST_KAFKA_SKIP_TOPIC_DELETE: "1"
         run: |
           ./scripts/ci-kafka.sh start
           trap './scripts/ci-kafka.sh stop || true' EXIT
