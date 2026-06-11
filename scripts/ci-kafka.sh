@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Download, start, stop Apache Kafka 3.8.0 (ZK-coordinated) for CI.
-# One script runs on linux native (x86_64 or aarch64), macos arm64,
-# macos-13 Intel, and Git Bash on windows-latest. Inside qemu-armv7
+# One script runs on linux native, macOS arm64, macOS Intel,
+# and Git Bash on windows-latest. Inside qemu-armv7
 # (via uraimo/run-on-arch-action) it also runs unchanged. A JDK is
 # pre-installed on every GitHub-hosted runner image.
 
