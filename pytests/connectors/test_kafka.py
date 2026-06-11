@@ -200,12 +200,17 @@ def test_output(tmp_topic):
             for i in topic_metadata.partitions.keys()
         ]
     )
+    expected = list(map(as_k_v, inp))
     out = []
-    for msg in consumer.consume(num_messages=100, timeout=5.0):
+    deadline = time.monotonic() + 30
+    while len(out) < len(expected) and time.monotonic() < deadline:
+        msg = consumer.poll(timeout=1.0)
+        if msg is None:
+            continue
         if msg.error() is not None and msg.error().code() == KafkaError._PARTITION_EOF:
             continue
         assert msg.error() is None
         out.append((msg.key(), msg.value()))
     consumer.close()
 
-    assert sorted(out) == sorted(list(map(as_k_v, inp)))
+    assert sorted(out) == sorted(expected)
