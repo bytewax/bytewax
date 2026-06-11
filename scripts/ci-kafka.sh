@@ -12,6 +12,14 @@ SCALA_VERSION="${SCALA_VERSION:-2.13}"
 KAFKA_DIR="${KAFKA_DIR:-$PWD/.kafka}"
 KAFKA_LOG_DIRS="${KAFKA_LOG_DIRS:-$PWD/.kafka-logs}"
 
+java_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
 ensure_kafka() {
   if [[ -d "$KAFKA_DIR/bin" ]]; then return; fi
   local tgz="kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz"
@@ -26,15 +34,21 @@ start() {
   rm -rf "$KAFKA_LOG_DIRS"
   mkdir -p "$KAFKA_LOG_DIRS/zk" "$KAFKA_LOG_DIRS/data"
 
+  local zk_data_dir
+  zk_data_dir="$(java_path "$KAFKA_LOG_DIRS/zk")"
+
   cat > "$KAFKA_DIR/config/zk-test.properties" <<EOF
-dataDir=$KAFKA_LOG_DIRS/zk
+dataDir=$zk_data_dir
 clientPort=2181
 maxClientCnxns=0
 admin.enableServer=false
 EOF
 
+  export KAFKA_LOG4J_OPTS="-Dlog4j.configuration=file:///$(java_path "$KAFKA_DIR/config/log4j.properties")"
+  local zk_props
+  zk_props="$(java_path "$KAFKA_DIR/config/zk-test.properties")"
   nohup "$KAFKA_DIR/bin/zookeeper-server-start.sh" \
-    "$KAFKA_DIR/config/zk-test.properties" \
+    "$zk_props" \
     </dev/null > "$KAFKA_LOG_DIRS/zk.log" 2>&1 &
   echo $! > "$KAFKA_LOG_DIRS/zk.pid"
   disown 2>/dev/null || true
@@ -46,16 +60,20 @@ EOF
   done
 
   local props="$KAFKA_DIR/config/server-test.properties"
+  local kafka_data_dir
+  kafka_data_dir="$(java_path "$KAFKA_LOG_DIRS/data")"
   cp "$PWD/examples/utils/kafka-server.properties" "$props"
   # Portable in-place sed (BSD on macOS, GNU elsewhere). Two overrides:
   # - log.dirs to a runner-writable path
   # - zookeeper.connect from the docker-compose network alias to localhost
   sed -i.bak \
-    -e "s|^log.dirs=.*|log.dirs=$KAFKA_LOG_DIRS/data|" \
+    -e "s|^log.dirs=.*|log.dirs=$kafka_data_dir|" \
     -e "s|^zookeeper.connect=.*|zookeeper.connect=localhost:2181|" \
     "$props" && rm -f "${props}.bak"
 
-  nohup "$KAFKA_DIR/bin/kafka-server-start.sh" "$props" \
+  local kafka_props
+  kafka_props="$(java_path "$props")"
+  nohup "$KAFKA_DIR/bin/kafka-server-start.sh" "$kafka_props" \
     </dev/null > "$KAFKA_LOG_DIRS/broker.log" 2>&1 &
   echo $! > "$KAFKA_LOG_DIRS/broker.pid"
   disown 2>/dev/null || true
