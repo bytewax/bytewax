@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import uuid
 from concurrent.futures import wait
 from typing import Tuple
@@ -55,7 +56,29 @@ def tmp_topic(request):
         # 3 partitions.
         client.create_topics([NewTopic(topic_name, 3)], operation_timeout=5.0).values()
     )
+    # create_topics resolves once the broker has written topic
+    # metadata; partition leader election is asynchronous, so a
+    # producer that pins to a specific partition can otherwise hang
+    # on delivery.timeout.ms (5 min default). Reproducible on
+    # windows-latest with the local broker; rare on Linux/macOS.
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        meta = client.list_topics(topic_name, timeout=5.0)
+        topic = meta.topics.get(topic_name)
+        if (
+            topic is not None
+            and topic.error is None
+            and topic.partitions
+            and all(p.leader >= 0 for p in topic.partitions.values())
+        ):
+            break
+        time.sleep(0.1)
+    else:
+        msg = f"topic {topic_name!r} partitions never got a leader"
+        raise RuntimeError(msg)
     yield topic_name
+    if os.environ.get("TEST_KAFKA_SKIP_TOPIC_DELETE"):
+        return
     wait(client.delete_topics([topic_name], operation_timeout=5.0).values())
 
 
@@ -179,12 +202,17 @@ def test_output(tmp_topic):
             for i in topic_metadata.partitions.keys()
         ]
     )
+    expected = list(map(as_k_v, inp))
     out = []
-    for msg in consumer.consume(num_messages=100, timeout=5.0):
+    deadline = time.monotonic() + 30
+    while len(out) < len(expected) and time.monotonic() < deadline:
+        msg = consumer.poll(timeout=1.0)
+        if msg is None:
+            continue
         if msg.error() is not None and msg.error().code() == KafkaError._PARTITION_EOF:
             continue
         assert msg.error() is None
         out.append((msg.key(), msg.value()))
     consumer.close()
 
-    assert sorted(out) == sorted(list(map(as_k_v, inp)))
+    assert sorted(out) == sorted(expected)
