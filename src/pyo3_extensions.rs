@@ -23,8 +23,17 @@ static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 /// extend it with traits that Timely needs. See
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
-#[derive(Clone)]
 pub(crate) struct TdPyAny(PyObject);
+
+/// PyO3 0.22+ removed the global reference pool, so cloning a
+/// [`Py`] without the GIL held is no longer possible (the `py-clone`
+/// feature panics in that case). Timely clones items on worker
+/// threads outside the GIL, so explicitly acquire it.
+impl Clone for TdPyAny {
+    fn clone(&self) -> Self {
+        Python::with_gil(|py| Self(self.0.clone_ref(py)))
+    }
+}
 
 impl TdPyAny {
     pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
@@ -90,7 +99,7 @@ impl serde::Serialize for TdPyAny {
             let x = self.bind(py);
             let pickle = PICKLE_MODULE
                 .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
-                    Ok(py.import_bound("pickle")?.unbind())
+                    Ok(py.import("pickle")?.unbind())
                 })
                 .map_err(S::Error::custom)?;
             let binding = pickle
@@ -119,7 +128,7 @@ impl serde::de::Visitor<'_> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import_bound("pickle")?;
+            let pickle = py.import("pickle")?;
             let x = pickle
                 .call_method1(intern!(py, "loads"), (bytes,))?
                 .unbind()
@@ -146,10 +155,7 @@ impl PartialEq for TdPyAny {
             // pointer identity.
             let self_ = self.bind(py);
             let other = other.bind(py);
-            try_unwrap!(self_
-                .rich_compare(other, CompareOp::Eq)?
-                .as_gil_ref()
-                .is_truthy())
+            try_unwrap!(self_.rich_compare(other, CompareOp::Eq)?.is_truthy())
         })
     }
 }
@@ -168,7 +174,7 @@ impl<'py> FromPyObject<'py> for TdPyCallable {
             let py = ob.py();
             Ok(Self(ob.as_unbound().clone_ref(py)))
         } else {
-            let msg = if let Ok(type_name) = ob.get_type().name() {
+            let msg = if let Ok(type_name) = ob.get_type().qualname() {
                 format!("'{type_name}' object is not callable")
             } else {
                 "object is not callable".to_string()
