@@ -1,0 +1,51 @@
+name: stale
+
+on:
+  schedule:
+    # Daily at 04:00 UTC; throttled by `operations-per-run` to stay polite.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # Issues: 180 days idle → 'stale', +30 days → close.
+          days-before-issue-stale: 180
+          days-before-issue-close: 30
+          stale-issue-label: stale
+          exempt-issue-labels: "good first issue,help wanted,type:feature,pinned,security"
+          stale-issue-message: >
+            This issue has been inactive for 180 days and is being marked as
+            stale. If it's still relevant, please leave a comment or remove
+            the `stale` label and we'll keep it open. Otherwise it will be
+            closed in 30 days.
+          close-issue-message: >
+            Closing as stale after 210 days of inactivity. If this is still
+            an issue, please open a new one with up-to-date context — we're
+            happy to revisit.
+
+          # PRs: 90 days idle → 'stale', +30 days → close.
+          days-before-pr-stale: 90
+          days-before-pr-close: 30
+          stale-pr-label: stale
+          exempt-pr-labels: "ready for review,pinned,security"
+          stale-pr-message: >
+            This PR has been inactive for 90 days. Marking as stale; if you
+            still want it merged, please rebase on `main` and ping a
+            maintainer. Otherwise it will be closed in 30 days. (You can
+            re-open later — closing is not a rejection.)
+          close-pr-message: >
+            Closing this PR as stale. Thanks for the contribution — please
+            re-open or open a fresh PR if you'd like to pick the work back up.
+
+          # Be polite to the API and ramp up gradually as we burn down the backlog.
+          operations-per-run: 60
+          remove-stale-when-updated: true
+          ascending: true
