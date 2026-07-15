@@ -118,9 +118,15 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
                     item._triggered = True
                     # Batch is done early.
                     break
+                else:
+                    # Skip over an already-triggered abort on
+                    # continuation.
+                    self._start_idx += 1
             elif isinstance(item, TestingSource.PAUSE):
                 now = datetime.now(tz=timezone.utc)
                 self._next_awake = now + item.for_duration
+                # Skip over this on continuation.
+                self._start_idx += 1
                 # Batch is done early.
                 break
             else:
@@ -194,7 +200,12 @@ class TestingSource(FixedPartitionedSource[X, int]):
 
     @dataclass
     class PAUSE:
-        """Signal this input to not emit items for a duration."""
+        """Signal this input to not emit items for a duration.
+
+        Once the pause starts, it will not be replayed on resume; the
+        next execution will continue from the item after this.
+
+        """
 
         for_duration: timedelta
 

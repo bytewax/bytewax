@@ -9,6 +9,12 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes a bug where {py:obj}`~bytewax.testing.TestingSource.PAUSE`
+  and already-triggered {py:obj}`~bytewax.testing.TestingSource.ABORT`
+  items were not counted in the source's resume state, causing
+  resumed executions to rewind and re-emit items that had already
+  been processed.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
