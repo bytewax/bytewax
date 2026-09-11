@@ -197,7 +197,7 @@ file with the needed libraries to run your dataflow program.
 As we mentioned, Waxctl creates an IAM service account to allow your
 VM instance to store StackDriver logs. In case you need to use a
 custom IAM service account, the only permission that you need to
-assing to your service account is `logging.logEntries.create`
+assign to your service account is `logging.logEntries.create`
 
 We recommend to create an exclusive role having only that permission
 and maybe with an explicit name like "Bytewax-Role" or "Waxctl-Role".

@@ -909,7 +909,7 @@ Once the recovery partition files have been created, they must be
 placed in locations that are accessible to the workers. The cluster
 has a whole must have access to all partitions, but any given worker
 need not have access to any partition in particular (or any at
-all). It is ok if a given partition is accesible by multiple workers;
+all). It is ok if a given partition is accessible by multiple workers;
 only one worker will use it.
 
 If you are not running in a cluster environment but on a single
@@ -942,7 +942,7 @@ If you are scaling up the number of workers in your cluster to
 increase the total throughput of your dataflow, the work of writing
 recovery data to the recovery partitions will still be limited to the
 initial number of recovery partitions. If you will likely scale up
-your dataflow to accomodate increased demand, we recommend that that
+your dataflow to accommodate increased demand, we recommend that
 you consider creating more recovery partitions than you will initially
 need. Having multiple recovery partitions handled by a single worker
 is fine.
@@ -1415,7 +1415,7 @@ removes the need to manage epochs directly.
 
 Epochs continue to exist in Bytewax, but are now managed internally to
 represent a unit of recovery. Bytewax dataflows that are configured
-with recovery will shapshot their state after processing all items in
+with recovery will snapshot their state after processing all items in
 an epoch. In the event of recovery, Bytewax will resume a dataflow at
 the last snapshotted state. The frequency of snapshotting can be
 configured with an `EpochConfig`
@@ -1587,7 +1587,7 @@ the flow: where we used `reduce_epoch` we are now using
 `reduce_window`. Since the epochs concept is now considered an
 internal detail in bytewax, we need to define a way to let the
 `reduce` operator know when to close a specific window. Previously
-this was done everytime the `epoch` changed, while now it can be
+this was done every time the `epoch` changed, while now it can be
 configured with a time window. We need two config objects to do this:
 
 - `clock_config`

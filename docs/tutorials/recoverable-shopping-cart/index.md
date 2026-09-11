@@ -137,7 +137,7 @@ For user-facing applications like e-commerce or real-time analytics, state manag
 
 ## Implementing state management into our dataflow
 
-We will create a couple helper functions and classes to faciliate this, and combine it along with Bytewax operators.
+We will create a couple helper functions and classes to facilitate this, and combine it along with Bytewax operators.
 
 ```{literalinclude} recoverable_dataflow.py
 :language: python
@@ -197,7 +197,7 @@ We can see the `FAIL HERE` entry was promptly identified and skipped and the sta
 
 ## Visualizing the dataflow
 
-We can also visualize the dataflow as a mermaid graph through the commend
+We can also visualize the dataflow as a mermaid graph through the command
 
 ```console
 python -m bytewax.visualize recoverable_dataflow:flow
