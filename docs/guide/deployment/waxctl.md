@@ -100,7 +100,7 @@ In the above example, Waxctl used the default values for all the flags
 besides `name`. The tool allows you to configure a wide range of
 characteristics of your dataflow.
 
-We can see which flags are available geting the `dataflow deploy`
+We can see which flags are available getting the `dataflow deploy`
 help.
 
 ```console
@@ -294,7 +294,7 @@ running:
 $ waxctl df deploy my-script.py -Ncluster -p5 -w2
 ```
 
-Note that when you use one-character flags you can ommit the `=` or
+Note that when you use one-character flags you can omit the `=` or
 the space between the flag and the value.
 
 ### Using a tar file to work with a tree of directories and files

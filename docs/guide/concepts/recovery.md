@@ -12,7 +12,7 @@ initializing recovery partitions.
 
 ## Overview
 
-Bytewax implements recovery by periodically snapshoting state and
+Bytewax implements recovery by periodically snapshotting state and
 progress information for a single dataflow instance in a partitioned
 set of **recovery partitions**, [SQLite](https://sqlite.org/)
 databases in the **recovery directory**. Recovery data for multiple
@@ -76,7 +76,7 @@ Once the recovery partition files have been created, they must be
 placed in locations that are accessible to the workers. The cluster
 has a whole must have access to all partitions, but any given worker
 need not have access to any partition in particular (or any at
-all). It is ok if a given partition is accesible by multiple workers;
+all). It is ok if a given partition is accessible by multiple workers;
 only one worker will use it.
 
 Although the partition init script will not create these, partitions
