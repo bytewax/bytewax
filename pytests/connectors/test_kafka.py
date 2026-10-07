@@ -30,22 +30,7 @@ pytestmark = mark.skipif(
     reason="Set `TEST_KAFKA_BROKER` env var (non-empty) to run",
 )
 KAFKA_BROKER = os.environ.get("TEST_KAFKA_BROKER", "localhost")
-CLUSTER_API_KEY = os.environ.get("CLUSTER_API_KEY")
-CLUSTER_API_SECRET = os.environ.get("CLUSTER_API_SECRET")
-
-if CLUSTER_API_KEY is not None and CLUSTER_API_SECRET is not None:
-    config = {
-        "bootstrap.servers": KAFKA_BROKER,
-        "security.protocol": "SASL_SSL",
-        "sasl.mechanisms": "PLAIN",
-        "sasl.username": CLUSTER_API_KEY,
-        "sasl.password": CLUSTER_API_SECRET,
-        "debug": "all",
-    }
-else:
-    config = {
-        "bootstrap.servers": KAFKA_BROKER,
-    }
+config = {"bootstrap.servers": KAFKA_BROKER}
 
 
 @fixture
