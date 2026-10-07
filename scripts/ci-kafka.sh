@@ -22,7 +22,28 @@ java_path() {
 ensure_kafka() {
   if [[ -d "$KAFKA_DIR/bin" ]]; then return; fi
   local tgz="kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz"
-  curl -fsSL "https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/${tgz}" -o "/tmp/${tgz}"
+  # The CDN serves current releases quickly; archive.apache.org has
+  # every release but is heavily throttled (~100 KB/s, so a fetch can
+  # take most of a job's timeout). Try the CDN first and give up on it
+  # if it stalls; only fall back to the archive for versions that have
+  # left the CDN.
+  local url min_speed
+  for source in \
+    "https://dlcdn.apache.org/kafka 102400" \
+    "https://archive.apache.org/dist/kafka 10240"; do
+    read -r url min_speed <<< "$source"
+    url="${url}/${KAFKA_VERSION}/${tgz}"
+    echo "Downloading ${url}"
+    if curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
+        --speed-limit "$min_speed" --speed-time 60 "$url" -o "/tmp/${tgz}"; then
+      break
+    fi
+    rm -f "/tmp/${tgz}"
+  done
+  if [[ ! -s "/tmp/${tgz}" ]]; then
+    echo "Failed to download Apache Kafka ${KAFKA_VERSION}" >&2
+    exit 1
+  fi
   mkdir -p "$(dirname "$KAFKA_DIR")"
   tar -xzf "/tmp/${tgz}" -C "$(dirname "$KAFKA_DIR")"
   mv "$(dirname "$KAFKA_DIR")/kafka_${SCALA_VERSION}-${KAFKA_VERSION}" "$KAFKA_DIR"

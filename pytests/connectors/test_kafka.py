@@ -31,6 +31,10 @@ pytestmark = mark.skipif(
 )
 KAFKA_BROKER = os.environ.get("TEST_KAFKA_BROKER", "localhost")
 config = {"bootstrap.servers": KAFKA_BROKER}
+# Idempotent producers keep per-partition order even when a send is
+# retried, e.g. right after a topic is created and its leader is still
+# settling. Tests assert on that order.
+producer_config = {**config, "enable.idempotence": "true"}
 
 
 @fixture
@@ -77,7 +81,7 @@ def as_k_v(m: KafkaSourceMessage) -> Tuple[bytes, bytes]:
 
 def test_input(tmp_topic1, tmp_topic2):
     topics = [tmp_topic1, tmp_topic2]
-    producer = Producer(config)
+    producer = Producer(producer_config)
     inp = []
     for i, topic in enumerate(topics):
         for j in range(3):
@@ -103,7 +107,7 @@ def test_input(tmp_topic1, tmp_topic2):
 def test_input_resume_state(tmp_topic):
     topics = [tmp_topic]
     partition = 0
-    producer = Producer(config)
+    producer = Producer(producer_config)
     inp = []
     for i, topic in enumerate(topics):
         for j in range(3):
