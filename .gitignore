@@ -1,9 +1,8 @@
 /target
 
-# Local Kafka / ZooKeeper tarballs + state, populated by scripts/ci-kafka.sh
+# Local Kafka tarball + state, populated by scripts/ci-kafka.sh
 .kafka/
 .kafka-logs/
-.zookeeper/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,27 +1,21 @@
 ---
 services:
-  zookeeper:
-    image: zookeeper:3.9.6
-    environment:
-      ZOO_4LW_COMMANDS_WHITELIST: srvr,ruok
-      ZOO_TICK_TIME: 2000
-    healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep imok"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
-
   broker:
-    image: apache/kafka:3.9.2
+    image: apache/kafka:4.3.1
     ports:
       - "9092:9092"
-    depends_on:
-      zookeeper:
-        condition: service_healthy
     volumes:
       - ./kafka-server.properties:/etc/kafka/server.properties:ro
-    command: ["/opt/kafka/bin/kafka-server-start.sh", "/etc/kafka/server.properties"]
+    # KRaft needs its storage formatted with a cluster ID before the
+    # first start; `--standalone` bootstraps the single controller.
+    command:
+      - /bin/bash
+      - -c
+      - |
+        /opt/kafka/bin/kafka-storage.sh format --standalone --ignore-formatted \
+          -t "$$(/opt/kafka/bin/kafka-storage.sh random-uuid)" \
+          -c /etc/kafka/server.properties &&
+        exec /opt/kafka/bin/kafka-server-start.sh /etc/kafka/server.properties
     healthcheck:
       test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
       interval: 5s

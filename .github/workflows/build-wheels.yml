@@ -48,13 +48,11 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Cache Apache Kafka + ZooKeeper
+      - name: Cache Apache Kafka
         if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
         uses: actions/cache@v4
         with:
-          path: |
-            .kafka
-            .zookeeper
+          path: .kafka
           # Versions are pinned in the script; bumping them busts the cache.
           key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}-${{ matrix.target }}
       - name: Start Kafka
@@ -80,8 +78,6 @@ jobs:
         run: |
           echo '=== broker.log (tail 300) ==='
           tail -300 .kafka-logs/broker.log || true
-          echo '=== zk.log (tail 100) ==='
-          tail -100 .kafka-logs/zk.log || true
       - name: Stop Kafka
         if: ${{ always() && inputs.run-tests && matrix.target == 'x86_64' }}
         shell: bash
@@ -127,13 +123,11 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-      - name: Cache Apache Kafka + ZooKeeper
+      - name: Cache Apache Kafka
         if: ${{ inputs.run-tests }}
         uses: actions/cache@v4
         with:
-          path: |
-            .kafka
-            .zookeeper
+          path: .kafka
           key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}-${{ matrix.target }}
       - name: Start Kafka
         if: ${{ inputs.run-tests }}
@@ -156,8 +150,6 @@ jobs:
         run: |
           echo '=== broker.log (tail 300) ==='
           tail -300 .kafka-logs/broker.log || true
-          echo '=== zk.log (tail 100) ==='
-          tail -100 .kafka-logs/zk.log || true
       - name: Stop Kafka
         if: ${{ always() && inputs.run-tests }}
         shell: bash
@@ -209,13 +201,11 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Cache Apache Kafka + ZooKeeper
+      - name: Cache Apache Kafka
         if: ${{ inputs.run-tests }}
         uses: actions/cache@v4
         with:
-          path: |
-            .kafka
-            .zookeeper
+          path: .kafka
           key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}
       - name: Run Kafka and Python tests
         if: ${{ inputs.run-tests }}
@@ -242,8 +232,6 @@ jobs:
           tasklist //FI "IMAGENAME eq java.exe" 2>/dev/null || true
           echo '=== broker.log (tail 300) ==='
           tail -300 .kafka-logs/broker.log || true
-          echo '=== zk.log (tail 100) ==='
-          tail -100 .kafka-logs/zk.log || true
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
