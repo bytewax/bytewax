@@ -48,12 +48,15 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Cache Apache Kafka tarball
+      - name: Cache Apache Kafka + ZooKeeper
         if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
         uses: actions/cache@v4
         with:
-          path: .kafka
-          key: kafka-3.8.0-${{ runner.os }}-${{ matrix.target }}
+          path: |
+            .kafka
+            .zookeeper
+          # Versions are pinned in the script; bumping them busts the cache.
+          key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}-${{ matrix.target }}
       - name: Start Kafka
         if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
         shell: bash
@@ -124,12 +127,14 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-      - name: Cache Apache Kafka tarball
+      - name: Cache Apache Kafka + ZooKeeper
         if: ${{ inputs.run-tests }}
         uses: actions/cache@v4
         with:
-          path: .kafka
-          key: kafka-3.8.0-${{ runner.os }}-${{ matrix.target }}
+          path: |
+            .kafka
+            .zookeeper
+          key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}-${{ matrix.target }}
       - name: Start Kafka
         if: ${{ inputs.run-tests }}
         shell: bash
@@ -204,12 +209,14 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
-      - name: Cache Apache Kafka tarball
+      - name: Cache Apache Kafka + ZooKeeper
         if: ${{ inputs.run-tests }}
         uses: actions/cache@v4
         with:
-          path: .kafka
-          key: kafka-3.8.0-${{ runner.os }}
+          path: |
+            .kafka
+            .zookeeper
+          key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}
       - name: Run Kafka and Python tests
         if: ${{ inputs.run-tests }}
         timeout-minutes: 25
