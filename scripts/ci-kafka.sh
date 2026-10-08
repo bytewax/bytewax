@@ -19,6 +19,18 @@ java_path() {
   fi
 }
 
+# log4j2 wants a URI for its config file: a bare Windows path like
+# `D:/a/...` is read as a URL with scheme `D:` and rejected, leaving
+# the broker without its logging config.
+log4j_uri() {
+  local p
+  p="$(java_path "$1")"
+  case "$p" in
+    /*) printf 'file://%s\n' "$p" ;;
+    *) printf 'file:///%s\n' "$p" ;;
+  esac
+}
+
 ensure_kafka() {
   if [[ -d "$KAFKA_DIR/bin" ]]; then return; fi
   local tgz="kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz"
@@ -56,7 +68,7 @@ start() {
 
   # Explicit Java-style paths so log4j2 finds its config under Git Bash
   # on Windows; tools log quietly, the server uses its own config below.
-  export KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=$(java_path "$KAFKA_DIR/config/tools-log4j2.yaml")"
+  export KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=$(log4j_uri "$KAFKA_DIR/config/tools-log4j2.yaml")"
   local props="$KAFKA_DIR/config/server-test.properties"
   cp "$PWD/examples/utils/kafka-server.properties" "$props"
   # Portable in-place sed (BSD on macOS, GNU elsewhere): point log.dirs
@@ -77,7 +89,7 @@ start() {
     exit 1
   }
 
-  KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=$(java_path "$KAFKA_DIR/config/log4j2.yaml")" \
+  KAFKA_LOG4J_OPTS="-Dlog4j2.configurationFile=$(log4j_uri "$KAFKA_DIR/config/log4j2.yaml")" \
     nohup "$KAFKA_DIR/bin/kafka-server-start.sh" "$kafka_props" \
     </dev/null > "$KAFKA_LOG_DIRS/broker.log" 2>&1 &
   echo $! > "$KAFKA_LOG_DIRS/broker.pid"
