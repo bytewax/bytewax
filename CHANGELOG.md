@@ -9,6 +9,13 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes `bytewax.connectors.kafka.serde` failing to import with
+  `confluent-kafka>=2.7` unless the `confluent-kafka[schemaregistry]`
+  extra was installed. `PlainAvroSerializer` and
+  `PlainAvroDeserializer` no longer need Schema Registry
+  dependencies; they still accept a
+  `confluent_kafka.schema_registry.Schema`.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the

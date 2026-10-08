@@ -3,13 +3,24 @@
 import io
 import json
 import logging
-from typing import Dict, Optional, Union
+from typing import TYPE_CHECKING, Dict, Optional, Union
 
-from confluent_kafka.schema_registry import Schema
 from confluent_kafka.serialization import Deserializer, SerializationContext, Serializer
 from fastavro import parse_schema, schemaless_reader, schemaless_writer
 
+if TYPE_CHECKING:
+    # Only for type hints: importing `confluent_kafka.schema_registry`
+    # at runtime needs the `confluent-kafka[schemaregistry]` extra
+    # (since confluent-kafka 2.7), which plain Avro serde doesn't use.
+    from confluent_kafka.schema_registry import Schema
+
 _logger = logging.getLogger(__name__)
+
+
+def _schema_str(schema: Union[str, "Schema"]) -> str:
+    if isinstance(schema, str):
+        return schema
+    return schema.schema_str
 
 
 class PlainAvroSerializer(Serializer):
@@ -26,7 +37,7 @@ class PlainAvroSerializer(Serializer):
     """
 
     def __init__(
-        self, schema: Union[str, Schema], named_schemas: Optional[Dict] = None
+        self, schema: Union[str, "Schema"], named_schemas: Optional[Dict] = None
     ):
         """Init.
 
@@ -37,11 +48,9 @@ class PlainAvroSerializer(Serializer):
             {py:obj}`fastavro._schema_py.parse_schema`.
 
         """
-        if isinstance(schema, Schema):
-            schema_str = schema.schema_str
-        else:
-            schema_str = schema
-        self.schema = parse_schema(json.loads(schema_str), named_schemas=named_schemas)
+        self.schema = parse_schema(
+            json.loads(_schema_str(schema)), named_schemas=named_schemas
+        )
 
     # TODO: Re-enable once we get type hints for `confluent_kafka`.
     # @override
@@ -72,7 +81,7 @@ class PlainAvroDeserializer(Deserializer):
     """
 
     def __init__(
-        self, schema: Union[str, Schema], named_schemas: Optional[Dict] = None
+        self, schema: Union[str, "Schema"], named_schemas: Optional[Dict] = None
     ):
         """Init.
 
@@ -83,11 +92,9 @@ class PlainAvroDeserializer(Deserializer):
             {py:obj}`fastavro._schema_py.parse_schema`.
 
         """
-        if isinstance(schema, Schema):
-            schema_str = schema.schema_str
-        else:
-            schema_str = schema
-        self.schema = parse_schema(json.loads(schema_str), named_schemas=named_schemas)
+        self.schema = parse_schema(
+            json.loads(_schema_str(schema)), named_schemas=named_schemas
+        )
 
     # TODO: Re-enable once we get type hints for `confluent_kafka`.
     # @override
