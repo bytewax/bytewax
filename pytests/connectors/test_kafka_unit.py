@@ -222,7 +222,7 @@ def test_list_parts_one_part_per_topic_partition(fake_admin):
     assert client.config == {"bootstrap.servers": "broker:9092", "client.id": "test"}
     # Auth callbacks are kicked off before listing topics.
     assert client.polled == [0]
-    assert client.listed == [("a", 10.0), ("b", 10.0)]
+    assert client.listed == [("a", 30.0), ("b", 30.0)]
 
 
 def test_list_parts_raises_on_missing_topic(fake_admin):

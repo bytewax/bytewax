@@ -161,7 +161,7 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
     for topic in topics:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
-        cluster_metadata = client.list_topics(topic, timeout=10.0)
+        cluster_metadata = client.list_topics(topic, timeout=30.0)
         assert cluster_metadata.topics is not None
         topic_metadata = cluster_metadata.topics.get(topic)
         if topic_metadata is None:
