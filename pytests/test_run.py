@@ -20,6 +20,7 @@ from bytewax.run import (
     _parse_args,
     _parse_timedelta,
     _prepare_import,
+    _split_import_str,
 )
 from pytest import MonkeyPatch, fixture, mark, raises
 
@@ -139,9 +140,8 @@ def test_locate_dataflow_factory_not_returning_dataflow(flow_module):
 def clean_syspath(monkeypatch, tmp_path):
     """Restore `sys.path` afterwards and run from `tmp_path`.
 
-    Import strings in these tests are relative paths: on Windows an
-    absolute path's drive colon is mistaken for the `:` separator (see
-    `test_prepare_import_absolute_path`).
+    Import strings in these tests are relative paths, so they read the
+    same on every OS.
 
     """
     monkeypatch.setattr(sys, "path", list(sys.path))
@@ -191,11 +191,22 @@ def test_prepare_import_does_not_duplicate_path(tmp_path, clean_syspath):
     assert sys.path == before
 
 
-@mark.xfail(
-    sys.platform == "win32",
-    reason="the drive letter's colon is taken as the module:attr separator",
-    strict=True,
+@mark.parametrize(
+    ("import_str", "expected"),
+    [
+        ("flow.py", ("flow.py", "flow")),
+        ("pkg.mod:get_flow('a:b')", ("pkg.mod", "get_flow('a:b')")),
+        ("/srv/app/flow.py:flow", ("/srv/app/flow.py", "flow")),
+        ("C:\\proj\\flow.py:flow", ("C:\\proj\\flow.py", "flow")),
+        ("c:/proj/flow.py", ("c:/proj/flow.py", "flow")),
+        ("D:\\proj\\flow.py:get_flow('x')", ("D:\\proj\\flow.py", "get_flow('x')")),
+    ],
 )
+def test_split_import_str(import_str, expected):
+    # A Windows drive letter's colon is part of the path, on any OS.
+    assert _split_import_str(import_str) == expected
+
+
 def test_prepare_import_absolute_path(tmp_path, clean_syspath):
     (tmp_path / "solo.py").write_text("")
 

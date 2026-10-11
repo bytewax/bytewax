@@ -9,6 +9,10 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes `python -m bytewax.run` on Windows with an absolute path like
+  `C:\proj\flow.py:flow`: the drive letter's colon was taken as the
+  `module:dataflow` separator, so the module was looked up as `C`.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
