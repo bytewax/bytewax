@@ -119,8 +119,11 @@ class _IterSourcePartition(StatefulSourcePartition[X, int]):
                     # Batch is done early.
                     break
                 else:
-                    # Skip over an already-triggered abort on
-                    # continuation.
+                    # Already triggered in an earlier execution: skip
+                    # it and count it, so the resume state moves past
+                    # it. The first trigger above is not counted on
+                    # purpose, so that resume reaches this abort again
+                    # and skips it here instead of re-raising.
                     self._start_idx += 1
             elif isinstance(item, TestingSource.PAUSE):
                 now = datetime.now(tz=timezone.utc)
@@ -186,7 +189,7 @@ class TestingSource(FixedPartitionedSource[X, int]):
     class ABORT:
         """Abort the execution when the input processes this item.
 
-        The next execution will resume from some item befor this one.
+        The next execution will resume from some item before this one.
 
         Each abort will only trigger once. They'll be skipped on
         resume executions.
