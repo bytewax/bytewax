@@ -9,6 +9,20 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- {py:obj}`~bytewax.connectors.kafka.KafkaSource` now gives up
+  fetching topic metadata after 30 seconds and fails with a clear
+  error for a missing topic or a topic without partitions. Previously
+  it could wait indefinitely (e.g. while the broker was unreachable),
+  fail with a `KeyError`, or silently read nothing. See "Startup and
+  Unreachable Brokers" in the Kafka guide.
+
+- Fixes `bytewax.connectors.kafka.serde` failing to import with
+  `confluent-kafka>=2.7` unless the `confluent-kafka[schemaregistry]`
+  extra was installed. `PlainAvroSerializer` and
+  `PlainAvroDeserializer` no longer need Schema Registry
+  dependencies; they still accept a
+  `confluent_kafka.schema_registry.Schema`.
+
 - Fixes `python -m bytewax.run` on Windows with an absolute path like
   `C:\proj\flow.py:flow`: the drive letter's colon was taken as the
   `module:dataflow` separator, so the module was looked up as `C`.
