@@ -46,6 +46,17 @@ Typical use cases should prefer the Kafka operators, while the
 {py:obj}`~bytewax.connectors.kafka.KafkaSource` connector can
 be used for other customizations.
 
+### Startup and Unreachable Brokers
+
+When a dataflow starts, {py:obj}`~bytewax.connectors.kafka.KafkaSource`
+asks the brokers for the partitions of each topic. If that metadata
+can't be fetched within 30 seconds (for example, because the brokers
+aren't up yet), or a topic doesn't exist or has no partitions, the
+dataflow fails to start with an error instead of waiting. Make sure
+Kafka is reachable and the topics exist before starting the dataflow,
+or let your orchestrator (e.g. a Kubernetes or docker-compose restart
+policy) restart it.
+
 ## Error Handling
 
 By default, {py:obj}`~bytewax.connectors.kafka.KafkaSource` will raise
