@@ -23,6 +23,10 @@ notes on GitHub when we make a new release.__
   dependencies; they still accept a
   `confluent_kafka.schema_registry.Schema`.
 
+- Fixes `python -m bytewax.run` on Windows with an absolute path like
+  `C:\proj\flow.py:flow`: the drive letter's colon was taken as the
+  `module:dataflow` separator, so the module was looked up as `C`.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
