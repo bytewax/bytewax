@@ -33,6 +33,13 @@ notes on GitHub when we make a new release.__
   resumed executions to rewind and re-emit items that had already
   been processed.
 
+- Fixes {py:obj}`~bytewax.inputs.batch_async` never closing the event
+  loop it creates, nor the source async iterator, when it finishes or
+  its partition is closed. Each use leaked file descriptors until
+  garbage collection, and the source's cleanup (e.g. closing a
+  websocket) didn't run. A loop passed in with `loop=` is still left
+  open. Reported in #536 by @Chittaranjans.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
