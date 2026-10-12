@@ -9,11 +9,10 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- {py:obj}`~bytewax.connectors.kafka.KafkaSource` now gives up
-  fetching topic metadata after 30 seconds and fails with a clear
-  error for a missing topic or a topic without partitions. Previously
-  it could wait indefinitely (e.g. while the broker was unreachable),
-  fail with a `KeyError`, or silently read nothing. See "Startup and
+- {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
+  forever at startup when the brokers are unreachable. It now gives
+  up fetching topic metadata after 30 seconds and fails with a
+  `RuntimeError` naming the brokers and topic. See "Startup and
   Unreachable Brokers" in the Kafka guide.
 
 - Fixes `bytewax.connectors.kafka.serde` failing to import with
@@ -32,6 +31,13 @@ notes on GitHub when we make a new release.__
   items were not counted in the source's resume state, causing
   resumed executions to rewind and re-emit items that had already
   been processed.
+
+- Fixes {py:obj}`~bytewax.inputs.batch_async` never closing the event
+  loop it creates, nor the source async iterator, when it finishes or
+  its partition is closed. Each use leaked file descriptors until
+  garbage collection, and the source's cleanup (e.g. closing a
+  websocket) didn't run. A loop passed in with `loop=` is still left
+  open. Reported in #536 by @Chittaranjans.
 
 - This is the last release that supports Python 3.8 and 3.9, which
   are end-of-life upstream. The next release will require Python 3.10

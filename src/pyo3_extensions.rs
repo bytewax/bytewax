@@ -10,6 +10,7 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
+use std::sync::Arc;
 
 static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 
@@ -23,17 +24,19 @@ static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 /// extend it with traits that Timely needs. See
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
-pub(crate) struct TdPyAny(PyObject);
-
-/// PyO3 0.22+ removed the global reference pool, so cloning a
-/// [`Py`] without the GIL held is no longer possible (the `py-clone`
-/// feature panics in that case). Timely clones items on worker
-/// threads outside the GIL, so explicitly acquire it.
-impl Clone for TdPyAny {
-    fn clone(&self) -> Self {
-        Python::with_gil(|py| Self(self.0.clone_ref(py)))
-    }
-}
+///
+/// The [`Py`] is wrapped in an [`Arc`] so [`Clone`] does not need
+/// the GIL. Since PyO3 0.22, incrementing a Python refcount requires
+/// the GIL (the `py-clone` feature panics without it). Timely clones
+/// every item on worker threads whenever a stream is read by more
+/// than one operator, so taking the GIL there made workers contend
+/// on it and multi-worker dataflows slowed down. Cloning the [`Arc`]
+/// instead defers the Python incref until the item is unwrapped back
+/// into a [`PyObject`], which happens with the GIL already held.
+/// Dropping the last [`Arc`] without the GIL is fine: PyO3 queues the
+/// decref in its reference pool.
+#[derive(Clone)]
+pub(crate) struct TdPyAny(Arc<PyObject>);
 
 impl TdPyAny {
     pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
@@ -41,21 +44,23 @@ impl TdPyAny {
     }
 }
 
+/// Only takes the GIL to incref if other clones of this item are
+/// still alive.
 impl From<TdPyAny> for PyObject {
     fn from(x: TdPyAny) -> Self {
-        x.0
+        Arc::try_unwrap(x.0).unwrap_or_else(|x| Python::with_gil(|py| x.clone_ref(py)))
     }
 }
 
 impl From<PyObject> for TdPyAny {
     fn from(x: PyObject) -> Self {
-        Self(x)
+        Self(Arc::new(x))
     }
 }
 
 impl From<Bound<'_, PyAny>> for TdPyAny {
     fn from(x: Bound<'_, PyAny>) -> Self {
-        Self(x.unbind())
+        Self(Arc::new(x.unbind()))
     }
 }
 

@@ -31,8 +31,9 @@ use crate::with_timer;
 /// Represents a `bytewax.outputs.Sink` from Python.
 pub(crate) struct Sink(Py<PyAny>);
 
-/// Clone with the GIL held; see [`crate::pyo3_extensions::TdPyAny`]'s
-/// `Clone` impl for why this is manual.
+/// Clone with the GIL held; PyO3 0.22+ can't clone a [`Py`] without
+/// it. This is not cloned per item, so unlike
+/// [`crate::pyo3_extensions::TdPyAny`] the GIL cost doesn't matter.
 impl Clone for Sink {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self(self.0.clone_ref(py)))
@@ -75,8 +76,9 @@ impl Sink {
 /// Represents a `bytewax.outputs.PartitionedOutput` from Python.
 pub(crate) struct FixedPartitionedSink(Py<PyAny>);
 
-/// Clone with the GIL held; see [`crate::pyo3_extensions::TdPyAny`]'s
-/// `Clone` impl for why this is manual.
+/// Clone with the GIL held; PyO3 0.22+ can't clone a [`Py`] without
+/// it. This is not cloned per item, so unlike
+/// [`crate::pyo3_extensions::TdPyAny`] the GIL cost doesn't matter.
 impl Clone for FixedPartitionedSink {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self(self.0.clone_ref(py)))
@@ -424,8 +426,9 @@ where
 /// Represents a `bytewax.outputs.DynamicSink` from Python.
 pub(crate) struct DynamicSink(Py<PyAny>);
 
-/// Clone with the GIL held; see [`crate::pyo3_extensions::TdPyAny`]'s
-/// `Clone` impl for why this is manual.
+/// Clone with the GIL held; PyO3 0.22+ can't clone a [`Py`] without
+/// it. This is not cloned per item, so unlike
+/// [`crate::pyo3_extensions::TdPyAny`] the GIL cost doesn't matter.
 impl Clone for DynamicSink {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self(self.0.clone_ref(py)))

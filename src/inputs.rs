@@ -106,8 +106,9 @@ create_exception!(
 /// Represents a `bytewax.inputs.Source` from Python.
 pub(crate) struct Source(Py<PyAny>);
 
-/// Clone with the GIL held; see [`crate::pyo3_extensions::TdPyAny`]'s
-/// `Clone` impl for why this is manual.
+/// Clone with the GIL held; PyO3 0.22+ can't clone a [`Py`] without
+/// it. This is not cloned per item, so unlike
+/// [`crate::pyo3_extensions::TdPyAny`] the GIL cost doesn't matter.
 impl Clone for Source {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self(self.0.clone_ref(py)))
@@ -150,8 +151,9 @@ impl Source {
 /// Represents a `bytewax.inputs.FixedPartitionedSource` from Python.
 pub(crate) struct FixedPartitionedSource(Py<PyAny>);
 
-/// Clone with the GIL held; see [`crate::pyo3_extensions::TdPyAny`]'s
-/// `Clone` impl for why this is manual.
+/// Clone with the GIL held; PyO3 0.22+ can't clone a [`Py`] without
+/// it. This is not cloned per item, so unlike
+/// [`crate::pyo3_extensions::TdPyAny`] the GIL cost doesn't matter.
 impl Clone for FixedPartitionedSource {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self(self.0.clone_ref(py)))
@@ -642,8 +644,9 @@ impl Drop for StatefulPartition {
 /// Represents a `bytewax.inputs.DynamicInput` from Python.
 pub(crate) struct DynamicSource(Py<PyAny>);
 
-/// Clone with the GIL held; see [`crate::pyo3_extensions::TdPyAny`]'s
-/// `Clone` impl for why this is manual.
+/// Clone with the GIL held; PyO3 0.22+ can't clone a [`Py`] without
+/// it. This is not cloned per item, so unlike
+/// [`crate::pyo3_extensions::TdPyAny`] the GIL cost doesn't matter.
 impl Clone for DynamicSource {
     fn clone(&self) -> Self {
         Python::with_gil(|py| Self(self.0.clone_ref(py)))

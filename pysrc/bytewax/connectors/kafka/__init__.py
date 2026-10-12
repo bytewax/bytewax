@@ -46,7 +46,13 @@ from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Unio
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
-from confluent_kafka import OFFSET_BEGINNING, Consumer, Producer, TopicPartition
+from confluent_kafka import (
+    OFFSET_BEGINNING,
+    Consumer,
+    KafkaException,
+    Producer,
+    TopicPartition,
+)
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
 from prometheus_client import Gauge
@@ -157,13 +163,34 @@ class KafkaError(Generic[K, V]):
     """Message attached to that error."""
 
 
-def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
+_LIST_TOPICS_TIMEOUT_S = 30.0
+"""How long to wait for topic metadata when listing partitions."""
+
+
+def _list_parts(
+    client: AdminClient, brokers: str, topics: Iterable[str]
+) -> Iterable[str]:
     for topic in topics:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
-        cluster_metadata = client.list_topics(topic, timeout=30.0)
+        try:
+            cluster_metadata = client.list_topics(topic, timeout=_LIST_TOPICS_TIMEOUT_S)
+        except KafkaException as ex:
+            # E.g. `_TRANSPORT` when no broker could be reached
+            # before the timeout.
+            err = ex.args[0] if ex.args else None
+            reason = err.str() if isinstance(err, ConfluentKafkaError) else str(ex)
+            msg = (
+                f"could not fetch metadata for Kafka topic `{topic!r}` "
+                f"from brokers `{brokers!r}` within "
+                f"{_LIST_TOPICS_TIMEOUT_S:g} seconds: {reason}"
+            )
+            raise RuntimeError(msg) from ex
         assert cluster_metadata.topics is not None
         topic_metadata = cluster_metadata.topics.get(topic)
+        # A missing topic is normally still listed, with its `error`
+        # set (handled below); this only guards against a response
+        # that leaves it out entirely.
         if topic_metadata is None:
             msg = f"Kafka topic `{topic!r}` was not found"
             raise RuntimeError(msg)
@@ -393,7 +420,7 @@ class KafkaSource(
         # to start any configured auth callbacks.
         client.poll(0)
 
-        return list(_list_parts(client, self._topics))
+        return list(_list_parts(client, config["bootstrap.servers"], self._topics))
 
     def build_part(
         self, step_id: str, for_part: str, resume_state: Optional[int]
