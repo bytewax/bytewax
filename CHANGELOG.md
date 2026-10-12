@@ -23,6 +23,10 @@ notes on GitHub when we make a new release.__
   dependencies; they still accept a
   `confluent_kafka.schema_registry.Schema`.
 
+- Fixes `python -m bytewax.run` on Windows with an absolute path like
+  `C:\proj\flow.py:flow`: the drive letter's colon was taken as the
+  `module:dataflow` separator, so the module was looked up as `C`.
+
 - Fixes a bug where {py:obj}`~bytewax.testing.TestingSource.PAUSE`
   and already-triggered {py:obj}`~bytewax.testing.TestingSource.ABORT`
   items were not counted in the source's resume state, causing
