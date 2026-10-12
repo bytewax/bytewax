@@ -213,6 +213,9 @@ def setup_tracing(tracing_config=None, log_level=None):
     Note: To make this work, you have to keep a reference of the
     returned object.
 
+    Tracing can only be set up once per process. Calling this again
+    raises a `RuntimeError`.
+
     % Skip this doctest because it requires starting the webserver.
 
     ```python

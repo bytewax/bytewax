@@ -90,6 +90,10 @@ fn get_log_level(level: Option<String>) -> LevelFilter {
     }
 }
 
+const ALREADY_SET_UP: &str = "tracing is already set up in this process; keep the \
+                              object returned by the first `setup_tracing` call \
+                              instead of calling it again";
+
 async fn setup(
     log_level: LevelFilter,
     tracer: Option<Box<dyn TracerBuilder + Send>>,
@@ -113,10 +117,10 @@ async fn setup(
             // Send all traces from bytewax
             .with_filter(Targets::new().with_target("bytewax", LevelFilter::TRACE));
         tracing::subscriber::set_global_default(Registry::default().with(logs).with(telemetry))
-            .raise::<PyRuntimeError>("error setting global default tracer")
+            .raise::<PyRuntimeError>(ALREADY_SET_UP)
     } else {
         tracing::subscriber::set_global_default(Registry::default().with(logs))
-            .raise::<PyRuntimeError>("error setting global default tracer")
+            .raise::<PyRuntimeError>(ALREADY_SET_UP)
     }
 }
 
@@ -126,6 +130,7 @@ impl BytewaxTracer {
     /// whole execution of the code you want to trace.
     pub(crate) fn setup(
         &self,
+        py: Python,
         tracer: Option<Box<dyn TracerBuilder + Send>>,
         log_level: Option<String>,
     ) -> PyResult<()> {
@@ -133,9 +138,10 @@ impl BytewaxTracer {
         let log_level = get_log_level(log_level);
 
         // We need an async fn block to properly initialize the tracing runtime
-        // and be able to propagate errors.
-        self.rt
-            .block_on(self.rt.spawn(setup(log_level, tracer)))
+        // and be able to propagate errors. Release the GIL while waiting:
+        // building an error on the runtime's thread takes the GIL, so
+        // holding it here would deadlock on any setup error.
+        py.allow_threads(|| self.rt.block_on(self.rt.spawn(setup(log_level, tracer))))
             .map_err(|err| {
                 tracked_err::<PyRuntimeError>(&format!("error setting up tracing: {err}"))
             })?
@@ -149,6 +155,9 @@ impl BytewaxTracer {
 ///
 /// Note: To make this work, you have to keep a reference of the
 /// returned object.
+///
+/// Tracing can only be set up once per process. Calling this again
+/// raises a `RuntimeError`.
 ///
 /// % Skip this doctest because it requires starting the webserver.
 ///
@@ -180,7 +189,7 @@ fn setup_tracing(
         .unwrap();
     let tracer = Bound::new(py, BytewaxTracer { rt })?;
     let builder = tracing_config.map(|conf| conf.downcast(py).unwrap());
-    tracer.borrow().setup(builder, log_level)?;
+    tracer.borrow().setup(py, builder, log_level)?;
     Ok(tracer)
 }
 

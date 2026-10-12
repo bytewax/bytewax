@@ -33,6 +33,12 @@ notes on GitHub when we make a new release.__
   resumed executions to rewind and re-emit items that had already
   been processed.
 
+- Fixes {py:obj}`~bytewax.tracing.setup_tracing` hanging forever
+  instead of raising a `RuntimeError` when tracing can't be set up:
+  when it is called a second time in the same process, or when the
+  tracing config is invalid (e.g. a malformed OTLP endpoint URL).
+  Tracing can only be set up once per process.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
