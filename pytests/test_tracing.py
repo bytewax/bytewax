@@ -8,6 +8,7 @@ def _run(code: str) -> str:
     # deadlock shows up as a timeout instead of hanging the test run.
     proc = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(code)],
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
