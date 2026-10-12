@@ -1,5 +1,7 @@
 import asyncio
+import gc
 import itertools
+import os
 import queue
 import re
 import sys
@@ -23,7 +25,7 @@ from bytewax.inputs import (
     batch_getter_ex,
 )
 from bytewax.testing import TestingSink, run_main
-from pytest import raises
+from pytest import raises, skip
 from typing_extensions import override
 
 
@@ -543,3 +545,30 @@ def test_batch_async_leaves_given_loop_open():
         assert not loop.is_closed()
     finally:
         loop.close()
+
+
+def _open_fds() -> int:
+    for fd_dir in ("/proc/self/fd", "/dev/fd"):
+        if os.path.isdir(fd_dir):
+            return len(os.listdir(fd_dir))
+    skip("can't list open file descriptors on this platform")
+
+
+def test_batch_async_does_not_leak_fds():
+    # Each event loop holds file descriptors (a selector, and a
+    # self-pipe or socket pair). Without GC, a loop that isn't closed
+    # keeps them open, so a leak shows up as the count growing.
+    gc.collect()
+    gc.disable()
+    try:
+        before = _open_fds()
+        for _ in range(20):
+            assert list(batch_async(_gen(), timedelta(seconds=1), 5)) == [
+                [0, 1, 2, 3, 4]
+            ]
+        after = _open_fds()
+    finally:
+        gc.enable()
+        gc.collect()
+
+    assert after - before < 20
