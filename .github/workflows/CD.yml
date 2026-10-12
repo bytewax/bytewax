@@ -95,32 +95,41 @@ jobs:
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [ release ]
+    timeout-minutes: 25
     steps:
-    - name: Install ansible
+    - name: Wait for the release to appear on the PyPI simple index
+      # `Dockerfile.release` runs `pip install bytewax==<version>`, so
+      # poll the same index pip reads until the new wheels are listed.
+      env:
+        BYTEWAX_VERSION: ${{ needs.release.outputs.bytewax-version }}
+        TIMEOUT_SECONDS: 1200
+        POLL_INTERVAL_SECONDS: 15
       run: |
-        pip install ansible==3.4.0
-        ansible -m ping localhost
-    - name: Create task file
-      run: |
-        cat << EOF > ./pip_task.yaml
-        ---
-        - name: Try install bytewax using pip
-          hosts: localhost
-          tasks:
-          - name: Loop
-            shell: "pip install bytewax=={{ bytewax_version }} -v"
-            register: pip_result
-            retries: 60
-            until: pip_result.rc == 0
-            delay: 10
-        EOF
-    - name: Upgrade pip version
-      run: |
-        pip --version
-        pip install --upgrade pip
-    - name: Check PyPI index before building docker images
-      run: |
-        ansible-playbook ./pip_task.yaml -e bytewax_version=${{ needs.release.outputs.bytewax-version }} -vvv
+        url="https://pypi.org/simple/bytewax/"
+        prefix="bytewax-${BYTEWAX_VERSION}-"
+        deadline=$((SECONDS + TIMEOUT_SECONDS))
+        attempt=0
+        while true; do
+          attempt=$((attempt + 1))
+          count=$(
+            curl -fsSL --max-time 30 \
+              -H 'Accept: application/vnd.pypi.simple.v1+json' \
+              -H 'Cache-Control: max-age=0' \
+              "$url" \
+            | jq --arg prefix "$prefix" \
+              '[.files[].filename | select(startswith($prefix) and endswith(".whl"))] | length'
+          ) || count=0
+          if [ "${count:-0}" -gt 0 ]; then
+            echo "Found ${count} wheel(s) for bytewax ${BYTEWAX_VERSION} on PyPI (attempt ${attempt})."
+            exit 0
+          fi
+          if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "::error title=PyPI check timed out::bytewax ${BYTEWAX_VERSION} wheels not listed on ${url} after ${TIMEOUT_SECONDS}s (${attempt} attempts)."
+            exit 1
+          fi
+          echo "Attempt ${attempt}: bytewax ${BYTEWAX_VERSION} not on PyPI yet; retrying in ${POLL_INTERVAL_SECONDS}s..."
+          sleep "$POLL_INTERVAL_SECONDS"
+        done
 
   publish-docker-hub:
     name: Publish to Docker Hub
