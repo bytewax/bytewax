@@ -49,10 +49,10 @@ Make a PR which commits the following:
 
 4. Write migration guide entry
 
-   Add a section to `docs/user_guide/reference/migration.md` like
+   Add a section to `docs/guide/reference/migration.md` like
 
    ````{code-block} markdown
-   :caption: docs/user_guide/reference/migration.md
+   :caption: docs/guide/reference/migration.md
    ## From v1.2.2 to v1.2.3
 
    ### Breaking change to `Cow` API
@@ -145,7 +145,7 @@ version of the package is there.
 
 ## 4. Double check ReadTheDocs
 
-We host our docs at <https://docs.bytewax.io> which are hosted by
+Our docs are built and hosted by
 [Read The Docs](https://docs.readthedocs.io/en/stable/index.html). The
 RTD project should automatically detect that a new tag was created and
 build the documentation from that tag, through the [automation rules
@@ -153,8 +153,9 @@ setup here](https://readthedocs.org/dashboard/bytewax/rules/).
 
 Double check that the build for this new version completed at the
 [builds page for our
-project](https://readthedocs.org/projects/bytewax/builds/). Then go to
-our [live production docs](https://docs.bytewax.io) and ensure that
-the new release docs are being shown for the `stable` version.
+project](https://readthedocs.org/projects/bytewax/builds/). Then check
+the [versions page for our
+project](https://readthedocs.org/projects/bytewax/versions/) and
+ensure that the `stable` version points to the new release.
 
 I think we're done! Update this if we're not!

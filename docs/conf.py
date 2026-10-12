@@ -126,9 +126,6 @@ html_theme_options = {
     "footer_end": [],
     "article_footer_items": ["slack-footer.html"],
     # https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/header-links.html#icon-links
-    "external_links": [
-        {"name": "Platform Docs", "url": "https://platform.bytewax.io"},
-    ],
     "icon_links": [
         {
             "name": "GitHub",
@@ -145,7 +142,6 @@ html_theme_options = {
         "alt_text": "Bytewax",
         "image_light": "_static/img/logo.svg",
         "image_dark": "_static/img/logo_dark.svg",
-        "link": "https://bytewax.io",
         "text": "Docs",
     },
     # On the per-page right hand side TOC, show more depth by default.
