@@ -51,11 +51,12 @@ be used for other customizations.
 When a dataflow starts, {py:obj}`~bytewax.connectors.kafka.KafkaSource`
 asks the brokers for the partitions of each topic. If that metadata
 can't be fetched within 30 seconds (for example, because the brokers
-aren't up yet), or a topic doesn't exist or has no partitions, the
-dataflow fails to start with an error instead of waiting. Make sure
-Kafka is reachable and the topics exist before starting the dataflow,
-or let your orchestrator (e.g. a Kubernetes or docker-compose restart
-policy) restart it.
+aren't up yet), the dataflow fails to start with an error naming the
+brokers and topic instead of waiting forever. It also fails right
+away if a topic doesn't exist and the brokers don't auto-create it.
+Make sure Kafka is reachable and the topics exist before starting the
+dataflow, or let your orchestrator (e.g. a Kubernetes or
+docker-compose restart policy) restart it.
 
 ## Error Handling
 

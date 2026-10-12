@@ -25,7 +25,7 @@ from bytewax.connectors.kafka.serde import PlainAvroDeserializer, PlainAvroSeria
 from bytewax.dataflow import Dataflow
 from bytewax.errors import BytewaxRuntimeError
 from bytewax.testing import TestingSink, TestingSource, run_main
-from confluent_kafka import OFFSET_BEGINNING, TopicPartition
+from confluent_kafka import OFFSET_BEGINNING, KafkaException, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.serialization import StringDeserializer, StringSerializer
 from prometheus_client import REGISTRY
@@ -155,6 +155,7 @@ class _FakeAdminClient:
 
     instances: List["_FakeAdminClient"] = []
     topics: Dict[str, _FakeTopicMetadata] = {}
+    list_topics_raises: Optional[KafkaException] = None
     omit_topics: bool = False
 
     def __init__(self, config: Dict[str, Any]):
@@ -168,6 +169,8 @@ class _FakeAdminClient:
 
     def list_topics(self, topic, timeout):
         self.listed.append((topic, timeout))
+        if type(self).list_topics_raises is not None:
+            raise type(self).list_topics_raises
         if type(self).omit_topics:
             return _FakeClusterMetadata({})
         unknown = _FakeTopicMetadata(
@@ -180,6 +183,7 @@ class _FakeAdminClient:
 def fake_admin(monkeypatch):
     _FakeAdminClient.instances = []
     _FakeAdminClient.topics = {}
+    _FakeAdminClient.list_topics_raises = None
     _FakeAdminClient.omit_topics = False
     monkeypatch.setattr(kafka_mod, "AdminClient", _FakeAdminClient)
     return _FakeAdminClient
@@ -257,6 +261,40 @@ def test_list_parts_raises_on_topic_error(fake_admin):
         "Broker: Topic authorization failed"
     )
     with raises(RuntimeError, match=re.escape(expect)):
+        src.list_parts()
+
+
+def test_list_parts_raises_on_unreachable_brokers(fake_admin):
+    # What the real client raises once `list_topics` times out
+    # without reaching any broker.
+    err = KafkaException(
+        ConfluentKafkaError(
+            ConfluentKafkaError._TRANSPORT,
+            "Failed to get metadata: Local: Broker transport failure",
+        )
+    )
+    fake_admin.list_topics_raises = err
+    src = KafkaSource(["b1:9092", "b2:9092"], ["a"])
+
+    expect = (
+        "could not fetch metadata for Kafka topic `'a'` from brokers "
+        "`'b1:9092,b2:9092'` within 30 seconds: "
+        "Failed to get metadata: Local: Broker transport failure"
+    )
+    with raises(RuntimeError, match=re.escape(expect)) as exc_info:
+        src.list_parts()
+    assert exc_info.value.__cause__ is err
+
+
+def test_list_parts_names_brokers_from_add_config(fake_admin):
+    fake_admin.list_topics_raises = KafkaException(
+        ConfluentKafkaError(ConfluentKafkaError._TRANSPORT)
+    )
+    src = KafkaSource(
+        ["ignored:9092"], ["a"], add_config={"bootstrap.servers": "real:9092"}
+    )
+
+    with raises(RuntimeError, match=re.escape("from brokers `'real:9092'`")):
         src.list_parts()
 
 

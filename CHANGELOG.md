@@ -9,11 +9,10 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- {py:obj}`~bytewax.connectors.kafka.KafkaSource` now gives up
-  fetching topic metadata after 30 seconds and fails with a clear
-  error for a missing topic or a topic without partitions. Previously
-  it could wait indefinitely (e.g. while the broker was unreachable),
-  fail with a `KeyError`, or silently read nothing. See "Startup and
+- {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
+  forever at startup when the brokers are unreachable. It now gives
+  up fetching topic metadata after 30 seconds and fails with a
+  `RuntimeError` naming the brokers and topic. See "Startup and
   Unreachable Brokers" in the Kafka guide.
 
 - Fixes `bytewax.connectors.kafka.serde` failing to import with
