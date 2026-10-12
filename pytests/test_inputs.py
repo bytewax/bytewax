@@ -483,3 +483,63 @@ def test_batch_async():
         next(batcher)
     with raises(StopIteration):
         next(batcher)
+
+
+class _LoopRecorder:
+    """Record the event loops `batch_async` creates for itself."""
+
+    def __init__(self, monkeypatch):
+        self.loops: List[asyncio.AbstractEventLoop] = []
+        orig = asyncio.new_event_loop
+
+        def new_event_loop():
+            loop = orig()
+            self.loops.append(loop)
+            return loop
+
+        monkeypatch.setattr(asyncio, "new_event_loop", new_event_loop)
+
+
+def test_batch_async_closes_own_loop_when_exhausted(monkeypatch):
+    rec = _LoopRecorder(monkeypatch)
+
+    assert list(batch_async(_gen(), timedelta(seconds=1), 2)) == [[0, 1], [2, 3], [4]]
+
+    (loop,) = rec.loops
+    assert loop.is_closed()
+
+
+def test_batch_async_closes_own_loop_and_source_when_abandoned(monkeypatch):
+    rec = _LoopRecorder(monkeypatch)
+    cleaned_up = []
+
+    async def endless():
+        try:
+            i = 0
+            while True:
+                await asyncio.sleep(0)
+                yield i
+                i += 1
+        finally:
+            # E.g. closing a websocket.
+            cleaned_up.append(True)
+
+    batcher = batch_async(endless(), timedelta(seconds=1), 2)
+    assert next(batcher) == [0, 1]
+    # A partition being closed mid-stream drops its batcher.
+    batcher.close()
+
+    (loop,) = rec.loops
+    assert loop.is_closed()
+    assert cleaned_up == [True]
+
+
+def test_batch_async_leaves_given_loop_open():
+    loop = asyncio.new_event_loop()
+    try:
+        batcher = batch_async(_gen(), timedelta(seconds=1), 5, loop=loop)
+        assert list(batcher) == [[0, 1, 2, 3, 4]]
+
+        assert not loop.is_closed()
+    finally:
+        loop.close()
