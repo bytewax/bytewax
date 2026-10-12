@@ -33,7 +33,11 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # Linux wheels build inside manylinux2014 containers, so build
+          # scripts cached from a host (newer glibc) build can't run there;
+          # keep these caches apart from the old host-built ones and per
+          # target.
+          key: ${{ runner.os }}-cargo-manylinux2014-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
