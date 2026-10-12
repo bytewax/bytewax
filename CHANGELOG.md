@@ -27,6 +27,12 @@ notes on GitHub when we make a new release.__
   `C:\proj\flow.py:flow`: the drive letter's colon was taken as the
   `module:dataflow` separator, so the module was looked up as `C`.
 
+- Fixes a bug where {py:obj}`~bytewax.testing.TestingSource.PAUSE`
+  and already-triggered {py:obj}`~bytewax.testing.TestingSource.ABORT`
+  items were not counted in the source's resume state, causing
+  resumed executions to rewind and re-emit items that had already
+  been processed.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
