@@ -14,6 +14,14 @@ jobs:
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
         target: ['x86_64', 'aarch64', 'armv7']
+        include:
+          # pypa/manylinux dropped CPython 3.8 from its images in
+          # pypa/manylinux#1884. This is the last manylinux2014 x86_64
+          # image that still has it. aarch64 and armv7 use the
+          # rust-cross manylinux2014-cross images, which still do.
+          - python-version: '3.8'
+            target: x86_64
+            container: quay.io/pypa/manylinux2014_x86_64:2026.05.07-1
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +54,14 @@ jobs:
           RUSTFLAGS: -C force-frame-pointers=yes
         with:
           target: ${{ matrix.target }}
+          # Build every target inside a manylinux2014 (glibc 2.17)
+          # container. Without this, x86_64 is built on the
+          # ubuntu-24.04 host and tagged manylinux_2_34, which does not
+          # install on older distros.
+          manylinux: '2014'
+          # Empty means the maturin-action default image for the
+          # target and manylinux version.
+          container: ${{ matrix.container }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
           sccache: true
       - name: Cache Apache Kafka
