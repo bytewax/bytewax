@@ -14,6 +14,7 @@ import argparse
 import ast
 import inspect
 import os
+import re
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -150,6 +151,22 @@ class _EnvDefault(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
+def _split_import_str(import_str: str) -> Tuple[str, str]:
+    r"""Split `path[:dataflow]` into the path and the dataflow name.
+
+    The dataflow name defaults to `flow`. A leading Windows drive
+    (`C:\` or `C:/`) is part of the path, not the separator; any
+    other `:` in the path itself isn't supported, since factory
+    arguments after the separator may contain `:`.
+
+    """
+    drive = ""
+    if re.match(r"[A-Za-z]:[\\/]", import_str):
+        drive, import_str = import_str[:2], import_str[2:]
+    path, _, flow_name = import_str.partition(":")
+    return (drive + path, flow_name or "flow")
+
+
 def _prepare_import(import_str: str) -> Tuple[str, str]:
     """Given a filename this will try to calculate the python path.
 
@@ -159,9 +176,7 @@ def _prepare_import(import_str: str) -> Tuple[str, str]:
     This is adapted from Flask's codebase.
 
     """
-    path, _, flow_name = import_str.partition(":")
-    if not flow_name:
-        flow_name = "flow"
+    path, flow_name = _split_import_str(import_str)
     path = os.path.realpath(path)
 
     fname, ext = os.path.splitext(path)

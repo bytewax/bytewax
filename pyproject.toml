@@ -1,5 +1,6 @@
 [project]
 name = "bytewax"
+dynamic = ["version"]
 requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -14,6 +15,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: System :: Networking",
     "Topic :: System :: Distributed Computing",
 ]

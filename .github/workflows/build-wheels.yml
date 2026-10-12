@@ -1,0 +1,330 @@
+name: build-wheels
+
+on:
+  workflow_call:
+    inputs:
+      run-tests:
+        description: "Run Python tests against the built wheels on host arch."
+        type: boolean
+        default: true
+
+jobs:
+  linux:
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+        target: ['x86_64', 'aarch64', 'armv7']
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.11.11"
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Cache Apache Kafka
+        if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          # Versions are pinned in the script; bumping them busts the cache.
+          key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}-${{ matrix.target }}
+      - name: Start Kafka
+        if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh start
+      - name: Run Python tests
+        # Only run tests for the host architecture, as aarch64 and
+        # armv7 are cross-compiled on Ubuntu runners.
+        if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          TEST_KAFKA_BROKER: localhost:9092
+        run: |
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+          just test-py
+      - name: Dump Kafka logs on failure
+        if: ${{ failure() && inputs.run-tests && matrix.target == 'x86_64' }}
+        shell: bash
+        run: |
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+      - name: Stop Kafka
+        if: ${{ always() && inputs.run-tests && matrix.target == 'x86_64' }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh stop
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}-${{ matrix.python-version }}
+          path: dist
+
+  macos:
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+        target: ['x86_64', 'aarch64']
+        include:
+          - target: x86_64
+            runner: macos-15-intel
+          - target: aarch64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.11.11"
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
+        shell: bash
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          . venv/bin/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+          MACOSX_DEPLOYMENT_TARGET: 10.9
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+      - name: Cache Apache Kafka
+        if: ${{ inputs.run-tests }}
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}-${{ matrix.target }}
+      - name: Start Kafka
+        if: ${{ inputs.run-tests }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh start
+      - name: Run Python tests
+        if: ${{ inputs.run-tests }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          TEST_KAFKA_BROKER: localhost:9092
+        run: |
+          . venv/bin/activate
+          WHEEL_FILE=$(ls ./dist/*.whl)
+          uv pip install -v --no-deps $WHEEL_FILE
+          just test-py
+      - name: Dump Kafka logs on failure
+        if: ${{ failure() && inputs.run-tests }}
+        shell: bash
+        run: |
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+      - name: Stop Kafka
+        if: ${{ always() && inputs.run-tests }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh stop
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}-${{ matrix.python-version }}
+          path: dist
+
+  windows:
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    runs-on: windows-latest
+    steps:
+      - uses: ilammy/msvc-dev-cmd@v1
+      - shell: cmd
+        run: |
+          set PATH=%PATH%;%wix%bin;"%WindowsSdkVerBinPath%"\x86
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.11.11"
+      - uses: extractions/setup-just@v2
+      - name: Prep build venv
+        run: |
+          uv venv -p ${{ matrix.python-version }} venv/
+          venv/Scripts/activate
+          uv pip sync --strict requirements/build-py${{ matrix.python-version }}.txt
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: -C force-frame-pointers=yes
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist/ -i ${{ matrix.python-version }}
+          sccache: true
+      - name: Cache Apache Kafka
+        if: ${{ inputs.run-tests }}
+        uses: actions/cache@v4
+        with:
+          path: .kafka
+          key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}
+      - name: Run Kafka and Python tests
+        if: ${{ inputs.run-tests }}
+        timeout-minutes: 25
+        shell: bash
+        env:
+          PYTEST_ADDOPTS: -vv
+          TEST_KAFKA_BROKER: localhost:9092
+          TEST_KAFKA_SKIP_TOPIC_DELETE: "1"
+        run: |
+          ./scripts/ci-kafka.sh start
+          trap './scripts/ci-kafka.sh stop || true' EXIT
+          . venv/Scripts/activate
+          WHEEL_FILE=$(ls ./dist/*.whl | head -n1)
+          uv pip install -v --no-deps "$WHEEL_FILE"
+          just test-py
+      - name: Dump Kafka logs on failure
+        if: ${{ failure() && inputs.run-tests }}
+        shell: bash
+        run: |
+          echo '=== Is broker listening on 9092? ==='
+          netstat -an | grep -E ':9092\b' || echo '(no listener)'
+          echo '=== Java processes on host ==='
+          tasklist //FI "IMAGENAME eq java.exe" 2>/dev/null || true
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.target }}-${{ matrix.python-version }}
+          path: dist
+
+  verify-wheels:
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*-*
+          path: wheels
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify wheel artifact set
+        shell: python
+        run: |
+          from collections import defaultdict
+          from pathlib import Path
+          import sys
+
+          python_tags = ["cp38", "cp39", "cp310", "cp311", "cp312", "cp313", "cp314"]
+          platform_tags = [
+              "linux_x86_64",
+              "linux_aarch64",
+              "linux_armv7",
+              "macos_x86_64",
+              "macos_aarch64",
+              "windows_x86_64",
+          ]
+          expected = {(py_tag, platform_tag) for py_tag in python_tags for platform_tag in platform_tags}
+
+          def platform_key(platform_tag):
+              if platform_tag.startswith("macosx"):
+                  if "x86_64" in platform_tag:
+                      return "macos_x86_64"
+                  if "arm64" in platform_tag:
+                      return "macos_aarch64"
+              if platform_tag == "win_amd64":
+                  return "windows_x86_64"
+              if "manylinux" in platform_tag:
+                  if "x86_64" in platform_tag:
+                      return "linux_x86_64"
+                  if "aarch64" in platform_tag:
+                      return "linux_aarch64"
+                  if "armv7l" in platform_tag:
+                      return "linux_armv7"
+              return None
+
+          wheels = sorted(Path("wheels").rglob("*.whl"))
+          wheel_names = [wheel.name for wheel in wheels]
+          duplicates = sorted(name for name in set(wheel_names) if wheel_names.count(name) > 1)
+          found = defaultdict(list)
+          unrecognized = []
+
+          for wheel in wheels:
+              try:
+                  _distribution, _version, py_tag, _abi_tag, platform_tag = wheel.name[:-4].rsplit("-", 4)
+              except ValueError:
+                  print(f"Malformed wheel filename: {wheel}", file=sys.stderr)
+                  sys.exit(1)
+
+              key = platform_key(platform_tag)
+              if key is not None:
+                  found[(py_tag, key)].append(wheel.name)
+              else:
+                  unrecognized.append(wheel.name)
+
+          missing = sorted(expected - set(found))
+          unexpected = sorted(set(found) - expected)
+          duplicate_tags = {
+              key: names
+              for key, names in found.items()
+              if len(names) > 1
+          }
+          wrong_count = len(wheels) != len(expected)
+
+          if duplicates or duplicate_tags or unrecognized or missing or unexpected or wrong_count:
+              print(f"Expected {len(expected)} wheels, found {len(wheels)}", file=sys.stderr)
+              if duplicates:
+                  print(f"Duplicate wheel names: {duplicates}", file=sys.stderr)
+              if duplicate_tags:
+                  print(f"Duplicate wheel tags: {duplicate_tags}", file=sys.stderr)
+              if unrecognized:
+                  print(f"Unrecognized wheel tags: {unrecognized}", file=sys.stderr)
+              if missing:
+                  print(f"Missing wheel tags: {missing}", file=sys.stderr)
+              if unexpected:
+                  print(f"Unexpected wheel tags: {unexpected}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Verified {len(wheels)} wheels across {len(python_tags)} Python versions and {len(platform_tags)} platforms.")

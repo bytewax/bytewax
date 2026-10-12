@@ -9,7 +9,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::BuildHasher;
 use std::hash::Hash;
-use std::hash::Hasher;
 use std::time::Duration;
 
 use num::CheckedSub;
@@ -458,9 +457,7 @@ where
     K: Hash,
 {
     fn assign(&self, key: &K) -> usize {
-        let mut hasher = self.build_hasher();
-        key.hash(&mut hasher);
-        hasher.finish() as usize
+        self.hash_one(key) as usize
     }
 }
 
