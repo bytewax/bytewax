@@ -161,9 +161,12 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
     for topic in topics:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
-        cluster_metadata = client.list_topics(topic)
+        cluster_metadata = client.list_topics(topic, timeout=30.0)
         assert cluster_metadata.topics is not None
-        topic_metadata = cluster_metadata.topics[topic]
+        topic_metadata = cluster_metadata.topics.get(topic)
+        if topic_metadata is None:
+            msg = f"Kafka topic `{topic!r}` was not found"
+            raise RuntimeError(msg)
         if topic_metadata.error is not None:
             msg = (
                 f"error listing partitions for Kafka topic `{topic!r}`: "
@@ -171,6 +174,9 @@ def _list_parts(client: AdminClient, topics: Iterable[str]) -> Iterable[str]:
             )
             raise RuntimeError(msg)
         assert topic_metadata.partitions is not None
+        if not topic_metadata.partitions:
+            msg = f"no partitions listed for Kafka topic `{topic!r}`"
+            raise RuntimeError(msg)
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
             yield f"{i}-{topic}"
@@ -383,6 +389,9 @@ class KafkaSource(
         }
         config.update(self._add_config)
         client = AdminClient(config)
+        # Workaround for https://github.com/confluentinc/librdkafka/issues/3753#issuecomment-1058272987
+        # to start any configured auth callbacks.
+        client.poll(0)
 
         return list(_list_parts(client, self._topics))
 

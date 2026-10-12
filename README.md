@@ -17,6 +17,8 @@
 <a href="https://github.com/bytewax/bytewax/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
 </p>
 
+> [!IMPORTANT]
+> **Bytewax is now community-maintained.** As of May 2025, Bytewax (the company) is no longer commercially viable and the original core team has stepped back from day-to-day maintenance. The project remains open source under Apache-2.0 and we are actively rebuilding the maintainer pool. If you depend on Bytewax in production, or want to help maintain it, please weigh in on [#560](https://github.com/bytewax/bytewax/issues/560) or read [MAINTAINERS.md](./MAINTAINERS.md) for how to get involved.
 
 **Bytewax** is a Python framework and Rust-based distributed processing engine for stateful event and stream processing. Inspired by capabilities found in tools like Apache Flink, Spark, and Kafka Streams, Bytewax makes stream processing simpler and more accessible by integrating directly with the Python ecosystem you already know and trust.
 
@@ -123,7 +125,7 @@ Bytewax provides built-in connectors for common data sources and sinks such as K
 - **StdIn/StdOut:** `bytewax.connectors.stdio`
 - **Redis, S3, and More:** See [Bytewax connectors](https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.html).
 
-**Community & Partner Connectors:** Check out the [Bytewax Module Hub](https://docs.bytewax.io/stable/guide/connectors-hub.html) for additional connectors contributed by the community.
+**Community & Partner Connectors:** Check out the [Bytewax Module Hub](https://bytewax.io/modules) for additional connectors contributed by the community.
 
 ---
 
@@ -178,7 +180,7 @@ waxctl df deploy my_dataflow.py --name my-dataflow
 
 ### Scaling with the Bytewax Platform
 
-Our commerically licensed Platform
+Our commercially licensed Platform
 
 ---
 

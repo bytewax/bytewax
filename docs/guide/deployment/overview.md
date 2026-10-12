@@ -19,8 +19,9 @@ Test it out locally after installing:
 
 ```console
 $ waxctl run mydataflow.py -p 2
+```
 
-You can find more information in <project:#ref-waxctl>.
+You can find more information in <project:#xref-waxctl>.
 
 ## Running in Kubernetes
 

@@ -165,7 +165,7 @@ With the {py:obj}`~bytewax.operators.windowing.TumblingWindower` and {py:obj}`~b
 
 ### Objective 2: Track smoothie orders using overlapping windows for moving number of orders
 
-We will use the {py:obj}`~bytewax.operators.windowing.SlidingWindower` and {py:obj}`~bytewax.operators.windowing.count_window` operators to acomplish our goal. In the code below, we defined a sliding window with a length of 1 hour with an offset of 15 minutes. It will count the total orders in each window.
+We will use the {py:obj}`~bytewax.operators.windowing.SlidingWindower` and {py:obj}`~bytewax.operators.windowing.count_window` operators to accomplish our goal. In the code below, we defined a sliding window with a length of 1 hour with an offset of 15 minutes. It will count the total orders in each window.
 We've also added a formatting function.
 
 ```{literalinclude} sliding_dataflow.py
@@ -208,7 +208,7 @@ There seem to be peak times - early morning and around lunch time. Let's complet
 
 ### Objective 3: Group smoothie orders that occur closely together in time into dynamic session windows, windows close after inactivity
 
-We will use the {py:obj}`~bytewax.operators.windowing.SessionWindower` and {py:obj}`~bytewax.operators.windowing.collect_window` operators to acomplish our goal.
+We will use the {py:obj}`~bytewax.operators.windowing.SessionWindower` and {py:obj}`~bytewax.operators.windowing.collect_window` operators to accomplish our goal.
 
 ```{literalinclude} session_dataflow.py
 :caption: session_dataflow.py
