@@ -564,7 +564,10 @@ def batch_async(
     :arg batch_size: Maximum number of items to yield in a batch, even
         if the timeout has not been hit.
 
-    :arg loop: Custom `asyncio` run loop to use, if any.
+    :arg loop: Custom `asyncio` run loop to use, if any. A loop you
+        pass in is left open. Otherwise a new loop is created and
+        closed, together with the source async iterator, when this
+        iterator is exhausted or closed.
 
     :yields: The next gathered batch of items.
 
@@ -575,6 +578,7 @@ def batch_async(
     # Ensure that we have the stateful iterator of the source.
     ait = aib.__aiter__()
 
+    owns_loop = loop is None
     loop = loop if loop is not None else asyncio.new_event_loop()
     task = None
 
@@ -616,13 +620,26 @@ def batch_async(
             task = None
         return batch
 
-    while True:
-        try:
-            # `wait_for` will raise `CancelledError` at the internal
-            # await point in `anext_batch` if the timeout is hit.
-            batch = loop.run_until_complete(
-                asyncio.wait_for(anext_batch(), timeout.total_seconds())
-            )
-            yield batch
-        except StopAsyncIteration:
-            return
+    try:
+        while True:
+            try:
+                # `wait_for` will raise `CancelledError` at the internal
+                # await point in `anext_batch` if the timeout is hit.
+                batch = loop.run_until_complete(
+                    asyncio.wait_for(anext_batch(), timeout.total_seconds())
+                )
+                yield batch
+            except StopAsyncIteration:
+                return
+    finally:
+        # Runs when the source is exhausted, and also when this
+        # iterator is closed early (e.g. the partition is closed).
+        if task is not None and not task.done():
+            task.cancel()
+        if owns_loop:
+            try:
+                # Let the cancellation finish and run the source's
+                # cleanup (e.g. closing a websocket) before closing.
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            finally:
+                loop.close()
