@@ -1,5 +1,7 @@
 import asyncio
+import gc
 import itertools
+import os
 import queue
 import re
 import sys
@@ -23,7 +25,7 @@ from bytewax.inputs import (
     batch_getter_ex,
 )
 from bytewax.testing import TestingSink, run_main
-from pytest import raises
+from pytest import raises, skip
 from typing_extensions import override
 
 
@@ -483,3 +485,90 @@ def test_batch_async():
         next(batcher)
     with raises(StopIteration):
         next(batcher)
+
+
+class _LoopRecorder:
+    """Record the event loops `batch_async` creates for itself."""
+
+    def __init__(self, monkeypatch):
+        self.loops: List[asyncio.AbstractEventLoop] = []
+        orig = asyncio.new_event_loop
+
+        def new_event_loop():
+            loop = orig()
+            self.loops.append(loop)
+            return loop
+
+        monkeypatch.setattr(asyncio, "new_event_loop", new_event_loop)
+
+
+def test_batch_async_closes_own_loop_when_exhausted(monkeypatch):
+    rec = _LoopRecorder(monkeypatch)
+
+    assert list(batch_async(_gen(), timedelta(seconds=1), 2)) == [[0, 1], [2, 3], [4]]
+
+    (loop,) = rec.loops
+    assert loop.is_closed()
+
+
+def test_batch_async_closes_own_loop_and_source_when_abandoned(monkeypatch):
+    rec = _LoopRecorder(monkeypatch)
+    cleaned_up = []
+
+    async def endless():
+        try:
+            i = 0
+            while True:
+                await asyncio.sleep(0)
+                yield i
+                i += 1
+        finally:
+            # E.g. closing a websocket.
+            cleaned_up.append(True)
+
+    batcher = batch_async(endless(), timedelta(seconds=1), 2)
+    assert next(batcher) == [0, 1]
+    # A partition being closed mid-stream drops its batcher.
+    batcher.close()
+
+    (loop,) = rec.loops
+    assert loop.is_closed()
+    assert cleaned_up == [True]
+
+
+def test_batch_async_leaves_given_loop_open():
+    loop = asyncio.new_event_loop()
+    try:
+        batcher = batch_async(_gen(), timedelta(seconds=1), 5, loop=loop)
+        assert list(batcher) == [[0, 1, 2, 3, 4]]
+
+        assert not loop.is_closed()
+    finally:
+        loop.close()
+
+
+def _open_fds() -> int:
+    for fd_dir in ("/proc/self/fd", "/dev/fd"):
+        if os.path.isdir(fd_dir):
+            return len(os.listdir(fd_dir))
+    skip("can't list open file descriptors on this platform")
+
+
+def test_batch_async_does_not_leak_fds():
+    # Each event loop holds file descriptors (a selector, and a
+    # self-pipe or socket pair). Without GC, a loop that isn't closed
+    # keeps them open, so a leak shows up as the count growing.
+    gc.collect()
+    gc.disable()
+    try:
+        before = _open_fds()
+        for _ in range(20):
+            assert list(batch_async(_gen(), timedelta(seconds=1), 5)) == [
+                [0, 1, 2, 3, 4]
+            ]
+        after = _open_fds()
+    finally:
+        gc.enable()
+        gc.collect()
+
+    assert after - before < 20

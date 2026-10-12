@@ -4,7 +4,7 @@ import time
 import uuid
 from concurrent.futures import wait
 from datetime import timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import bytewax.operators as op
 from bytewax.connectors.kafka import (
@@ -166,8 +166,19 @@ def test_input_raises_on_topic_not_exist():
     )
     op.output("out", s, TestingSink(out))
 
-    with raises(BytewaxRuntimeError):
+    with raises(BytewaxRuntimeError) as exc_info:
         run_main(flow)
+
+    causes = []
+    ex: Optional[BaseException] = exc_info.value
+    while ex is not None:
+        causes.append(str(ex))
+        ex = ex.__cause__
+    expect = (
+        "error listing partitions for Kafka topic `'missing-topic'`: "
+        "Broker: Unknown topic or partition"
+    )
+    assert any(expect in c for c in causes), causes
 
 
 def test_input_raises_on_str_brokers(tmp_topic):
