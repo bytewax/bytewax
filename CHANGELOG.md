@@ -33,6 +33,32 @@ notes on GitHub when we make a new release.__
   resumed executions to rewind and re-emit items that had already
   been processed.
 
+- This is the last release that supports Python 3.8 and 3.9, which
+  are end-of-life upstream. The next release will require Python 3.10
+  or newer.
+
+- Adds support for Python 3.13 and 3.14, with wheels for Linux, macOS
+  and Windows (#564). The Rust core now uses PyO3 0.25 instead of
+  0.21. There are no wheels for the free-threaded builds (`3.13t`,
+  `3.14t`).
+
+- Fixes {py:obj}`~bytewax.connectors.kafka.KafkaSource` hanging at
+  startup when an `oauth_cb` is set in `add_config` (e.g. with
+  `"sasl.mechanism": "OAUTHBEARER"`): the callback was never called
+  while fetching topic metadata (#541, #547).
+
+- Linux x86_64 wheels are now `manylinux2014` (`manylinux_2_17`)
+  wheels and need glibc 2.17 or newer, like the aarch64 and armv7
+  wheels already did. The v0.21.1 x86_64 wheels needed glibc 2.31, so
+  they did not install on e.g. RHEL 8 or Debian 10.
+
+- The `bytewax/bytewax` Docker images are now based on Debian 12
+  (bookworm) instead of Debian 11 (bullseye), and are also published
+  for Python 3.13 and 3.14.
+
+- Building Bytewax from source now uses Rust 1.86.0 (pinned in
+  `rust-toolchain.toml`) instead of 1.74.1.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
