@@ -122,7 +122,7 @@ items = op.filter_map("meta_download", ids, download_metadata)
 ### Splitting the Stream
 
 We have different types of items retrieved from the API and we are
-intrested in dealing with them separately so we can leverage the
+interested in dealing with them separately so we can leverage the
 {py:obj}`~bytewax.operators.branch` operator to split out the comments
 from the stories. We can then print the streams out separately.
 Building on this, you would most likely publish the separate streams

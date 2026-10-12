@@ -8,7 +8,7 @@ is conceptualized as data flowing through a static series of
 operations.
 
 A Bytewax **dataflow** is a fixed directed acyclic graph of
-computational **steps** which are preformed on a possibly-unbounded
+computational **steps** which are performed on a possibly-unbounded
 stream of data. Each step is made up of an **operator** or a specific
 shape of computation (e.g. "transform each item individually" /
 {py:obj}`~bytewax.operators.map`). Some operators are **stateful** and
@@ -139,7 +139,7 @@ operators we call **upstreams** and returns some streams we call
 Each stream can be referenced as many times as you want to process a
 copy of the data in the stream in a different way. Notice below the
 `nums` stream is referenced twice below so it can be both doubled and
-multipled by ten. {py:obj}`~bytewax.operators.merge` is an operator
+multiplied by ten. {py:obj}`~bytewax.operators.merge` is an operator
 that does the reverse, and combines together multiple streams.
 
 ```{testcode}

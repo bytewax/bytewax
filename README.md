@@ -180,7 +180,7 @@ waxctl df deploy my_dataflow.py --name my-dataflow
 
 ### Scaling with the Bytewax Platform
 
-Our commerically licensed Platform
+Our commercially licensed Platform
 
 ---
 

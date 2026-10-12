@@ -175,7 +175,7 @@ myst_enable_extensions = [
     # means syntax highlighters won't hide all the syntax within.
     # https://myst-parser.readthedocs.io/en/latest/syntax/optional.html#code-fences-using-colons
     "colon_fence",
-    # Allows using the `:arg x: Description` synatx in docstrings.
+    # Allows using the `:arg x: Description` syntax in docstrings.
     # Otherwise there's no "Markdown native" way to document
     # arguments.
     # https://myst-parser.readthedocs.io/en/latest/syntax/optional.html#field-lists
@@ -250,7 +250,7 @@ autodoc2_render_plugin = "renderer.BytewaxRenderer"
 # These are not autodoc2 config options, but they affect the display
 # of Python object directives.
 
-# Should defitions of each `:py:function` show the fully qualified
+# Should definitions of each `:py:function` show the fully qualified
 # name. This isn't necessary because the page is per-module.
 add_module_names = False
 # Wrap signatures
