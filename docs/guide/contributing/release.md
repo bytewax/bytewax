@@ -99,7 +99,7 @@ Check that the CI run completed for the just updated `main` branch on
 page](https://github.com/bytewax/bytewax/actions/workflows/CI.yml)
 after merging the PR.
 
-## 3. Create Release on GitHub
+## 2. Create Release on GitHub
 
 Go to the [create a new GitHub release page for our
 repo](https://github.com/bytewax/bytewax/releases).
@@ -125,11 +125,25 @@ repo](https://github.com/bytewax/bytewax/releases).
     * List of PRs that were merged, but sometimes the names aren't helpful.
    ```
 
-4. Wait until the CI run above for the `main` branch completes. The
+4. Thank every contributor in a `## Contributors` section.
+
+   The auto-generated notes only list PR authors. Also credit
+   co-authors and anyone whose code was adopted into another PR. List
+   every commit author and `Co-authored-by` trailer since the previous
+   release tag:
+
+   ```console
+   $ git log v1.2.2..main --format='%aN <%aE>%n%(trailers:key=Co-authored-by,valueonly)' | grep -v '^$' | sort -u
+   ```
+
+   Merge duplicate entries for the same person (they may have used
+   several emails) and use their GitHub `@handle` where you can.
+
+5. Wait until the CI run above for the `main` branch completes. The
    next CD step needs the wheel packages that are built during CI. It
    looks like this usually takes ~20 min.
 
-5. *Press "Publish release"!*
+6. *Press "Publish release"!*
 
    This should create a tag in our repo named `v1.2.3` and CD will
    kick off, pushing the final package to PyPI.

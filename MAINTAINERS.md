@@ -45,6 +45,10 @@ and we are grateful for their work.
 - Cut releases and publish wheels to PyPI.
 - Steward the public roadmap and make scope calls on feature requests.
 - Uphold the [Code of Conduct](./CODE_OF_CONDUCT.md).
+- Keep authorship when adopting someone else's work (from another PR, a
+  fork, or an issue): cherry-pick their commits, or add a
+  `Co-authored-by: Name <email>` trailer to the commit and mention them in
+  the PR description, so they are credited in the release notes.
 
 Maintainers are expected to be responsive on a best-effort basis — this is
 volunteer work, and slow responses are normal. If a PR has been open without
