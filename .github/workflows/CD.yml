@@ -97,39 +97,23 @@ jobs:
     needs: [ release ]
     timeout-minutes: 25
     steps:
-    - name: Wait for the release to appear on the PyPI simple index
+    - name: Wait for the release to be installable from PyPI
       # `Dockerfile.release` runs `pip install bytewax==<version>`, so
-      # poll the same index pip reads until the new wheels are listed.
+      # retry the same download with pip until PyPI serves the release.
       env:
         BYTEWAX_VERSION: ${{ needs.release.outputs.bytewax-version }}
-        TIMEOUT_SECONDS: 1200
-        POLL_INTERVAL_SECONDS: 15
       run: |
-        url="https://pypi.org/simple/bytewax/"
-        prefix="bytewax-${BYTEWAX_VERSION}-"
-        deadline=$((SECONDS + TIMEOUT_SECONDS))
-        attempt=0
-        while true; do
-          attempt=$((attempt + 1))
-          count=$(
-            curl -fsSL --max-time 30 \
-              -H 'Accept: application/vnd.pypi.simple.v1+json' \
-              -H 'Cache-Control: max-age=0' \
-              "$url" \
-            | jq --arg prefix "$prefix" \
-              '[.files[].filename | select(startswith($prefix) and endswith(".whl"))] | length'
-          ) || count=0
-          if [ "${count:-0}" -gt 0 ]; then
-            echo "Found ${count} wheel(s) for bytewax ${BYTEWAX_VERSION} on PyPI (attempt ${attempt})."
+        for attempt in $(seq 1 80); do
+          if python3 -m pip download --quiet --no-deps --no-cache-dir \
+              --only-binary=:all: --dest "$RUNNER_TEMP/pypi-check" \
+              "bytewax==${BYTEWAX_VERSION}"; then
+            echo "bytewax ${BYTEWAX_VERSION} is installable from PyPI (attempt ${attempt})."
             exit 0
           fi
-          if [ "$SECONDS" -ge "$deadline" ]; then
-            echo "::error title=PyPI check timed out::bytewax ${BYTEWAX_VERSION} wheels not listed on ${url} after ${TIMEOUT_SECONDS}s (${attempt} attempts)."
-            exit 1
-          fi
-          echo "Attempt ${attempt}: bytewax ${BYTEWAX_VERSION} not on PyPI yet; retrying in ${POLL_INTERVAL_SECONDS}s..."
-          sleep "$POLL_INTERVAL_SECONDS"
+          sleep 15
         done
+        echo "::error::bytewax ${BYTEWAX_VERSION} was not installable from PyPI after 20 minutes."
+        exit 1
 
   publish-docker-hub:
     name: Publish to Docker Hub
