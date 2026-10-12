@@ -19,14 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v8.1.0
         with:
           version: "0.11.11"
           python-version: "3.12"
           activate-environment: true
           venv-path: venv
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
       # Need this because we're running `cargo clippy` and `fmt`
       # directly.
       - uses: dsherret/rust-toolchain-file@v1
