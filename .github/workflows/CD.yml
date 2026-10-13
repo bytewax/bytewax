@@ -95,32 +95,25 @@ jobs:
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [ release ]
+    timeout-minutes: 25
     steps:
-    - name: Install ansible
+    - name: Wait for the release to be installable from PyPI
+      # `Dockerfile.release` runs `pip install bytewax==<version>`, so
+      # retry the same download with pip until PyPI serves the release.
+      env:
+        BYTEWAX_VERSION: ${{ needs.release.outputs.bytewax-version }}
       run: |
-        pip install ansible==3.4.0
-        ansible -m ping localhost
-    - name: Create task file
-      run: |
-        cat << EOF > ./pip_task.yaml
-        ---
-        - name: Try install bytewax using pip
-          hosts: localhost
-          tasks:
-          - name: Loop
-            shell: "pip install bytewax=={{ bytewax_version }} -v"
-            register: pip_result
-            retries: 60
-            until: pip_result.rc == 0
-            delay: 10
-        EOF
-    - name: Upgrade pip version
-      run: |
-        pip --version
-        pip install --upgrade pip
-    - name: Check PyPI index before building docker images
-      run: |
-        ansible-playbook ./pip_task.yaml -e bytewax_version=${{ needs.release.outputs.bytewax-version }} -vvv
+        for attempt in $(seq 1 80); do
+          if python3 -m pip download --quiet --no-deps --no-cache-dir \
+              --only-binary=:all: --dest "$RUNNER_TEMP/pypi-check" \
+              "bytewax==${BYTEWAX_VERSION}"; then
+            echo "bytewax ${BYTEWAX_VERSION} is installable from PyPI (attempt ${attempt})."
+            exit 0
+          fi
+          sleep 15
+        done
+        echo "::error::bytewax ${BYTEWAX_VERSION} was not installable from PyPI after 20 minutes."
+        exit 1
 
   publish-docker-hub:
     name: Publish to Docker Hub
