@@ -173,7 +173,7 @@ def output(
     Can support at-least-once processing, but only when the dataflow
     runs with recovery (see {py:obj}`~bytewax.recovery.RecoveryConfig`).
     Messages from the resume epoch will be duplicated right after
-    resume. Without recovery there is no delivery guarantee. See
+    resume. Without recovery, messages can be lost or repeated. See
     {py:obj}`~bytewax.connectors.kafka.KafkaSink` for how delivery
     failures are handled.
 

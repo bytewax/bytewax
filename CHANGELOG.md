@@ -77,8 +77,9 @@ notes on GitHub when we make a new release.__
   topic). Previously such messages were dropped silently, even with
   recovery enabled; now resuming re-sends them (at-least-once). When
   the producer's local queue is full, the sink waits for it to drain
-  instead of crashing with `BufferError`. The docs now state that
-  this at-least-once guarantee requires running with recovery.
+  instead of crashing with `BufferError`; a single message larger
+  than the whole queue fails with a clear error. The docs now state
+  that this at-least-once guarantee requires running with recovery.
   Reported in #522 by @shubhanshu02.
 
 ## v0.21.1

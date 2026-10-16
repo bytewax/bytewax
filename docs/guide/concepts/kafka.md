@@ -96,20 +96,24 @@ continue processing data.
 
 {py:obj}`~bytewax.connectors.kafka.KafkaSink` waits until every
 message in a batch is delivered before moving on. If Kafka doesn't
-accept a message, for example because the brokers stay unreachable for
-longer than the producer's `message.timeout.ms` (5 minutes by default)
-or the topic doesn't exist, the dataflow fails with a `RuntimeError`
-naming the topic and the Kafka error.
+accept a message, the dataflow fails with a `RuntimeError` naming the
+topic and the Kafka error. For example, when the brokers stay
+unreachable for longer than the producer's `message.timeout.ms` (5
+minutes by default), or the topic doesn't exist and the brokers don't
+auto-create topics.
 
 At-least-once delivery requires running the dataflow with
 [recovery](#xref-recovery): after the failure, resuming the dataflow
 re-sends everything from the last snapshot, so some messages may be
-written twice. Without recovery there is no delivery guarantee;
-{py:obj}`~bytewax.connectors.kafka.KafkaSource` starts again from its
-`starting_offset` (see [Kafka and Recovery](#xref-kafka-recovery)).
+written twice. Without recovery a restart starts again from the
+`starting_offset` of
+{py:obj}`~bytewax.connectors.kafka.KafkaSource`, so messages can be
+lost or repeated (see [Kafka and Recovery](#xref-kafka-recovery)).
 
 If the producer's local queue fills up because the brokers can't keep
-up, the sink waits for it to drain instead of failing.
+up, the sink waits for it to drain instead of failing. A single
+message larger than the whole queue (`queue.buffering.max.kbytes`)
+fails the dataflow right away.
 
 ## Batch Sizes
 
@@ -194,14 +198,6 @@ parameter, which accepts the types defined in the
 [`confluent_kafka`](https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html#offset)
 library.
 
-Only recovery gives at-least-once delivery from
-{py:obj}`~bytewax.connectors.kafka.KafkaSource` to
-{py:obj}`~bytewax.connectors.kafka.KafkaSink`; see [Delivery
-Failures](#xref-kafka-delivery-failures). Broker-side offsets with
-`enable.auto.commit` are committed as messages are read, not after
-they are written out, so without recovery a failure can skip or
-repeat messages.
-
 If you are not using recovery and would prefer to track offsets on the
 broker side, you can pass additional options to the Kafka input
 sources to create a consumer group:
@@ -230,8 +226,13 @@ according to the `auto.commit.interval.ms` parameter. By default, this
 interval is set to 5000ms.
 
 It is important to note that this interval is not coordinated with any
-processing steps within Bytewax. As a result, some messages may not be
-processed if the dataflow crashes.
+processing steps within Bytewax. As a result, if the dataflow crashes,
+some messages may not be processed (their offsets were committed
+before their output was written) or may be processed twice. Only
+recovery gives at-least-once delivery from
+{py:obj}`~bytewax.connectors.kafka.KafkaSource` to
+{py:obj}`~bytewax.connectors.kafka.KafkaSink`; see [Delivery
+Failures](#xref-kafka-delivery-failures).
 
 ## Partitions
 
