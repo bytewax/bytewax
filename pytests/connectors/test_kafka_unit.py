@@ -191,20 +191,45 @@ def fake_admin(monkeypatch):
 
 @dataclass
 class _FakeProducer:
-    """Stand-in for `confluent_kafka.Producer`."""
+    """Stand-in for `confluent_kafka.Producer`.
+
+    `queue_full_times` makes that many `produce` calls fail with
+    `BufferError`, like librdkafka's local queue being full.
+    `delivery_error` is reported to each message's `on_delivery`
+    callback, like a message librdkafka gave up on.
+
+    """
 
     config: Dict[str, Any]
     produced: List[Dict[str, Any]] = field(default_factory=list)
     flushes: int = 0
+    polls: List[float] = field(default_factory=list)
+    queue_full_times: int = 0
+    delivery_error: Optional[ConfluentKafkaError] = None
+    _pending: List[Tuple[Any, Dict[str, Any]]] = field(default_factory=list)
 
     def produce(self, **kwargs):
+        if self.queue_full_times > 0:
+            self.queue_full_times -= 1
+            msg = "Local: Queue full"
+            raise BufferError(msg)
+        on_delivery = kwargs.pop("on_delivery", None)
         self.produced.append(kwargs)
+        self._pending.append((on_delivery, kwargs))
+
+    def _report(self):
+        pending, self._pending = self._pending, []
+        for on_delivery, kwargs in pending:
+            if on_delivery is not None:
+                on_delivery(self.delivery_error, _FakeMsg(-1, _topic=kwargs["topic"]))
 
     def poll(self, timeout):
-        pass
+        self.polls.append(timeout)
+        self._report()
 
     def flush(self):
         self.flushes += 1
+        self._report()
 
 
 @fixture
@@ -536,6 +561,58 @@ def test_sink_write_batch_topic_selection(fake_producer):
 
     part.close()
     assert producer.flushes == 2
+
+
+def test_sink_write_batch_waits_when_queue_full(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    producer.queue_full_times = 2
+
+    part.write_batch([KafkaSinkMessage(b"k1", b"v1"), KafkaSinkMessage(b"k2", b"v2")])
+
+    assert [m["value"] for m in producer.produced] == [b"v1", b"v2"]
+    # It waited for room in the queue instead of failing the batch.
+    assert [t for t in producer.polls if t > 0] != []
+
+
+def test_sink_write_batch_raises_on_delivery_failure(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    err = ConfluentKafkaError(ConfluentKafkaError._MSG_TIMED_OUT)
+    producer.delivery_error = err
+
+    with raises(RuntimeError) as exc_info:
+        part.write_batch([KafkaSinkMessage(b"k", b"v")])
+
+    assert str(exc_info.value) == (
+        f"failed to deliver a message to Kafka topic `{TOPIC!r}`: {err.str()}"
+    )
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, KafkaException)
+    assert cause.args[0] == err
+
+
+def test_sink_write_batch_raises_on_delivery_failure_while_queue_full(
+    fake_producer,
+):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    producer.delivery_error = ConfluentKafkaError(ConfluentKafkaError._MSG_TIMED_OUT)
+
+    # The first message is queued; the queue then stays full, and the
+    # failed delivery must stop the wait instead of retrying forever.
+    def produce(**kwargs):
+        if producer.produced:
+            msg = "Local: Queue full"
+            raise BufferError(msg)
+        _FakeProducer.produce(producer, **kwargs)
+
+    producer.produce = produce  # type: ignore[method-assign]
+
+    with raises(RuntimeError, match="failed to deliver"):
+        part.write_batch(
+            [KafkaSinkMessage(b"k1", b"v1"), KafkaSinkMessage(b"k2", b"v2")]
+        )
 
 
 def test_sink_write_batch_raises_without_topic(fake_producer):
