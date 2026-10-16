@@ -41,6 +41,7 @@ kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 
@@ -56,6 +57,8 @@ from confluent_kafka import (
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
 from prometheus_client import Gauge
+
+_logger = logging.getLogger(__name__)
 
 K = TypeVar("K")
 """Type of key in Kafka message."""
@@ -532,13 +535,13 @@ class _KafkaSinkPartition(
         if self._delivery_err is not None:
             topic, err = self._delivery_err
             self._delivery_err = None
-            self._failed = True
             msg = f"failed to deliver a message to Kafka topic `{topic!r}`: {err.str()}"
             raise RuntimeError(msg) from KafkaException(err)
 
     def _produce(
         self, msg: KafkaSinkMessage[Optional[bytes], Optional[bytes]], topic: str
     ) -> None:
+        waited = False
         while True:
             try:
                 self._producer.produce(
@@ -551,10 +554,13 @@ class _KafkaSinkPartition(
                 )
                 return
             except BufferError as ex:
-                if len(self._producer) == 0:
-                    # Nothing is queued, so waiting can't make room:
-                    # this message alone is bigger than the queue.
-                    self._failed = True
+                if waited and len(self._producer) == 0:
+                    # Nothing is queued even after waiting, so waiting
+                    # can't make room: this message alone is bigger
+                    # than the queue. (Right after the error the queue
+                    # can be empty only because librdkafka freed
+                    # delivered messages on its own thread, e.g. with
+                    # `delivery.report.only.error`.)
                     err = (
                         f"message for Kafka topic `{topic!r}` is larger than the "
                         "producer's local queue (`queue.buffering.max.kbytes`)"
@@ -564,11 +570,11 @@ class _KafkaSinkPartition(
                 # drain instead of failing the batch; stop if a
                 # queued message has failed meanwhile.
                 self._producer.poll(_QUEUE_FULL_POLL_S)
+                waited = True
                 self._raise_on_delivery_err()
             except KafkaException as ex:
                 # Raised before queueing, e.g. a message bigger than
                 # `message.max.bytes`.
-                self._failed = True
                 kerr = ex.args[0] if ex.args else None
                 reason = (
                     kerr.str() if isinstance(kerr, ConfluentKafkaError) else str(ex)
@@ -581,30 +587,44 @@ class _KafkaSinkPartition(
     def write_batch(
         self, items: List[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
     ) -> None:
-        for msg in items:
-            topic = self._topic if msg.topic is None else msg.topic
-            if topic is None:
-                err = f"No topic to produce to for {msg}"
-                raise RuntimeError(err)
+        try:
+            for msg in items:
+                topic = self._topic if msg.topic is None else msg.topic
+                if topic is None:
+                    err = f"No topic to produce to for {msg}"
+                    raise RuntimeError(err)
 
-            self._produce(msg, topic)
-            self._producer.poll(0)
-        # Every item must be delivered before returning so the epoch
-        # isn't committed with lost output; a failure fails the
-        # dataflow and resuming re-sends it.
-        self._producer.flush()
-        self._raise_on_delivery_err()
+                self._produce(msg, topic)
+                self._producer.poll(0)
+            # Every item must be delivered before returning so the
+            # epoch isn't committed with lost output; a failure fails
+            # the dataflow and resuming re-sends it.
+            self._producer.flush()
+            self._raise_on_delivery_err()
+        except BaseException:
+            # Whatever failed (including an `on_delivery` from
+            # `add_config`), `close` must not wait on or report the
+            # messages still queued.
+            self._failed = True
+            raise
 
     def close(self) -> None:
-        # Never raise here: `write_batch` already flushed and raised on
-        # failed deliveries, and `close` also runs while unwinding from
-        # a failed `write_batch`, where raising aborts the process.
-        if self._failed:
-            # The dataflow is failing and resuming re-sends anything
-            # still queued, so don't wait up to `message.timeout.ms`.
-            self._producer.purge()
-        else:
-            self._producer.flush()
+        # Never raise here: `close` also runs while unwinding from a
+        # failed `write_batch`, where a second exception aborts the
+        # process. `write_batch` already flushed and raised on
+        # failures.
+        try:
+            if self._failed:
+                # The dataflow is failing and resuming re-sends
+                # anything still queued, so don't wait up to
+                # `message.timeout.ms`. Serve the purged messages'
+                # delivery reports.
+                self._producer.purge()
+                self._producer.poll(0)
+            else:
+                self._producer.flush()
+        except Exception:
+            _logger.exception("error closing Kafka producer")
 
 
 class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]):
@@ -626,7 +646,7 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
     `message.timeout.ms`), the dataflow fails with a `RuntimeError`;
     with recovery, resuming re-sends it. If the producer's local queue
     fills up, writing waits for it to drain; a single message larger
-    than the whole queue fails right away.
+    than the whole queue fails instead of waiting forever.
 
     """
 
