@@ -195,31 +195,32 @@ class _FakeProducer:
 
     Models librdkafka's local queue: `produce` raises `BufferError`
     while `queue_limit` messages are queued, or for every message if
-    `too_large` (a message bigger than the whole queue). With
-    `background_drain`, the queue empties right as `BufferError` is
-    raised, like successful deliveries freed on librdkafka's own thread
-    with `delivery.report.only.error`.
+    `too_large` (a message bigger than the whole queue). Messages stay
+    counted in `len` until their delivery report is served, as in
+    confluent-kafka.
 
     Delivery reports go to each message's `on_delivery`, or to the
     `on_delivery` in the config like librdkafka's default callback,
-    with `delivery_error`. Queued messages are only delivered while
-    waiting (`poll` with a timeout, or `flush`); this is stricter than
-    librdkafka, whose `poll(0)` also serves reports that are already
-    done. `purge` drops queued messages and reports them on the next
-    `poll` or `flush` with `_PURGE_QUEUE`. `produce_error` is raised
-    synchronously from `produce`, like librdkafka does for e.g. a
-    message bigger than `message.max.bytes`.
+    with `delivery_error`. They are served one at a time, so a callback
+    that raises leaves the rest for later. Queued messages are only
+    delivered while waiting (`poll` with a timeout, or `flush`); this
+    is stricter than librdkafka, whose `poll(0)` also serves reports
+    that are already done. `purge` drops queued messages without
+    waiting, like confluent-kafka's, and their `_PURGE_QUEUE` reports
+    are served only by a later `flush` or `poll` with a timeout.
+    `produce_error` is raised synchronously from `produce`, like
+    librdkafka does for e.g. a message bigger than `message.max.bytes`.
 
     """
 
     config: Dict[str, Any]
     produced: List[Dict[str, Any]] = field(default_factory=list)
     flushes: int = 0
+    flush_timeouts: List[Optional[float]] = field(default_factory=list)
     purges: int = 0
     polls: List[float] = field(default_factory=list)
     queue_limit: Optional[int] = None
     too_large: bool = False
-    background_drain: bool = False
     produce_error: Optional[ConfluentKafkaError] = None
     delivery_error: Optional[ConfluentKafkaError] = None
     _pending: List[Tuple[Any, Dict[str, Any]]] = field(default_factory=list)
@@ -239,8 +240,6 @@ class _FakeProducer:
             # Waiting can never make room for a message bigger than
             # the queue; fail the test instead of spinning forever.
             assert self._buffer_errors < 100, "retried a full queue forever"
-            if self.background_drain:
-                self._pending = []
             msg = "Local: Queue full"
             raise BufferError(msg)
         on_delivery = kwargs.pop("on_delivery", None)
@@ -248,8 +247,6 @@ class _FakeProducer:
         self._pending.append((on_delivery, kwargs))
 
     def _report(self, queue, err):
-        # One at a time, so a callback that raises leaves the rest
-        # queued, like librdkafka.
         while queue:
             on_delivery, kwargs = queue.pop(0)
             if on_delivery is None:
@@ -259,14 +256,15 @@ class _FakeProducer:
 
     def poll(self, timeout):
         self.polls.append(timeout)
-        self._report(
-            self._purged, ConfluentKafkaError(ConfluentKafkaError._PURGE_QUEUE)
-        )
         if timeout > 0:
+            self._report(
+                self._purged, ConfluentKafkaError(ConfluentKafkaError._PURGE_QUEUE)
+            )
             self._report(self._pending, self.delivery_error)
 
-    def flush(self):
+    def flush(self, timeout=None):
         self.flushes += 1
+        self.flush_timeouts.append(timeout)
         self._report(
             self._purged, ConfluentKafkaError(ConfluentKafkaError._PURGE_QUEUE)
         )
@@ -666,6 +664,8 @@ def test_sink_write_batch_raises_on_message_larger_than_queue(fake_producer):
     with raises(RuntimeError) as exc_info:
         part.write_batch([KafkaSinkMessage(b"k", b"v" * 10)])
 
+    assert producer.polls == []
+
     assert str(exc_info.value) == (
         f"message for Kafka topic `{TOPIC!r}` is larger than the producer's "
         "local queue (`queue.buffering.max.kbytes`)"
@@ -714,9 +714,11 @@ def test_sink_close_purges_after_failed_write(fake_producer):
     part.close()
 
     # The dataflow is failing and resuming re-sends anything queued, so
-    # don't wait up to `message.timeout.ms` for it.
+    # don't wait up to `message.timeout.ms` for it: purge, then only
+    # serve the purged messages' reports, with a bounded flush.
     assert producer.purges == 1
-    assert producer.flushes == flushes
+    assert producer.flushes == flushes + 1
+    assert producer.flush_timeouts[-1] is not None
 
 
 def test_sink_close_after_user_on_delivery_raises(fake_producer):
@@ -740,7 +742,8 @@ def test_sink_close_after_user_on_delivery_raises(fake_producer):
     part.close()
 
     assert producer.purges == 1
-    assert producer.flushes == flushes
+    assert producer.flushes == flushes + 1
+    assert producer.flush_timeouts[-1] is not None
 
 
 def test_sink_close_purges_after_missing_topic_mid_batch(fake_producer):
@@ -762,22 +765,10 @@ def test_sink_close_purges_after_missing_topic_mid_batch(fake_producer):
     part.close()
 
     assert producer.purges == 1
-    assert producer.flushes == flushes
+    assert producer.flushes == flushes + 1
+    assert producer.flush_timeouts[-1] is not None
     # Delivery reports for the purged message are still served.
     assert [err.code() for err in reports] == [ConfluentKafkaError._PURGE_QUEUE]
-
-
-def test_sink_write_batch_waits_when_queue_drains_in_background(fake_producer):
-    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
-    (producer,) = fake_producer
-    producer.queue_limit = 1
-    producer.background_drain = True
-
-    # The queue is empty by the time the sink looks at it, but the
-    # message isn't too large: waiting once lets it through.
-    part.write_batch([KafkaSinkMessage(b"k1", b"v1"), KafkaSinkMessage(b"k2", b"v2")])
-
-    assert [m["value"] for m in producer.produced] == [b"v1", b"v2"]
 
 
 def test_sink_calls_user_on_delivery(fake_producer):
@@ -792,6 +783,13 @@ def test_sink_calls_user_on_delivery(fake_producer):
     part.write_batch([KafkaSinkMessage(b"k", b"v")])
 
     assert reports == [(None, TOPIC)]
+
+
+def test_sink_build_rejects_non_callable_on_delivery(fake_producer):
+    sink = KafkaSink(["b:9092"], TOPIC, add_config={"on_delivery": "not callable"})
+
+    with raises(TypeError, match="on_delivery"):
+        sink.build("step", 0, 1)
 
 
 def test_sink_write_batch_raises_without_topic(fake_producer):
