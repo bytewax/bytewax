@@ -67,7 +67,6 @@ jobs:
           # target and manylinux version.
           container: ${{ matrix.container }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-          sccache: true
       - name: Cache Apache Kafka
         if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
         uses: actions/cache@v5
@@ -220,7 +219,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
-          sccache: true
       - name: Cache Apache Kafka
         if: ${{ inputs.run-tests }}
         uses: actions/cache@v5
