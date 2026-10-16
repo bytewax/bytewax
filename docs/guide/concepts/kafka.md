@@ -113,7 +113,7 @@ lost or repeated (see [Kafka and Recovery](#xref-kafka-recovery)).
 If the producer's local queue fills up because the brokers can't keep
 up, the sink waits for it to drain instead of failing. A single
 message larger than the whole queue (`queue.buffering.max.kbytes`)
-fails the dataflow instead of waiting forever.
+fails the dataflow right away.
 
 ## Batch Sizes
 

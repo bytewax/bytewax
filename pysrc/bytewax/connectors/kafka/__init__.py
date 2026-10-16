@@ -509,6 +509,9 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
 _QUEUE_FULL_POLL_S = 1.0
 """How long to serve delivery reports before retrying a full queue."""
 
+_CLOSE_FLUSH_S = 5.0
+"""How long `close` serves purged messages' reports after a failure."""
+
 
 class _KafkaSinkPartition(
     StatelessSinkPartition[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
@@ -541,7 +544,6 @@ class _KafkaSinkPartition(
     def _produce(
         self, msg: KafkaSinkMessage[Optional[bytes], Optional[bytes]], topic: str
     ) -> None:
-        waited = False
         while True:
             try:
                 self._producer.produce(
@@ -554,13 +556,11 @@ class _KafkaSinkPartition(
                 )
                 return
             except BufferError as ex:
-                if waited and len(self._producer) == 0:
-                    # Nothing is queued even after waiting, so waiting
-                    # can't make room: this message alone is bigger
-                    # than the queue. (Right after the error the queue
-                    # can be empty only because librdkafka freed
-                    # delivered messages on its own thread, e.g. with
-                    # `delivery.report.only.error`.)
+                if len(self._producer) == 0:
+                    # Messages stay counted until `poll`/`flush` serves
+                    # their delivery reports, so with nothing queued
+                    # waiting can't make room: this message alone is
+                    # bigger than the queue.
                     err = (
                         f"message for Kafka topic `{topic!r}` is larger than the "
                         "producer's local queue (`queue.buffering.max.kbytes`)"
@@ -570,7 +570,6 @@ class _KafkaSinkPartition(
                 # drain instead of failing the batch; stop if a
                 # queued message has failed meanwhile.
                 self._producer.poll(_QUEUE_FULL_POLL_S)
-                waited = True
                 self._raise_on_delivery_err()
             except KafkaException as ex:
                 # Raised before queueing, e.g. a message bigger than
@@ -609,18 +608,19 @@ class _KafkaSinkPartition(
             raise
 
     def close(self) -> None:
-        # Never raise here: `close` also runs while unwinding from a
-        # failed `write_batch`, where a second exception aborts the
-        # process. `write_batch` already flushed and raised on
-        # failures.
+        # Log errors instead of raising them: `close` also runs while
+        # unwinding from a failed `write_batch`, where a second
+        # exception aborts the process. `write_batch` already flushed
+        # and raised on failures.
         try:
             if self._failed:
                 # The dataflow is failing and resuming re-sends
                 # anything still queued, so don't wait up to
-                # `message.timeout.ms`. Serve the purged messages'
-                # delivery reports.
+                # `message.timeout.ms` for it. `purge` doesn't wait
+                # either; the bounded `flush` serves the purged
+                # messages' delivery reports.
                 self._producer.purge()
-                self._producer.poll(0)
+                self._producer.flush(_CLOSE_FLUSH_S)
             else:
                 self._producer.flush()
         except Exception:
@@ -646,7 +646,7 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
     `message.timeout.ms`), the dataflow fails with a `RuntimeError`;
     with recovery, resuming re-sends it. If the producer's local queue
     fills up, writing waits for it to drain; a single message larger
-    than the whole queue fails instead of waiting forever.
+    than the whole queue fails right away.
 
     """
 
@@ -685,6 +685,12 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
         }
         config.update(self._add_config)
         user_on_delivery = config.pop("on_delivery", None)
+        if user_on_delivery is not None and not callable(user_on_delivery):
+            msg = (
+                "`on_delivery` in `add_config` must be callable; "
+                f"got {user_on_delivery!r}"
+            )
+            raise TypeError(msg)
         producer = Producer(config)
 
         return _KafkaSinkPartition(producer, self._topic, user_on_delivery)
