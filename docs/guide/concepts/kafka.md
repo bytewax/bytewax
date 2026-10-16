@@ -91,6 +91,26 @@ to a "dead letter queue", a separate Kafka topic where they can be
 inspected and reprocessed later, while allowing the dataflow to
 continue processing data.
 
+(xref-kafka-delivery-failures)=
+### Delivery Failures
+
+{py:obj}`~bytewax.connectors.kafka.KafkaSink` waits until every
+message in a batch is delivered before moving on. If Kafka doesn't
+accept a message, for example because the brokers stay unreachable for
+longer than the producer's `message.timeout.ms` (5 minutes by default)
+or the topic doesn't exist, the dataflow fails with a `RuntimeError`
+naming the topic and the Kafka error.
+
+At-least-once delivery requires running the dataflow with
+[recovery](#xref-recovery): after the failure, resuming the dataflow
+re-sends everything from the last snapshot, so some messages may be
+written twice. Without recovery there is no delivery guarantee;
+{py:obj}`~bytewax.connectors.kafka.KafkaSource` starts again from its
+`starting_offset` (see [Kafka and Recovery](#xref-kafka-recovery)).
+
+If the producer's local queue fills up because the brokers can't keep
+up, the sink waits for it to drain instead of failing.
+
 ## Batch Sizes
 
 By default, Bytewax will consume a batch of up to 1000 messages at a
@@ -154,6 +174,7 @@ Note that not setting a topic for a
 {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage` when `KafkaSink`
 is not configured with a default topic will result in a runtime error.
 
+(xref-kafka-recovery)=
 ## Kafka and Recovery
 
 Typical deployments of Kafka utilize [consumer groups](
@@ -172,6 +193,14 @@ changed when creating a new `KafkaSource` with the `starting_offset`
 parameter, which accepts the types defined in the
 [`confluent_kafka`](https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html#offset)
 library.
+
+Only recovery gives at-least-once delivery from
+{py:obj}`~bytewax.connectors.kafka.KafkaSource` to
+{py:obj}`~bytewax.connectors.kafka.KafkaSink`; see [Delivery
+Failures](#xref-kafka-delivery-failures). Broker-side offsets with
+`enable.auto.commit` are committed as messages are read, not after
+they are written out, so without recovery a failure can skip or
+repeat messages.
 
 If you are not using recovery and would prefer to track offsets on the
 broker side, you can pass additional options to the Kafka input

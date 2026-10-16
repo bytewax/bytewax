@@ -71,6 +71,16 @@ notes on GitHub when we make a new release.__
 - Building Bytewax from source now uses Rust 1.86.0 (pinned in
   `rust-toolchain.toml`) instead of 1.74.1.
 
+- {py:obj}`~bytewax.connectors.kafka.KafkaSink` now fails the
+  dataflow with a `RuntimeError` when Kafka doesn't accept a message
+  (e.g. unreachable brokers past `message.timeout.ms`, or a missing
+  topic). Previously such messages were dropped silently, even with
+  recovery enabled; now resuming re-sends them (at-least-once). When
+  the producer's local queue is full, the sink waits for it to drain
+  instead of crashing with `BufferError`. The docs now state that
+  this at-least-once guarantee requires running with recovery.
+  Reported in #522 by @shubhanshu02.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
