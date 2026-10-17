@@ -11,7 +11,7 @@ operators with a run of one worker and one item per batch.
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from functools import partial
+from functools import lru_cache, partial
 from itertools import product
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -73,7 +73,7 @@ def _stateless(s: Stream[int]) -> Stream[Any]:
     s = op.flat_map_batch("flat_map_batch", s, lambda xs: [x + 1 for x in xs])
     lists = op.map("wrap", s, lambda x: [x])
     s = op.flatten("flatten", lists)
-    return op.inspect("inspect", s)
+    return op.inspect("inspect", s, lambda _step_id, _x: None)
 
 
 def _stateless_model() -> List[Any]:
@@ -259,6 +259,7 @@ def _finals(s: Stream[int]) -> Stream[Any]:
     reduced = op.reduce_final("reduce_final", lists, lambda a, b: a + b)
     counted = op.count_final("count_final", s, _key)
     maxed = op.max_final("max_final", ks)
+    # With `by=-x` the minimum is the largest value.
     mined = op.min_final("min_final", ks, by=lambda x: -x)
     return op.merge(
         "merge",
@@ -439,7 +440,9 @@ def _run(
         cluster_main(flow, [], 0, worker_count_per_proc=worker_count, **kwargs)
 
 
-def _expected(scenario: _Scenario) -> List[Any]:
+@lru_cache(maxsize=None)
+def _expected(name: str) -> List[Any]:
+    scenario = SCENARIOS[name]
     if scenario.model is not None:
         return scenario.model()
     else:
@@ -457,7 +460,7 @@ def test_output_independent_of_batching_and_workers(
     scenario = SCENARIOS[name]
     out: List[Any] = []
     _run(scenario, batch_size, worker_count, out)
-    expected = _expected(scenario)
+    expected = _expected(name)
     assert _canon(out, scenario.keyed_order) == _canon(expected, scenario.keyed_order)
 
 
@@ -467,21 +470,35 @@ def _root_cause(ex: BaseException) -> str:
     return str(ex)
 
 
-def _crash_once_at(*xs: int) -> Callable[[int], int]:
-    pending = set(xs)
+class _Crasher:
+    """Fail the dataflow once at each given item.
 
-    def crash(x: int) -> int:
-        if x in pending:
-            pending.remove(x)
+    Also records the first item each execution sees, to check where
+    it resumed.
+
+    """
+
+    def __init__(self, *xs: int) -> None:
+        self._pending = set(xs)
+        self.firsts: List[Optional[int]] = []
+
+    def start_execution(self) -> None:
+        self.firsts.append(None)
+
+    def __call__(self, x: int) -> int:
+        if self.firsts[-1] is None:
+            self.firsts[-1] = x
+        if x in self._pending:
+            self._pending.remove(x)
             msg = f"crash at {x}"
             raise RuntimeError(msg)
         return x
 
-    return crash
 
-
+# A crash inside the first batch can't resume past it, so the largest
+# batch size here still snapshots before the first crash.
 @mark.parametrize("worker_count", WORKER_COUNTS)
-@mark.parametrize("batch_size", [1, 3, 1000])
+@mark.parametrize("batch_size", [1, 3, 64])
 @mark.parametrize("name", list(SCENARIOS))
 def test_output_complete_after_crashes_and_resumes(
     tmp_path: Path, name: str, batch_size: int, worker_count: int
@@ -491,19 +508,27 @@ def test_output_complete_after_crashes_and_resumes(
     recovery_config = RecoveryConfig(str(tmp_path))
     # `TestingSource.ABORT` only works with one worker, so fail the
     # dataflow from a user function instead, like a real crash.
-    crash = _crash_once_at(N // 3, 2 * N // 3)
+    crash = _Crasher(N // 3, 2 * N // 3)
 
     out: List[Any] = []
     for at in (N // 3, 2 * N // 3):
+        crash.start_execution()
         with raises(BytewaxRuntimeError) as exc_info:
             _run(scenario, batch_size, worker_count, out, crash, recovery_config)
         assert _root_cause(exc_info.value) == f"crash at {at}"
+    crash.start_execution()
     _run(scenario, batch_size, worker_count, out, crash, recovery_config)
+
+    # Each execution resumed after the start of the previous one.
+    first, second, third = crash.firsts
+    assert first == 0
+    assert second is not None and 0 < second <= N // 3
+    assert third is not None and second < third <= 2 * N // 3
 
     # Recovery is at-least-once: output from the epochs that were
     # running when the dataflow failed may be emitted again, but
     # nothing may be missing and nothing else may appear.
-    expected = _expected(scenario)
+    expected = _expected(name)
     missing = Counter(map(repr, expected)) - Counter(map(repr, out))
     assert not missing
     assert set(map(repr, out)) == set(map(repr, expected))
