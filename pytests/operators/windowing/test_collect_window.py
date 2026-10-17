@@ -54,3 +54,46 @@ def test_collect_window() -> None:
         (0, [1, 2, 3]),
         (1, [4, 5]),
     ]
+
+
+def test_collect_window_unordered() -> None:
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    inp = [
+        _Event(align_to, 1),
+        _Event(align_to + timedelta(seconds=8), 3),
+        _Event(align_to + timedelta(seconds=4), 2),
+        _Event(align_to + timedelta(seconds=13), 5),
+        _Event(align_to + timedelta(seconds=12), 4),
+    ]
+    out: List[Tuple[int, List[int]]] = []
+
+    def ts_getter(event: _Event) -> datetime:
+        return event.timestamp
+
+    clock = EventClock(ts_getter, wait_for_system_duration=timedelta.max)
+    windower = TumblingWindower(length=timedelta(seconds=10), align_to=align_to)
+
+    flow = Dataflow("test_df")
+    inps = op.input("inp", flow, TestingSource(inp))
+    keyed_inps = op.key_on("key", inps, lambda _: "ALL")
+    collect_out = win.collect_window(
+        "collect_window", keyed_inps, clock, windower, ordered=False
+    )
+    unkeyed = op.key_rm("unkey", collect_out.down)
+
+    def clean(
+        id_collected: Tuple[int, List[_Event]],
+    ) -> Tuple[int, List[int]]:
+        window_id, collected = id_collected
+        cleaned = [event.value for event in collected]
+        return (window_id, cleaned)
+
+    cleans = op.map("clean", unkeyed, clean)
+    op.output("out", cleans, TestingSink(out))
+
+    run_main(flow)
+    # Items are collected in arrival order, not timestamp order.
+    assert out == [
+        (0, [1, 3, 2]),
+        (1, [5, 4]),
+    ]

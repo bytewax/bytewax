@@ -71,6 +71,12 @@ notes on GitHub when we make a new release.__
 - Building Bytewax from source now uses Rust 1.86.0 (pinned in
   `rust-toolchain.toml`) instead of 1.74.1.
 
+- Fixes the type hints of
+  {py:obj}`~bytewax.operators.windowing.collect_window` not accepting
+  the `ordered` argument, so type checkers rejected
+  `collect_window(..., ordered=False)` even though it works at
+  runtime.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
