@@ -5,9 +5,11 @@ import os
 import queue
 import re
 import sys
+import time
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -24,7 +26,7 @@ from bytewax.inputs import (
     batch_getter,
     batch_getter_ex,
 )
-from bytewax.testing import TestingSink, run_main
+from bytewax.testing import TestingSink, cluster_main, run_main
 from pytest import raises, skip
 from typing_extensions import override
 
@@ -572,3 +574,127 @@ def test_batch_async_does_not_leak_fds():
         gc.collect()
 
     assert after - before < 20
+
+
+class _SleepyPartition(StatefulSourcePartition[str, None]):
+    def __init__(self, key: str, delay: float, until: float) -> None:
+        self._key = key
+        self._delay = delay
+        self._until = until
+
+    @override
+    def next_batch(self) -> List[str]:
+        if time.monotonic() >= self._until:
+            raise StopIteration()
+        time.sleep(self._delay)
+        return [self._key]
+
+    @override
+    def snapshot(self) -> None:
+        return None
+
+
+class _SleepySource(FixedPartitionedSource[str, None]):
+    """Each partition emits its own key after sleeping for its delay."""
+
+    def __init__(self, delays: Dict[str, float], run_for: timedelta) -> None:
+        self._delays = delays
+        self._run_for = run_for
+        self._until: Optional[float] = None
+
+    @override
+    def list_parts(self) -> List[str]:
+        return list(self._delays)
+
+    @override
+    def build_part(
+        self, step_id: str, for_part: str, resume_state: Optional[None]
+    ) -> _SleepyPartition:
+        if self._until is None:
+            self._until = time.monotonic() + self._run_for.total_seconds()
+        return _SleepyPartition(for_part, self._delays[for_part], self._until)
+
+
+def test_fixed_partitioned_source_partition_alone_on_worker_keeps_up():
+    # With two workers, the fast partition `b` is alone on its worker
+    # and the slow `a` and `c` share the other. `b` reaches the end of
+    # each epoch first and waits for the other worker. That wait must
+    # not count as time spent in its next epoch, or once the other
+    # worker catches up `b` only gets one batch before its next epoch
+    # is due, and it falls behind to about the pace of `a`.
+    out: List[Tuple[str, int]] = []
+
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp",
+        flow,
+        # Delays are multiples of Windows' 15.6 ms sleep resolution
+        # before Python 3.11.
+        _SleepySource({"a": 0.18, "b": 0.03, "c": 0.18}, timedelta(seconds=4)),
+    )
+    op.inspect_debug(
+        "record",
+        s,
+        lambda _step_id, key, _epoch, worker: out.append((key, worker)),
+    )
+
+    cluster_main(
+        flow, [], 0, epoch_interval=timedelta(seconds=0.5), worker_count_per_proc=2
+    )
+
+    workers = {key: worker for key, worker in out}
+    assert workers["a"] == workers["c"] != workers["b"]
+    counts = Counter(key for key, _ in out)
+    # Sleeping 30 ms vs 180 ms, `b` emits about 6 times as often; with
+    # the stall it emitted under 2 times as often.
+    assert counts["b"] >= 3 * counts["a"]
+
+
+class _SleepyStatelessPartition(StatelessSourcePartition[int]):
+    def __init__(self, worker_index: int, delay: float, until: float) -> None:
+        self._worker_index = worker_index
+        self._delay = delay
+        self._until = until
+
+    @override
+    def next_batch(self) -> List[int]:
+        if time.monotonic() >= self._until:
+            raise StopIteration()
+        time.sleep(self._delay)
+        return [self._worker_index]
+
+
+class _SleepyDynamicSource(DynamicSource[int]):
+    """Each worker emits its index after sleeping for its delay."""
+
+    def __init__(self, delays: List[float], run_for: timedelta) -> None:
+        self._delays = delays
+        self._until = time.monotonic() + run_for.total_seconds()
+
+    @override
+    def build(
+        self, step_id: str, worker_index: int, worker_count: int
+    ) -> _SleepyStatelessPartition:
+        return _SleepyStatelessPartition(
+            worker_index, self._delays[worker_index], self._until
+        )
+
+
+def test_dynamic_source_fast_worker_keeps_up():
+    # Worker 0 is fast and worker 1 slow. Worker 0 reaches the end of
+    # each epoch first and waits for worker 1; that wait must not count
+    # as time spent in its next epoch either.
+    out: List[int] = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, _SleepyDynamicSource([0.03, 0.18], timedelta(seconds=4)))
+    op.output("out", s, TestingSink(out))
+
+    cluster_main(
+        flow, [], 0, epoch_interval=timedelta(seconds=0.5), worker_count_per_proc=2
+    )
+
+    counts = Counter(out)
+    # Worker 0 emits about 4 times as often; with the stall it emitted
+    # about 2.6 times as often.
+    assert counts[0] >= 3.3 * counts[1]

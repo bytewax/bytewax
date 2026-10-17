@@ -539,6 +539,17 @@ impl FixedPartitionedSource {
                                         Ok(())
                                     }));
                                 }
+                            } else {
+                                // This partition finished its epoch
+                                // before the rest of the dataflow and
+                                // is waiting for it. Don't count the
+                                // wait as time spent in the next
+                                // epoch: otherwise, once the others
+                                // catch up, the epoch is already due
+                                // after a single `next_batch`, and a
+                                // partition alone on a worker falls
+                                // further behind each epoch.
+                                part_state.epoch_started = now;
                             }
                         });
                     }
@@ -834,6 +845,12 @@ impl DynamicSource {
                                 part_state.output_cap.downgrade(&next_epoch);
                                 tracing::trace!("Advanced to epoch {next_epoch}");
                             }
+                        } else {
+                            // Waiting for the rest of the dataflow
+                            // doesn't count towards the next epoch;
+                            // see the same branch in
+                            // `FixedPartitionedSource`.
+                            part_state.epoch_started = now;
                         }
                     }
 
