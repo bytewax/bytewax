@@ -185,3 +185,35 @@ def test_join_window_product_final() -> None:
         (2, 3),
         (2, 4),
     ]
+
+
+def test_join_window_late_items_have_side() -> None:
+    align_to = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    inp_l = [
+        _Event(align_to + timedelta(seconds=10), 1),
+        # Late: the watermark is at 10.
+        _Event(align_to, 2),
+    ]
+    inp_r = [_Event(align_to + timedelta(seconds=10), 3)]
+    late: List[Tuple[int, int]] = []
+
+    flow = Dataflow("test_df")
+    lefts = op.input("inp_l", flow, TestingSource(inp_l))
+    keyed_lefts = op.key_on("key_l", lefts, lambda _: "ALL")
+    rights = op.input("inp_r", flow, TestingSource(inp_r))
+    keyed_rights = op.key_on("key_r", rights, lambda _: "ALL")
+
+    clock = EventClock(_Event.ts_getter, wait_for_system_duration=timedelta(0))
+    windower = SessionWindower(timedelta(seconds=10))
+    joined = win.join_window("join", clock, windower, keyed_lefts, keyed_rights)
+
+    def side_value(id_late: Tuple[int, Tuple[int, _Event]]) -> Tuple[int, int]:
+        _window_id, (side, event) = id_late
+        return (side, event.value)
+
+    unkeyed = op.key_rm("unkey", joined.late)
+    op.output("late", op.map("side_value", unkeyed, side_value), TestingSink(late))
+
+    run_main(flow)
+    # Late items are labeled with the index of their side.
+    assert late == [(0, 2)]
