@@ -71,6 +71,11 @@ notes on GitHub when we make a new release.__
 - Building Bytewax from source now uses Rust 1.86.0 (pinned in
   `rust-toolchain.toml`) instead of 1.74.1.
 
+- Fixes the type hints of the `late` stream of
+  {py:obj}`~bytewax.operators.windowing.join_window`: its values are
+  `(side, value)` 2-tuples, where `side` is the index of the stream
+  the value came from, not bare values. The docstring now says so.
+
 - Fixes the type hints of
   {py:obj}`~bytewax.operators.windowing.collect_window` not accepting
   the `ordered` argument, so type checkers rejected
