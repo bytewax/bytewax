@@ -1378,8 +1378,8 @@ def _collect_get_callbacks(
         return (dict, dict_folder, _collect_dict_merger)
     else:
         msg = (
-            f"`collect_window` doesn't support `{t:!}`; "
-            "only `list`, `set`, and `dict`; use `fold` operator directly"
+            f"`collect_window` doesn't support `{t.__name__}`; "
+            "only `list`, `set`, and `dict`; use `fold_window` directly"
         )
         raise TypeError(msg)
 
