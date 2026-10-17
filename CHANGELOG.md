@@ -15,10 +15,11 @@ notes on GitHub when we make a new release.__
   `RuntimeError` naming the brokers and topic. See "Startup and
   Unreachable Brokers" in the Kafka guide.
 
-- {py:obj}`~bytewax.connectors.kafka.KafkaSink` now fails the dataflow
-  with a `RuntimeError` when Kafka doesn't accept a message (e.g.
-  unreachable brokers past `message.timeout.ms`, or a missing topic).
-  Previously such messages were dropped silently, even with recovery
+- *Behavior change* {py:obj}`~bytewax.connectors.kafka.KafkaSink`
+  now fails the dataflow with a `RuntimeError` when Kafka doesn't
+  accept a message (e.g. unreachable brokers past
+  `message.timeout.ms`, or a missing topic). This is intended:
+  previously such messages were dropped silently, even with recovery
   enabled; now resuming re-sends them (at-least-once), and messages
   still queued when the dataflow fails are dropped rather than waited
   on. When the producer's local queue is full, the sink waits for it
