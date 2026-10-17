@@ -111,7 +111,7 @@ def test_collect_window_into_set() -> None:
         _Event(align_to + timedelta(seconds=13), 5),
         _Event(align_to + timedelta(seconds=13), 5),
     ]
-    out: List[Tuple[int, Set[int]]] = []
+    out: List[Tuple[int, Set[_Event]]] = []
 
     clock: EventClock[_Event] = EventClock(
         lambda e: e.timestamp, wait_for_system_duration=timedelta.max
@@ -123,16 +123,14 @@ def test_collect_window_into_set() -> None:
     keyed = op.key_on("key", inps, lambda _: "ALL")
     collect_out = win.collect_window("collect_window", keyed, clock, windower, set)
 
-    def values(id_events: Tuple[int, Set[_Event]]) -> Tuple[int, Set[int]]:
-        window_id, events = id_events
-        return (window_id, {e.value for e in events})
-
-    unkeyed = op.key_rm("unkey", collect_out.down)
-    op.output("out", op.map("values", unkeyed, values), TestingSink(out))
+    op.output("out", op.key_rm("unkey", collect_out.down), TestingSink(out))
 
     run_main(flow)
-    # Only the duplicates collapsed: each window got one event per value.
-    assert out == [(0, {1, 3}), (1, {5})]
+    assert all(isinstance(events, set) for _, events in out)
+    assert out == [
+        (0, {_Event(align_to, 1), _Event(align_to + timedelta(seconds=8), 3)}),
+        (1, {_Event(align_to + timedelta(seconds=13), 5)}),
+    ]
 
 
 def test_collect_window_into_dict() -> None:

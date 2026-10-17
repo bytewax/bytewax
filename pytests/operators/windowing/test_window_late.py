@@ -125,3 +125,23 @@ def test_late_items_not_in_windows(windower_name: str) -> None:
     run_main(flow)
     collected = {x for _, (_, xs) in down for x in xs}
     assert collected == set(INP) - LATE
+
+
+def test_late_item_left_out_of_still_open_sliding_window() -> None:
+    # 17 arrives when the watermark is 20, so it is late. Its windows
+    # are 2 `[10, 20)`, already closed, and 3 `[15, 25)`, still open.
+    # It is reported late for both and left out of both.
+    inp = [0, 25, 17, 21]
+    late: List[Tuple[str, Tuple[int, int]]] = []
+    down: List[Tuple[str, Tuple[int, List[int]]]] = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    keyed = op.key_on("key", s, lambda _: "ALL")
+    wo = win.collect_window("w", keyed, _clock(), WINDOWERS["sliding"]())
+    op.output("late", wo.late, TestingSink(late))
+    op.output("down", wo.down, TestingSink(down))
+
+    run_main(flow)
+    assert late == [("ALL", (2, 17)), ("ALL", (3, 17))]
+    assert ("ALL", (3, [21])) in down
