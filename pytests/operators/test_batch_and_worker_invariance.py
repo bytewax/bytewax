@@ -2,9 +2,15 @@
 
 The tests for each operator run one worker with one item per batch.
 These run dataflows over a longer input with several batch sizes and
-worker counts, with and without an abort and resume, and compare the
+worker counts, with and without crashes and resumes, and compare the
 output with a plain Python model of each operator, or for windowing
 operators with a run of one worker and one item per batch.
+
+Only what is defined independent of arrival order is compared. Values
+from different streams, like the sides of a join, have no defined
+order between them, so `join` with complete or running emits is left
+out, `join_window` only gets values that aren't late, and windows
+with `ordered=False` are compared as sets of values.
 
 """
 
@@ -20,12 +26,18 @@ import bytewax.operators as op
 import bytewax.operators.windowing as win
 from bytewax.dataflow import Dataflow, Stream
 from bytewax.errors import BytewaxRuntimeError
-from bytewax.operators import JoinInsertMode, StatefulBatchLogic, StatefulLogic
+from bytewax.operators import (
+    JoinEmitMode,
+    JoinInsertMode,
+    StatefulBatchLogic,
+    StatefulLogic,
+)
 from bytewax.operators.windowing import (
     EventClock,
     SessionWindower,
     SlidingWindower,
     TumblingWindower,
+    Windower,
     WindowMetadata,
     WindowOut,
 )
@@ -382,6 +394,71 @@ def _count_window_sliding(s: Stream[int]) -> Stream[Any]:
     return _window_streams(win.count_window("w", s, _clock(), windower, _key))
 
 
+def _sorted_down(wo: WindowOut) -> WindowOut:
+    # With `ordered=False` the order of values in a window isn't
+    # defined; compare their sorted contents.
+    down = op.map_value("sort", wo.down, lambda id_xs: (id_xs[0], sorted(id_xs[1])))
+    return WindowOut(down, wo.late, wo.meta)
+
+
+def _collect_window_session_unordered(s: Stream[int]) -> Stream[Any]:
+    ks = op.key_on("key", s, _key)
+    # With this gap some on-time values arrive between two sessions and
+    # merge them, which only happens with `ordered=False`.
+    windower = SessionWindower(gap=timedelta(seconds=5))
+    wo = win.collect_window("w", ks, _clock(), windower, ordered=False)
+    return _window_streams(_sorted_down(wo))
+
+
+def _fold_window_tumbling_unordered(s: Stream[int]) -> Stream[Any]:
+    ks = op.key_on("key", s, _key)
+    windower = TumblingWindower(length=timedelta(seconds=30), align_to=ALIGN_TO)
+    wo = win.fold_window(
+        "w",
+        ks,
+        _clock(),
+        windower,
+        list,
+        lambda a, x: a + [x],
+        list.__add__,
+        ordered=False,
+    )
+    return _window_streams(_sorted_down(wo))
+
+
+def _join_window(
+    insert_mode: JoinInsertMode,
+    emit_mode: JoinEmitMode,
+    windower: Windower[Any],
+    s: Stream[int],
+) -> Stream[Any]:
+    ks = op.key_on("key", s, _key)
+    b = op.branch("branch", ks, lambda kv: kv[1] % 2 == 0)
+    # Wait long enough that no value is late: which values are late
+    # depends on the order the sides arrive in, which isn't defined.
+    # For the same reason, give every value its own timestamp (still
+    # out of order): values with equal timestamps are applied in
+    # arrival order. Windows then only close at EOF, so a crash
+    # snapshots values still queued in the window, not join state;
+    # test_window_recovery.py covers the join state.
+    clock: EventClock[int] = EventClock(
+        lambda x: ALIGN_TO + timedelta(seconds=(x * 37) % N),
+        wait_for_system_duration=timedelta(days=1),
+        now_getter=lambda: ALIGN_TO,
+        to_system_utc=lambda _: None,
+    )
+    wo = win.join_window(
+        "w",
+        clock,
+        windower,
+        b.trues,
+        b.falses,
+        insert_mode=insert_mode,
+        emit_mode=emit_mode,
+    )
+    return _window_streams(wo)
+
+
 SCENARIOS: Dict[str, _Scenario] = {
     "stateless": _Scenario(_stateless, _stateless_model, False),
     "keyed_stateless": _Scenario(_keyed_stateless, _keyed_stateless_model, True),
@@ -405,6 +482,41 @@ SCENARIOS: Dict[str, _Scenario] = {
     "collect_window_session": _Scenario(_collect_window_session, None, False),
     "fold_window_tumbling": _Scenario(_fold_window_tumbling, None, False),
     "count_window_sliding": _Scenario(_count_window_sliding, None, False),
+    "collect_window_session_unordered": _Scenario(
+        _collect_window_session_unordered, None, False
+    ),
+    "fold_window_tumbling_unordered": _Scenario(
+        _fold_window_tumbling_unordered, None, False
+    ),
+    "join_window_tumbling_last_complete": _Scenario(
+        partial(
+            _join_window,
+            "last",
+            "complete",
+            TumblingWindower(length=timedelta(seconds=30), align_to=ALIGN_TO),
+        ),
+        None,
+        False,
+    ),
+    "join_window_session_first_final": _Scenario(
+        partial(_join_window, "first", "final", SessionWindower(timedelta(seconds=10))),
+        None,
+        False,
+    ),
+    "join_window_sliding_product_running": _Scenario(
+        partial(
+            _join_window,
+            "product",
+            "running",
+            SlidingWindower(
+                length=timedelta(seconds=30),
+                offset=timedelta(seconds=10),
+                align_to=ALIGN_TO,
+            ),
+        ),
+        None,
+        False,
+    ),
 }
 
 
@@ -532,3 +644,35 @@ def test_output_complete_after_crashes_and_resumes(
     missing = Counter(map(repr, expected)) - Counter(map(repr, out))
     assert not missing
     assert set(map(repr, out)) == set(map(repr, expected))
+
+
+@mark.parametrize("worker_count", WORKER_COUNTS)
+@mark.parametrize("batch_size", BATCH_SIZES)
+def test_unordered_session_merges_keep_every_value(
+    batch_size: int, worker_count: int
+) -> None:
+    # The comparisons above use a reference run, which can't catch a
+    # merge that loses values in every run. Check directly that each
+    # value ends up in exactly one session or is late.
+    down: List[Any] = []
+    late: List[Any] = []
+    meta: List[Any] = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(INP, batch_size))
+    ks = op.key_on("key", s, _key)
+    wo = win.collect_window(
+        "w", ks, _clock(), SessionWindower(gap=timedelta(seconds=5)), ordered=False
+    )
+    op.output("down", wo.down, TestingSink(down))
+    op.output("late", wo.late, TestingSink(late))
+    op.output("meta", wo.meta, TestingSink(meta))
+    if worker_count == 1:
+        run_main(flow)
+    else:
+        cluster_main(flow, [], 0, worker_count_per_proc=worker_count)
+
+    assert any(m.merged_ids for _, (_, m) in meta)
+    windowed = [x for _, (_, xs) in down for x in xs]
+    late_values = [x for _, (_, x) in late]
+    assert sorted(windowed + late_values) == INP
