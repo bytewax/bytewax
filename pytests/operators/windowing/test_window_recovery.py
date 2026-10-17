@@ -196,7 +196,8 @@ def _build_flow(
 
 def _canon(items: List[Any]) -> List[Any]:
     # Keys are processed in a different order across restarts, so
-    # compare the emitted items as multisets.
+    # compare the emitted items as multisets. This also ignores the
+    # order of items within a key, e.g. the rows of a `running` join.
     return sorted(items, key=repr)
 
 
