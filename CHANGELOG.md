@@ -15,6 +15,18 @@ notes on GitHub when we make a new release.__
   `RuntimeError` naming the brokers and topic. See "Startup and
   Unreachable Brokers" in the Kafka guide.
 
+- {py:obj}`~bytewax.connectors.kafka.KafkaSink` now fails the dataflow
+  with a `RuntimeError` when Kafka doesn't accept a message (e.g.
+  unreachable brokers past `message.timeout.ms`, or a missing topic).
+  Previously such messages were dropped silently, even with recovery
+  enabled; now resuming re-sends them (at-least-once), and messages
+  still queued when the dataflow fails are dropped rather than waited
+  on. When the producer's local queue is full, the sink waits for it
+  to drain instead of crashing with `BufferError`; a single message
+  larger than the whole queue fails with a clear error. The docs now
+  state that this at-least-once guarantee requires running with
+  recovery. Reported in #522 by @shubhanshu02.
+
 - Fixes `bytewax.connectors.kafka.serde` failing to import with
   `confluent-kafka>=2.7` unless the `confluent-kafka[schemaregistry]`
   extra was installed. `PlainAvroSerializer` and

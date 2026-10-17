@@ -170,8 +170,12 @@ def output(
 
     Workers are the unit of parallelism.
 
-    Can support at-least-once processing. Messages from the resume
-    epoch will be duplicated right after resume.
+    Can support at-least-once processing, but only when the dataflow
+    runs with recovery (see {py:obj}`~bytewax.recovery.RecoveryConfig`).
+    Messages from the resume epoch will be duplicated right after
+    resume. Without recovery, messages can be lost or repeated. See
+    {py:obj}`~bytewax.connectors.kafka.KafkaSink` for how delivery
+    failures are handled.
 
     :arg step_id: Unique ID.
 
