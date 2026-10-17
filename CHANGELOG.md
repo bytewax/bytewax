@@ -72,9 +72,11 @@ notes on GitHub when we make a new release.__
   `rust-toolchain.toml`) instead of 1.74.1.
 
 - Fixes the type hints of the `late` stream of
-  {py:obj}`~bytewax.operators.windowing.join_window`: its values are
-  `(side, value)` 2-tuples, where `side` is the index of the stream
-  the value came from, not bare values. The docstring now says so.
+  {py:obj}`~bytewax.operators.windowing.join_window`: late values
+  (sub-keyed by window ID) are `(side, value)` 2-tuples, where `side`
+  is the index of the stream the value came from, not bare values.
+  The docstring now says so. Code annotated with the old type needs
+  updating; it did not match what the stream carries at runtime.
 
 - Fixes the type hints of
   {py:obj}`~bytewax.operators.windowing.collect_window` not accepting

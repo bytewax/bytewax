@@ -2099,9 +2099,10 @@ def join_window(
     :returns: Window result streams. Downstream contains tuples with
         the value from each stream in the order of the argument list.
         See {py:obj}`~bytewax.operators.JoinEmitMode` for when tuples
-        are emitted. Late contains `(side, value)` 2-tuples, where
-        `side` is the index of the stream the late value came from in
-        the argument list.
+        are emitted. Late values (sub-keyed by window ID, as for all
+        windowing operators) are `(side, value)` 2-tuples, where
+        `side` is the index of the stream the value came from in the
+        argument list.
 
     """
     if insert_mode not in typing.get_args(JoinInsertMode):
@@ -2123,7 +2124,7 @@ def join_window(
     if isinstance(clock, EventClock):
         value_ts_getter = clock.ts_getter
 
-        def shim_getter(i_v: Tuple[str, Any]) -> datetime:
+        def shim_getter(i_v: Tuple[int, Any]) -> datetime:
             _, v = i_v
             return value_ts_getter(v)
 
