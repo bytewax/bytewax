@@ -313,7 +313,7 @@ def test_list_parts_raises_on_missing_topic(fake_admin):
     src = KafkaSource(["broker:9092"], ["missing"])
 
     expect = (
-        "error listing partitions for Kafka topic `'missing'`: "
+        "error listing partitions for Kafka topic 'missing': "
         "Broker: Unknown topic or partition"
     )
     with raises(RuntimeError, match=re.escape(expect)):
@@ -326,7 +326,7 @@ def test_list_parts_raises_on_topic_error(fake_admin):
     src = KafkaSource(["broker:9092"], ["a"])
 
     expect = (
-        "error listing partitions for Kafka topic `'a'`: "
+        "error listing partitions for Kafka topic 'a': "
         "Broker: Topic authorization failed"
     )
     with raises(RuntimeError, match=re.escape(expect)):
@@ -346,8 +346,8 @@ def test_list_parts_raises_on_unreachable_brokers(fake_admin):
     src = KafkaSource(["b1:9092", "b2:9092"], ["a"])
 
     expect = (
-        "could not fetch metadata for Kafka topic `'a'` from brokers "
-        "`'b1:9092,b2:9092'` within 30 seconds: "
+        "could not fetch metadata for Kafka topic 'a' from brokers "
+        "'b1:9092,b2:9092' within 30 seconds: "
         "Failed to get metadata: Local: Broker transport failure"
     )
     with raises(RuntimeError, match=re.escape(expect)) as exc_info:
@@ -363,7 +363,7 @@ def test_list_parts_names_brokers_from_add_config(fake_admin):
         ["ignored:9092"], ["a"], add_config={"bootstrap.servers": "real:9092"}
     )
 
-    with raises(RuntimeError, match=re.escape("from brokers `'real:9092'`")):
+    with raises(RuntimeError, match=re.escape("from brokers 'real:9092'")):
         src.list_parts()
 
 
@@ -373,7 +373,7 @@ def test_list_parts_raises_if_metadata_omits_topic(fake_admin):
     fake_admin.omit_topics = True
     src = KafkaSource(["broker:9092"], ["a"])
 
-    with raises(RuntimeError, match=re.escape("Kafka topic `'a'` was not found")):
+    with raises(RuntimeError, match=re.escape("Kafka topic 'a' was not found")):
         src.list_parts()
 
 
@@ -381,7 +381,7 @@ def test_list_parts_raises_on_no_partitions(fake_admin):
     fake_admin.topics = {"a": _FakeTopicMetadata({})}
     src = KafkaSource(["broker:9092"], ["a"])
 
-    with raises(RuntimeError, match="no partitions listed for Kafka topic `'a'`"):
+    with raises(RuntimeError, match="no partitions listed for Kafka topic 'a'"):
         src.list_parts()
 
 
@@ -502,7 +502,7 @@ def test_next_batch_raises_on_error(fake_consumer):
     fake_consumer.batches = [[_FakeMsg(0), _FakeMsg(1, _error=err)]]
     part = KafkaSource(["b:9092"], [TOPIC]).build_part("step", f"0-{TOPIC}", None)
 
-    expect = f"error consuming from Kafka topic `{TOPIC!r}`"
+    expect = f"error consuming from Kafka topic {TOPIC!r}"
     with raises(RuntimeError, match=re.escape(expect)):
         part.next_batch()
 
@@ -629,7 +629,7 @@ def test_sink_write_batch_raises_on_delivery_failure(fake_producer):
         part.write_batch([KafkaSinkMessage(b"k", b"v")])
 
     assert str(exc_info.value) == (
-        f"failed to deliver a message to Kafka topic `{TOPIC!r}`: {err.str()}"
+        f"failed to deliver a message to Kafka topic {TOPIC!r}: {err.str()}"
     )
     cause = exc_info.value.__cause__
     assert isinstance(cause, KafkaException)
@@ -667,7 +667,7 @@ def test_sink_write_batch_raises_on_message_larger_than_queue(fake_producer):
     assert producer.polls == []
 
     assert str(exc_info.value) == (
-        f"message for Kafka topic `{TOPIC!r}` is larger than the producer's "
+        f"message for Kafka topic {TOPIC!r} is larger than the producer's "
         "local queue (`queue.buffering.max.kbytes`)"
     )
     assert isinstance(exc_info.value.__cause__, BufferError)
@@ -683,7 +683,7 @@ def test_sink_write_batch_wraps_produce_errors(fake_producer):
         part.write_batch([KafkaSinkMessage(b"k", b"v")])
 
     assert str(exc_info.value) == (
-        f"failed to produce a message to Kafka topic `{TOPIC!r}`: {err.str()}"
+        f"failed to produce a message to Kafka topic {TOPIC!r}: {err.str()}"
     )
     cause = exc_info.value.__cause__
     assert isinstance(cause, KafkaException)

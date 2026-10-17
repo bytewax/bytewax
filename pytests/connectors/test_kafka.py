@@ -188,7 +188,7 @@ def test_input_raises_on_topic_not_exist():
         causes.append(str(ex))
         ex = ex.__cause__
     expect = (
-        "error listing partitions for Kafka topic `'missing-topic'`: "
+        "error listing partitions for Kafka topic 'missing-topic': "
         "Broker: Unknown topic or partition"
     )
     assert any(expect in c for c in causes), causes
@@ -289,7 +289,7 @@ def test_output_raises_when_delivery_fails(request):
     with raises(BytewaxRuntimeError) as exc_info:
         run_main(flow)
 
-    msg = f"failed to deliver a message to Kafka topic `{missing!r}`"
+    msg = f"failed to deliver a message to Kafka topic {missing!r}"
     assert any(msg in str(ex) for ex in _causes(exc_info.value))
 
 

@@ -184,8 +184,8 @@ def _list_parts(
             err = ex.args[0] if ex.args else None
             reason = err.str() if isinstance(err, ConfluentKafkaError) else str(ex)
             msg = (
-                f"could not fetch metadata for Kafka topic `{topic!r}` "
-                f"from brokers `{brokers!r}` within "
+                f"could not fetch metadata for Kafka topic {topic!r} "
+                f"from brokers {brokers!r} within "
                 f"{_LIST_TOPICS_TIMEOUT_S:g} seconds: {reason}"
             )
             raise RuntimeError(msg) from ex
@@ -195,17 +195,17 @@ def _list_parts(
         # set (handled below); this only guards against a response
         # that leaves it out entirely.
         if topic_metadata is None:
-            msg = f"Kafka topic `{topic!r}` was not found"
+            msg = f"Kafka topic {topic!r} was not found"
             raise RuntimeError(msg)
         if topic_metadata.error is not None:
             msg = (
-                f"error listing partitions for Kafka topic `{topic!r}`: "
+                f"error listing partitions for Kafka topic {topic!r}: "
                 f"{topic_metadata.error.str()}"
             )
             raise RuntimeError(msg)
         assert topic_metadata.partitions is not None
         if not topic_metadata.partitions:
-            msg = f"no partitions listed for Kafka topic `{topic!r}`"
+            msg = f"no partitions listed for Kafka topic {topic!r}"
             raise RuntimeError(msg)
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
@@ -303,8 +303,7 @@ class _KafkaSourcePartition(
                 elif self._raise_on_errors:
                     # Discard all the messages in this batch too
                     err_msg = (
-                        f"error consuming from Kafka topic `{self._topic!r}`: "
-                        f"{error}"
+                        f"error consuming from Kafka topic {self._topic!r}: " f"{error}"
                     )
                     raise RuntimeError(err_msg)
 
@@ -538,7 +537,7 @@ class _KafkaSinkPartition(
         if self._delivery_err is not None:
             topic, err = self._delivery_err
             self._delivery_err = None
-            msg = f"failed to deliver a message to Kafka topic `{topic!r}`: {err.str()}"
+            msg = f"failed to deliver a message to Kafka topic {topic!r}: {err.str()}"
             raise RuntimeError(msg) from KafkaException(err)
 
     def _produce(
@@ -562,7 +561,7 @@ class _KafkaSinkPartition(
                     # waiting can't make room: this message alone is
                     # bigger than the queue.
                     err = (
-                        f"message for Kafka topic `{topic!r}` is larger than the "
+                        f"message for Kafka topic {topic!r} is larger than the "
                         "producer's local queue (`queue.buffering.max.kbytes`)"
                     )
                     raise RuntimeError(err) from ex
@@ -578,9 +577,7 @@ class _KafkaSinkPartition(
                 reason = (
                     kerr.str() if isinstance(kerr, ConfluentKafkaError) else str(ex)
                 )
-                err = (
-                    f"failed to produce a message to Kafka topic `{topic!r}`: {reason}"
-                )
+                err = f"failed to produce a message to Kafka topic {topic!r}: {reason}"
                 raise RuntimeError(err) from ex
 
     def write_batch(
