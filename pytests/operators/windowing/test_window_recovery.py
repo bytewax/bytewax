@@ -138,8 +138,7 @@ def _join(insert_mode: JoinInsertMode, emit_mode: JoinEmitMode, ordered: bool) -
 
 OPS: Dict[str, _Op] = {
     "collect": lambda s, w: win.collect_window("w", s, _clock(), w),
-    # The `collect_window` overloads don't declare `ordered`.
-    "collect_unordered": lambda s, w: win.collect_window(  # type: ignore[call-overload]
+    "collect_unordered": lambda s, w: win.collect_window(
         "w", s, _clock(), w, ordered=False
     ),
     "fold": lambda s, w: win.fold_window("w", s, _clock(), w, list, _append, _concat),
