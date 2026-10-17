@@ -43,7 +43,7 @@ kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
@@ -543,6 +543,10 @@ class _KafkaSinkPartition(
     def _produce(
         self, msg: KafkaSinkMessage[Optional[bytes], Optional[bytes]], topic: str
     ) -> None:
+        kwargs: Dict[str, Any] = {}
+        # Without a partition, the producer's partitioner picks one.
+        if msg.partition is not None:
+            kwargs["partition"] = msg.partition
         while True:
             try:
                 self._producer.produce(
@@ -552,6 +556,7 @@ class _KafkaSinkPartition(
                     topic=topic,
                     timestamp=msg.timestamp,
                     on_delivery=self._on_delivery,
+                    **kwargs,
                 )
                 return
             except BufferError as ex:

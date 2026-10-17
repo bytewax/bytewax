@@ -607,6 +607,24 @@ def test_sink_write_batch_topic_selection(fake_producer):
     assert producer.flushes == 2
 
 
+def test_sink_write_batch_produces_to_message_partition(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+
+    part.write_batch(
+        [
+            KafkaSinkMessage(b"k1", b"v1", partition=2),
+            KafkaSinkMessage(b"k2", b"v2"),
+        ]
+    )
+
+    (producer,) = fake_producer
+    assert producer.produced[0]["partition"] == 2
+    # Without a partition, the producer's partitioner picks one.
+    assert "partition" not in producer.produced[1]
+
+    part.close()
+
+
 def test_sink_write_batch_waits_when_queue_full(fake_producer):
     part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
     (producer,) = fake_producer

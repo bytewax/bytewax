@@ -30,6 +30,7 @@ from confluent_kafka import (
     TIMESTAMP_CREATE_TIME,
     Consumer,
     KafkaError,
+    Message,
     Producer,
     TopicPartition,
 )
@@ -213,6 +214,11 @@ def consume_all(topic: str, count: int) -> List[Tuple[bytes, bytes]]:
     instead of hanging the test.
 
     """
+    return [(msg.key(), msg.value()) for msg in consume_messages(topic, count)]
+
+
+def consume_messages(topic: str, count: int) -> List[Message]:
+    """Like `consume_all`, but returns the messages themselves."""
     group_config = config.copy()
     group_config["group.id"] = "BYTEWAX_UNIT_TEST"
     # Don't leave around a consumer group for this.
@@ -228,7 +234,7 @@ def consume_all(topic: str, count: int) -> List[Tuple[bytes, bytes]]:
             for i in topic_metadata.partitions.keys()
         ]
     )
-    out: List[Tuple[bytes, bytes]] = []
+    out: List[Message] = []
     deadline = time.monotonic() + 30
     while len(out) < count and time.monotonic() < deadline:
         msg = consumer.poll(timeout=1.0)
@@ -237,7 +243,7 @@ def consume_all(topic: str, count: int) -> List[Tuple[bytes, bytes]]:
         if msg.error() is not None and msg.error().code() == KafkaError._PARTITION_EOF:
             continue
         assert msg.error() is None
-        out.append((msg.key(), msg.value()))
+        out.append(msg)
     consumer.close()
     return out
 
@@ -257,6 +263,41 @@ def test_output(tmp_topic):
 
     expected = list(map(as_k_v, inp))
     assert sorted(consume_all(tmp_topic, len(expected))) == sorted(expected)
+
+
+def test_output_to_message_partition(tmp_topic):
+    # The same key everywhere, so the producer's partitioner alone
+    # would put every message in one partition.
+    inp = [
+        KafkaSinkMessage(
+            b"same-key", f"v{i}".encode(), topic=tmp_topic, partition=i % 3
+        )
+        for i in range(9)
+    ]
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, KafkaSink([KAFKA_BROKER], tmp_topic, add_config=config))
+    run_main(flow)
+
+    got = [(msg.partition(), msg.value()) for msg in consume_messages(tmp_topic, 9)]
+    assert sorted(got) == sorted((m.partition, m.value) for m in inp)
+
+
+def test_output_raises_on_missing_partition(tmp_topic):
+    # `tmp_topic` has 3 partitions.
+    inp = [KafkaSinkMessage(b"k", b"v", topic=tmp_topic, partition=7)]
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, KafkaSink([KAFKA_BROKER], tmp_topic, add_config=config))
+
+    with raises(BytewaxRuntimeError) as exc_info:
+        run_main(flow)
+    assert any(
+        isinstance(c, RuntimeError) and "Kafka topic" in str(c)
+        for c in _causes(exc_info.value)
+    )
 
 
 def test_output_waits_when_local_queue_is_full(tmp_topic):

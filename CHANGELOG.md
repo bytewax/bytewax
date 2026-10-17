@@ -28,6 +28,13 @@ notes on GitHub when we make a new release.__
   state that this at-least-once guarantee requires running with
   recovery. Reported in #522 by @shubhanshu02.
 
+- *Behavior change* {py:obj}`~bytewax.connectors.kafka.KafkaSink` now
+  writes each message to the partition set in
+  {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage`'s `partition`.
+  It was ignored, so messages went to whatever partition the
+  producer's partitioner picked. A partition the topic doesn't have
+  now fails the dataflow with a `RuntimeError`.
+
 - Fixes `bytewax.connectors.kafka.serde` failing to import with
   `confluent-kafka>=2.7` unless the `confluent-kafka[schemaregistry]`
   extra was installed. `PlainAvroSerializer` and

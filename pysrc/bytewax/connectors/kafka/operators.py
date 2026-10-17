@@ -166,7 +166,9 @@ def output(
 ) -> None:
     """Produce to Kafka as an output sink.
 
-    Default partition routing is used.
+    Each message goes to its
+    {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage`'s `partition`
+    if set, otherwise to the partition the producer picks.
 
     Workers are the unit of parallelism.
 
