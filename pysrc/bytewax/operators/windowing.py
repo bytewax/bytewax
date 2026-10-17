@@ -1390,6 +1390,8 @@ def collect_window(
     up: KeyedStream[V],
     clock: Clock[V, Any],
     windower: Windower[Any],
+    *,
+    ordered: bool = ...,
 ) -> WindowOut[V, List[V]]: ...
 
 
@@ -1400,6 +1402,7 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into: Type[List],
+    ordered: bool = ...,
 ) -> WindowOut[V, List[V]]: ...
 
 
@@ -1410,6 +1413,7 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into: Type[Set],
+    ordered: bool = ...,
 ) -> WindowOut[V, Set[V]]: ...
 
 
@@ -1420,6 +1424,7 @@ def collect_window(
     clock: Clock[Tuple[DK, DV], SC],
     windower: Windower[Any],
     into: Type[Dict],
+    ordered: bool = ...,
 ) -> WindowOut[Tuple[DK, DV], Dict[DK, DV]]: ...
 
 
@@ -1430,6 +1435,7 @@ def collect_window(
     clock: Clock[V, Any],
     windower: Windower[Any],
     into=list,
+    ordered: bool = ...,
 ) -> WindowOut[V, Any]: ...
 
 
