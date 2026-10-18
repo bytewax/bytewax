@@ -99,6 +99,14 @@ notes on GitHub when we make a new release.__
   `collect_window(..., ordered=False)` even though it works at
   runtime.
 
+- Fixes a bug where a dataflow with recovery enabled but no
+  state-snapshotting steps, such as a
+  {py:obj}`~bytewax.inputs.DynamicSource` input with stateless
+  operators and a dynamic sink, stopped after its first few batches
+  and silently dropped the rest of its input. The internal probe now
+  also tracks the dataflow outputs, so backpressure also waits for
+  dynamic sinks to finish each epoch.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
