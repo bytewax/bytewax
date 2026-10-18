@@ -650,6 +650,34 @@ def test_fixed_partitioned_source_partition_alone_on_worker_keeps_up():
     assert counts["b"] >= 3 * counts["a"]
 
 
+def test_fixed_partitioned_source_waiting_does_not_busy_wait():
+    # While `b` waits for the rest of the dataflow to finish the epoch,
+    # it must not busy-wait. Before the cooldown this ratio was ~0.45.
+    out: List[str] = []
+
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp",
+        flow,
+        _SleepySource({"a": 0.18, "b": 0.03, "c": 0.18}, timedelta(seconds=2)),
+    )
+    op.output("out", s, TestingSink(out))
+
+    before_cpu = time.process_time()
+    before_wall = time.monotonic()
+    cluster_main(
+        flow, [], 0, epoch_interval=timedelta(seconds=0.5), worker_count_per_proc=2
+    )
+    cpu = time.process_time() - before_cpu
+    wall = time.monotonic() - before_wall
+
+    ratio = cpu / wall
+    assert ratio < 0.15, (
+        f"busy-waiting partition: {cpu:.2f} CPU seconds over {wall:.2f} "
+        f"wall seconds (ratio {ratio:.2f}, want < 0.15)"
+    )
+
+
 class _SleepyStatelessPartition(StatelessSourcePartition[int]):
     def __init__(self, worker_index: int, delay: float, until: float) -> None:
         self._worker_index = worker_index
@@ -698,3 +726,27 @@ def test_dynamic_source_fast_worker_keeps_up():
     # Worker 0 emits about 4 times as often; with the stall it emitted
     # about 2.6 times as often.
     assert counts[0] >= 3.3 * counts[1]
+
+
+def test_dynamic_source_waiting_does_not_busy_wait():
+    # While worker 0 waits for worker 1 to finish the epoch, it must not
+    # busy-wait.
+    out: List[int] = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, _SleepyDynamicSource([0.03, 0.18], timedelta(seconds=2)))
+    op.output("out", s, TestingSink(out))
+
+    before_cpu = time.process_time()
+    before_wall = time.monotonic()
+    cluster_main(
+        flow, [], 0, epoch_interval=timedelta(seconds=0.5), worker_count_per_proc=2
+    )
+    cpu = time.process_time() - before_cpu
+    wall = time.monotonic() - before_wall
+
+    ratio = cpu / wall
+    assert ratio < 0.15, (
+        f"busy-waiting worker: {cpu:.2f} CPU seconds over {wall:.2f} "
+        f"wall seconds (ratio {ratio:.2f}, want < 0.15)"
+    )

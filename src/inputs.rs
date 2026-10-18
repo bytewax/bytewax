@@ -206,6 +206,9 @@ struct PartitionedPartState {
     snap_cap: Capability<u64>,
     epoch_started: DateTime<Utc>,
     next_awake: Option<DateTime<Utc>>,
+    // Whether the last activation found this partition waiting for
+    // the rest of the dataflow to finish its epoch.
+    blocked: bool,
 }
 
 impl PartitionedPartState {
@@ -362,6 +365,7 @@ impl FixedPartitionedSource {
                                         snap_cap: cap.delayed_for_output(&emit_epoch, 1),
                                         epoch_started: now,
                                         next_awake,
+                                        blocked: false,
                                     };
                                     parts.insert(part_key, state);
                                 }
@@ -422,6 +426,7 @@ impl FixedPartitionedSource {
                                             snap_cap: init_snap_cap.clone(),
                                             epoch_started: now,
                                             next_awake,
+                                            blocked: false,
                                         };
                                         parts.insert(part_key.clone(), part_state);
                                     }
@@ -449,6 +454,7 @@ impl FixedPartitionedSource {
                             // emitting more data to have
                             // backpressure.
                             if !probe.less_than(&epoch) {
+                                part_state.blocked = false;
                                 let mut eof = false;
                                 // Separately check wheither we should
                                 // call `next_batch` because we need
@@ -550,6 +556,7 @@ impl FixedPartitionedSource {
                                 // partition alone on a worker falls
                                 // further behind each epoch.
                                 part_state.epoch_started = now;
+                                part_state.blocked = true;
                             }
                         });
                     }
@@ -564,7 +571,25 @@ impl FixedPartitionedSource {
                         // awoken when there's new loading input and
                         // we don't spin during loading.
                     } else if !parts.is_empty() {
-                        if let Some(min_next_awake) = parts.values().map(|part_state| part_state.next_awake.unwrap_or(now)).min() {
+                        if let Some(min_next_awake) = parts
+                            .values()
+                            .map(|part_state| {
+                                let base = part_state.next_awake.unwrap_or(now);
+                                if part_state.blocked {
+                                    // Waiting on the probe: there is
+                                    // no new work for this partition
+                                    // until it advances, so re-check
+                                    // on the cooldown instead of
+                                    // spinning. This never moves the
+                                    // partition's own awake time
+                                    // earlier.
+                                    base.max(now + DEFAULT_COOLDOWN)
+                                } else {
+                                    base
+                                }
+                            })
+                            .min()
+                        {
                             let awake_after = min_next_awake - now;
                             // If we are already late for the next
                             // activation, awake immediately.
@@ -684,6 +709,9 @@ struct DynamicPartState {
     output_cap: Capability<u64>,
     epoch_started: DateTime<Utc>,
     next_awake: Option<DateTime<Utc>>,
+    // Whether the last activation found this partition waiting for
+    // the rest of the dataflow to finish its epoch.
+    blocked: bool,
 }
 
 impl DynamicPartState {
@@ -771,6 +799,7 @@ impl DynamicSource {
                 output_cap,
                 epoch_started: now,
                 next_awake,
+                blocked: false,
             });
 
             move |_input_frontiers| {
@@ -788,6 +817,7 @@ impl DynamicSource {
                         // finished the previous epoch before emitting
                         // more data to have backpressure.
                         if !probe.less_than(epoch) {
+                            part_state.blocked = false;
                             // Separately check wheither we should
                             // call `next_batch` because we need to
                             // keep advancing the epoch for this
@@ -851,6 +881,7 @@ impl DynamicSource {
                             // see the same branch in
                             // `FixedPartitionedSource`.
                             part_state.epoch_started = now;
+                            part_state.blocked = true;
                         }
                     }
 
@@ -859,15 +890,23 @@ impl DynamicSource {
                     }
 
                     if let Some(part_state) = &part_state {
-                        if let Some(next_awake) = part_state.next_awake {
-                            let awake_after = next_awake - now;
-                            // If we are already late for the next
-                            // activation, awake immediately.
-                            let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
-                            activator.activate_after(awake_after);
+                        let base = part_state.next_awake.unwrap_or(now);
+                        let next_awake = if part_state.blocked {
+                            // Waiting on the probe: there is no new
+                            // work for this partition until it
+                            // advances, so re-check on the cooldown
+                            // instead of spinning. This never moves
+                            // the partition's own awake time
+                            // earlier.
+                            base.max(now + DEFAULT_COOLDOWN)
                         } else {
-                            activator.activate();
-                        }
+                            base
+                        };
+                        let awake_after = next_awake - now;
+                        // If we are already late for the next
+                        // activation, awake immediately.
+                        let awake_after = awake_after.to_std().unwrap_or(std::time::Duration::ZERO);
+                        activator.activate_after(awake_after);
                     }
                 });
             }

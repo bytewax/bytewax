@@ -49,6 +49,11 @@ notes on GitHub when we make a new release.__
   {py:obj}`~bytewax.inputs.DynamicSource`. Reported and first fixed
   in #556 by @nrdhm.
 
+- Fixes input partitions busy-waking on every activation while they
+  wait for the rest of the dataflow to finish the previous epoch.
+  Such a partition now re-checks on the standard 1 ms cooldown, which
+  removes the constant CPU load while it waits.
+
 - Fixes {py:obj}`~bytewax.tracing.setup_tracing` hanging forever
   instead of raising a `RuntimeError` when tracing can't be set up:
   when it is called a second time in the same process, or when the
