@@ -51,8 +51,12 @@ notes on GitHub when we make a new release.__
 
 - Fixes input partitions busy-waking on every activation while they
   wait for the rest of the dataflow to finish the previous epoch.
-  Such a partition now re-checks on the standard 1 ms cooldown, which
-  removes the constant CPU load while it waits.
+  Such a partition now backs off to the standard 1 ms cooldown only
+  once the wait outlives a 500 µs grace, which removes the constant
+  CPU load while it waits. Re-checks within the grace stay immediate,
+  covering the few worker steps the downstream operators need to
+  process a closed epoch, so zero and short epoch intervals keep
+  their throughput at any pipeline depth.
 
 - Fixes {py:obj}`~bytewax.tracing.setup_tracing` hanging forever
   instead of raising a `RuntimeError` when tracing can't be set up:

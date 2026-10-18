@@ -37,6 +37,14 @@ use crate::with_timer;
 
 const DEFAULT_COOLDOWN: TimeDelta = TimeDelta::microseconds(1000);
 
+// After a partition closes an epoch, the probe only advances once the
+// downstream operators have processed it, which takes a few worker
+// steps: up to one per operator in the pipeline. Re-checks within this
+// grace of becoming blocked stay immediate so those steps never pay
+// the cooldown, no matter how deep the dataflow is; only a wait that
+// outlives the grace is treated as sustained backpressure.
+const COOLDOWN_GRACE: TimeDelta = TimeDelta::microseconds(500);
+
 /// Length of epoch.
 ///
 /// Epoch boundaries represent synchronization points between all
@@ -209,6 +217,10 @@ struct PartitionedPartState {
     // Whether the last activation found this partition waiting for
     // the rest of the dataflow to finish its epoch.
     blocked: bool,
+    // When this partition became blocked. Only a wait longer than
+    // `COOLDOWN_GRACE` backs off to the cooldown; re-checks within the
+    // grace are immediate. Meaningless while `blocked` is false.
+    blocked_at: DateTime<Utc>,
 }
 
 impl PartitionedPartState {
@@ -366,6 +378,7 @@ impl FixedPartitionedSource {
                                         epoch_started: now,
                                         next_awake,
                                         blocked: false,
+                                        blocked_at: now,
                                     };
                                     parts.insert(part_key, state);
                                 }
@@ -427,6 +440,7 @@ impl FixedPartitionedSource {
                                             epoch_started: now,
                                             next_awake,
                                             blocked: false,
+                                            blocked_at: now,
                                         };
                                         parts.insert(part_key.clone(), part_state);
                                     }
@@ -556,7 +570,10 @@ impl FixedPartitionedSource {
                                 // partition alone on a worker falls
                                 // further behind each epoch.
                                 part_state.epoch_started = now;
-                                part_state.blocked = true;
+                                if !part_state.blocked {
+                                    part_state.blocked = true;
+                                    part_state.blocked_at = now;
+                                }
                             }
                         });
                     }
@@ -575,14 +592,22 @@ impl FixedPartitionedSource {
                             .values()
                             .map(|part_state| {
                                 let base = part_state.next_awake.unwrap_or(now);
-                                if part_state.blocked {
-                                    // Waiting on the probe: there is
-                                    // no new work for this partition
-                                    // until it advances, so re-check
-                                    // on the cooldown instead of
-                                    // spinning. This never moves the
-                                    // partition's own awake time
-                                    // earlier.
+                                if part_state.blocked
+                                    && now - part_state.blocked_at >= COOLDOWN_GRACE
+                                {
+                                    // Waiting on the probe past the
+                                    // grace: there is no new work for
+                                    // this partition until it
+                                    // advances, so re-check on the
+                                    // cooldown instead of spinning.
+                                    // Re-checks within the grace stay
+                                    // immediate, so a partition whose
+                                    // every batch is an epoch doesn't
+                                    // pay the cooldown on each batch
+                                    // however many steps the probe
+                                    // needs to advance. This never
+                                    // moves the partition's own awake
+                                    // time earlier.
                                     base.max(now + DEFAULT_COOLDOWN)
                                 } else {
                                     base
@@ -712,6 +737,10 @@ struct DynamicPartState {
     // Whether the last activation found this partition waiting for
     // the rest of the dataflow to finish its epoch.
     blocked: bool,
+    // When this partition became blocked. Only a wait longer than
+    // `COOLDOWN_GRACE` backs off to the cooldown; re-checks within the
+    // grace are immediate. Meaningless while `blocked` is false.
+    blocked_at: DateTime<Utc>,
 }
 
 impl DynamicPartState {
@@ -800,6 +829,7 @@ impl DynamicSource {
                 epoch_started: now,
                 next_awake,
                 blocked: false,
+                blocked_at: now,
             });
 
             move |_input_frontiers| {
@@ -881,7 +911,10 @@ impl DynamicSource {
                             // see the same branch in
                             // `FixedPartitionedSource`.
                             part_state.epoch_started = now;
-                            part_state.blocked = true;
+                            if !part_state.blocked {
+                                part_state.blocked = true;
+                                part_state.blocked_at = now;
+                            }
                         }
                     }
 
@@ -891,13 +924,19 @@ impl DynamicSource {
 
                     if let Some(part_state) = &part_state {
                         let base = part_state.next_awake.unwrap_or(now);
-                        let next_awake = if part_state.blocked {
-                            // Waiting on the probe: there is no new
-                            // work for this partition until it
-                            // advances, so re-check on the cooldown
-                            // instead of spinning. This never moves
-                            // the partition's own awake time
-                            // earlier.
+                        let next_awake = if part_state.blocked
+                            && now - part_state.blocked_at >= COOLDOWN_GRACE
+                        {
+                            // Waiting on the probe past the grace:
+                            // there is no new work for this partition
+                            // until it advances, so re-check on the
+                            // cooldown instead of spinning. Re-checks
+                            // within the grace stay immediate, so a
+                            // partition whose every batch is an epoch
+                            // doesn't pay the cooldown on each batch
+                            // however many steps the probe needs to
+                            // advance. This never moves the
+                            // partition's own awake time earlier.
                             base.max(now + DEFAULT_COOLDOWN)
                         } else {
                             base
