@@ -448,6 +448,7 @@ where
         step_id: StepId,
         builder: TdPyCallable,
         resume_epoch: ResumeEpoch,
+        snapshot_epochs: SnapshotEpochs,
         loads: &Stream<S, Snapshot>,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)>;
 }
@@ -559,6 +560,7 @@ where
         step_id: StepId,
         builder: TdPyCallable,
         resume_epoch: ResumeEpoch,
+        snapshot_epochs: SnapshotEpochs,
         loads: &Stream<S, Snapshot>,
     ) -> PyResult<(Stream<S, TdPyAny>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
@@ -937,41 +939,48 @@ where
                                 // recovery state already at the end of
                                 // the epoch.
 
-                                let mut snaps_session = snaps_handle.session(&state_update_cap);
+                                // Only snapshot at snapshot boundaries
+                                // and at EOF. In other epochs the awoken
+                                // keys stay in
+                                // `awoken_keys_this_epoch_buffer` so the
+                                // next snapshot covers them.
+                                if input_frontiers.is_eof() || snapshot_epochs.is_boundary(epoch) {
+                                    let mut snaps_session = snaps_handle.session(&state_update_cap);
 
-                                // Go through all keys awoken in this
-                                // epoch. This might involve keys from the
-                                // previous activation.
-                                unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    // Finally drain
-                                    // `awoken_keys_buffer` since the
-                                    // epoch is over.
-                                    for key in std::mem::take(&mut awoken_keys_this_epoch_buffer) {
-                                        let change = if let Some(logic) = logics.get(&key) {
-                                            let state = with_timer!(
-                                                snapshot_histogram,
-                                                labels,
-                                                logic.snapshot(py).reraise_with(|| {
-                                                    format!("error calling `StatefulBatchLogic.snapshot` in {step_id} for key {key}")
-                                                })?
-                                            );
-                                            StateChange::Upsert(TdPyAny::from(state))
-                                        } else {
-                                            // It's ok if there's no
-                                            // logic, because during
-                                            // this epoch it might
-                                            // have been discarded due
-                                            // to one of the `on_*`
-                                            // methods returning
-                                            // `IsComplete::Discard`.
-                                            StateChange::Discard
-                                        };
-                                        let snap = Snapshot(step_id.clone(), key, change);
-                                        snaps_session.give(snap);
-                                    }
+                                    // Go through all keys awoken since the
+                                    // last snapshot. This might involve keys
+                                    // from previous activations.
+                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                        // Finally drain
+                                        // `awoken_keys_buffer` since the
+                                        // snapshot is taken.
+                                        for key in std::mem::take(&mut awoken_keys_this_epoch_buffer) {
+                                            let change = if let Some(logic) = logics.get(&key) {
+                                                let state = with_timer!(
+                                                    snapshot_histogram,
+                                                    labels,
+                                                    logic.snapshot(py).reraise_with(|| {
+                                                        format!("error calling `StatefulBatchLogic.snapshot` in {step_id} for key {key}")
+                                                    })?
+                                                );
+                                                StateChange::Upsert(TdPyAny::from(state))
+                                            } else {
+                                                // It's ok if there's no
+                                                // logic, because during
+                                                // this epoch it might
+                                                // have been discarded due
+                                                // to one of the `on_*`
+                                                // methods returning
+                                                // `IsComplete::Discard`.
+                                                StateChange::Discard
+                                            };
+                                            let snap = Snapshot(step_id.clone(), key, change);
+                                            snaps_session.give(snap);
+                                        }
 
-                                    Ok(())
-                                }));
+                                        Ok(())
+                                    }));
+                                }
 
                                 if let Some(loads) = loads_inbuf.remove(&epoch) {
                                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {

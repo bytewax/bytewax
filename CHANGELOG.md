@@ -9,6 +9,31 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Added `snapshot_interval` to {py:obj}`~bytewax.recovery.RecoveryConfig`.
+  State snapshots and resume points are now taken every
+  `snapshot_interval` (rounded up to whole epochs) instead of every
+  epoch, so the recovery writes stop sitting on the input backpressure
+  path. Resuming replays input from the last snapshot boundary, so
+  more input may be re-emitted after a crash. The default (`None`)
+  keeps the existing behavior: a snapshot every epoch.
+
+- Fixes the epoch clock falling one batch behind input progress when
+  an execution starts or resumes, for dataflows with a
+  `snapshot_interval`. The first batch after a start or resume now
+  closes its epoch. Epoch numbering stays aligned with input progress
+  across executions, so a resume never replays more than the
+  configured snapshot window. Dataflows without a `snapshot_interval`
+  start their first epoch as before.
+
+  *Behavior change*: with a `snapshot_interval` no longer than the
+  epoch interval, so that every epoch is a snapshot epoch, each
+  execution now writes a snapshot after its first input batch (a
+  zero-length first epoch), so a crash shortly after a start or resume
+  no longer replays the entire history. Previously no resume point
+  existed until a full `epoch_interval` had elapsed. With a longer
+  snapshot interval, the first snapshot is taken at the first snapshot
+  boundary.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a

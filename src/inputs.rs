@@ -82,6 +82,54 @@ impl EpochInterval {
             // bits should be fine.
             .ceil() as u64
     }
+
+    /// Determine how many epochs pass between snapshots: the snapshot
+    /// interval rounded up to whole epochs, and at least one.
+    ///
+    /// Without a snapshot interval, or with a zero epoch interval
+    /// (which has no meaningful epoch count), every epoch is a
+    /// snapshot epoch.
+    pub(crate) fn snapshot_epochs(&self, snapshot_interval: Option<TimeDelta>) -> SnapshotEpochs {
+        match snapshot_interval {
+            Some(snapshot_interval) if !self.0.is_zero() => {
+                SnapshotEpochs(self.epochs_per(snapshot_interval).max(1))
+            }
+            _ => SnapshotEpochs::default(),
+        }
+    }
+
+    /// The `epoch_started` time for a partition's first epoch.
+    ///
+    /// With a snapshot interval (`pre_age`), the first epoch counts as
+    /// already elapsed, so the first batch closes it and every
+    /// execution starts from a fresh epoch boundary. Otherwise the
+    /// epoch clock shifts by one batch relative to input progress on
+    /// every resume. Without a snapshot interval the first epoch starts
+    /// now, as it always has.
+    pub(crate) fn first_epoch_started(&self, now: DateTime<Utc>, pre_age: bool) -> DateTime<Utc> {
+        if !pre_age {
+            return now;
+        }
+        // An interval beyond the clock's range never elapses, so there
+        // is nothing to pre-age.
+        now.checked_sub_signed(self.0).unwrap_or(now)
+    }
+}
+
+#[test]
+fn test_first_epoch_started_pre_age_overflow() {
+    // An epoch interval beyond the clock's range never elapses, so the
+    // pre-aged first epoch starts now instead of overflowing.
+    let now = Utc::now();
+    let never = EpochInterval(TimeDelta::MAX);
+    assert_eq!(never.first_epoch_started(now, true), now);
+    assert_eq!(never.first_epoch_started(now, false), now);
+    let ten = EpochInterval(TimeDelta::try_seconds(10).unwrap());
+    assert_eq!(
+        ten.first_epoch_started(now, true),
+        now - TimeDelta::try_seconds(10).unwrap()
+    );
+    assert_eq!(ten.first_epoch_started(now, false), now);
 }
 
 #[test]
@@ -248,8 +296,9 @@ impl BlockedWait {
         self.blocked_since.get_or_insert(now);
     }
 
-    fn mark_unblocked(&mut self) {
-        self.blocked_since = None;
+    /// Stop waiting, returning when the wait began if there was one.
+    fn mark_unblocked(&mut self) -> Option<DateTime<Utc>> {
+        self.blocked_since.take()
     }
 
     fn mark_advanced(&mut self) {
@@ -359,6 +408,8 @@ impl FixedPartitionedSource {
         scope: &mut S,
         step_id: StepId,
         epoch_interval: EpochInterval,
+        snapshot_epochs: SnapshotEpochs,
+        pre_age_first_epoch: bool,
         probe: &ProbeHandle<u64>,
         abort: &Arc<AtomicBool>,
         start_at: ResumeEpoch,
@@ -467,7 +518,9 @@ impl FixedPartitionedSource {
                                         part,
                                         downstream_cap: cap.delayed_for_output(&emit_epoch, 0),
                                         snap_cap: cap.delayed_for_output(&emit_epoch, 1),
-                                        epoch_started: now,
+                                        // The first epoch counts as elapsed; see `first_epoch_started`.
+                                        epoch_started: epoch_interval
+                                            .first_epoch_started(now, pre_age_first_epoch),
                                         next_awake,
                                         blocked: BlockedWait::default(),
                                     };
@@ -528,7 +581,9 @@ impl FixedPartitionedSource {
                                             part,
                                             downstream_cap:  init_downstream_cap.clone(),
                                             snap_cap: init_snap_cap.clone(),
-                                            epoch_started: now,
+                                            // The first epoch counts as elapsed; see `first_epoch_started`.
+                                            epoch_started: epoch_interval
+                                                .first_epoch_started(now, pre_age_first_epoch),
                                             next_awake,
                                             blocked: BlockedWait::default(),
                                         };
@@ -558,7 +613,15 @@ impl FixedPartitionedSource {
                             // emitting more data to have
                             // backpressure.
                             if !probe.less_than(&epoch) {
-                                part_state.blocked.mark_unblocked();
+                                if let Some(blocked_at) = part_state.blocked.mark_unblocked() {
+                                    // The wait is over. Shift the
+                                    // epoch clock forward by the time
+                                    // spent waiting so it doesn't
+                                    // count toward the epoch, while
+                                    // time that had already elapsed
+                                    // before the wait still does.
+                                    part_state.epoch_started += now - blocked_at;
+                                }
                                 let mut eof = false;
                                 // Separately check wheither we should
                                 // call `next_batch` because we need
@@ -622,45 +685,53 @@ impl FixedPartitionedSource {
                                 // get cascading advancement and never
                                 // poll input.
                                 if now - part_state.epoch_started >= epoch_interval.0 || eof {
-                                    unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                        let state = with_timer!(
-                                            snapshot_histogram,
-                                            labels,
-                                            part_state.part
-                                                .snapshot(py)
-                                                .reraise_with(|| format!("error calling `StatefulSourcePartition.snapshot` in step {step_id} for partition {part_key}"))?
-                                        );
-                                        tracing::trace!("End of epoch {epoch} partition state now {state:?}");
-                                        let snap = Snapshot(
-                                            step_id.clone(),
-                                            part_key.clone(),
-                                            StateChange::Upsert(state),
-                                        );
+                                    let next_epoch = epoch + 1;
 
-                                        let mut snaps_session = snaps_handle.session(&part_state.snap_cap);
-                                        snaps_session.give(snap);
+                                    // Only emit snapshots at snapshot
+                                    // boundaries and EOF. The epoch still
+                                    // advances every time so the clock
+                                    // keeps moving for backpressure.
+                                    if eof || snapshot_epochs.is_boundary(epoch) {
+                                        unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
+                                            let state = with_timer!(
+                                                snapshot_histogram,
+                                                labels,
+                                                part_state.part
+                                                    .snapshot(py)
+                                                    .reraise_with(|| format!("error calling `StatefulSourcePartition.snapshot` in step {step_id} for partition {part_key}"))?
+                                            );
+                                            tracing::trace!("End of epoch {epoch} partition state now {state:?}");
+                                            let snap = Snapshot(
+                                                step_id.clone(),
+                                                part_key.clone(),
+                                                StateChange::Upsert(state),
+                                            );
 
-                                        let next_epoch = epoch + 1;
-                                        part_state.downstream_cap.downgrade(&next_epoch);
-                                        part_state.snap_cap.downgrade(&next_epoch);
-                                        part_state.epoch_started = now;
-                                        part_state.blocked.mark_advanced();
-                                        tracing::debug!("Advanced to epoch {next_epoch}");
+                                            let mut snaps_session = snaps_handle.session(&part_state.snap_cap);
+                                            snaps_session.give(snap);
 
-                                        Ok(())
-                                    }));
+                                            Ok(())
+                                        }));
+                                    }
+
+                                    part_state.downstream_cap.downgrade(&next_epoch);
+                                    part_state.snap_cap.downgrade(&next_epoch);
+                                    part_state.epoch_started = now;
+                                    part_state.blocked.mark_advanced();
+                                    tracing::debug!("Advanced to epoch {next_epoch}");
                                 }
                             } else {
                                 // This partition finished its epoch
                                 // before the rest of the dataflow and
-                                // is waiting for it. Don't count the
-                                // wait as time spent in the next
-                                // epoch: otherwise, once the others
-                                // catch up, the epoch is already due
-                                // after a single `next_batch`, and a
-                                // partition alone on a worker falls
-                                // further behind each epoch.
-                                part_state.epoch_started = now;
+                                // is waiting for it. Record when the
+                                // wait began; the epoch clock is
+                                // shifted past it once the probe
+                                // advances. Otherwise, once the
+                                // others catch up, the epoch is
+                                // already due after a single
+                                // `next_batch`, and a partition alone
+                                // on a worker falls further behind
+                                // each epoch.
                                 part_state.blocked.mark_blocked(now);
                             }
                         });
@@ -839,6 +910,7 @@ impl DynamicSource {
         scope: &S,
         step_id: StepId,
         epoch_interval: EpochInterval,
+        pre_age_first_epoch: bool,
         probe: &ProbeHandle<u64>,
         abort: &Arc<AtomicBool>,
         start_at: ResumeEpoch,
@@ -889,7 +961,8 @@ impl DynamicSource {
             let mut part_state = Some(DynamicPartState {
                 part,
                 output_cap,
-                epoch_started: now,
+                // The first epoch counts as elapsed; see `first_epoch_started`.
+                epoch_started: epoch_interval.first_epoch_started(now, pre_age_first_epoch),
                 next_awake,
                 blocked: BlockedWait::default(),
             });
@@ -909,7 +982,11 @@ impl DynamicSource {
                         // finished the previous epoch before emitting
                         // more data to have backpressure.
                         if !probe.less_than(epoch) {
-                            part_state.blocked.mark_unblocked();
+                            if let Some(blocked_at) = part_state.blocked.mark_unblocked() {
+                                // See `FixedPartitionedSource`: shift
+                                // the epoch clock past the wait.
+                                part_state.epoch_started += now - blocked_at;
+                            }
                             // Separately check wheither we should
                             // call `next_batch` because we need to
                             // keep advancing the epoch for this
@@ -973,7 +1050,6 @@ impl DynamicSource {
                             // doesn't count towards the next epoch;
                             // see the same branch in
                             // `FixedPartitionedSource`.
-                            part_state.epoch_started = now;
                             part_state.blocked.mark_blocked(now);
                         }
                     }

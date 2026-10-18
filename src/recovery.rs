@@ -183,6 +183,69 @@ impl<'py> FromPyObject<'py> for BackupInterval {
     }
 }
 
+/// How many epochs apart state snapshots and resume progress are
+/// recorded.
+///
+/// Snapshots are only taken at the end of epochs whose number is a
+/// multiple of this, plus once at EOF. A value of `1` means every
+/// epoch is a snapshot epoch, which is the default.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) struct SnapshotEpochs(pub(crate) u64);
+
+impl Default for SnapshotEpochs {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+impl SnapshotEpochs {
+    /// Whether snapshots and resume progress are recorded at the end
+    /// of this epoch.
+    pub(crate) fn is_boundary(self, epoch: u64) -> bool {
+        epoch % self.0 == 0
+    }
+
+    /// The resume epoch that is safe to record once the frontier has
+    /// reached `frontier`.
+    ///
+    /// Snapshots for all epochs before `frontier` are durable. The
+    /// most recent boundary snapshot before the frontier is at
+    /// `boundary`, so resuming at `boundary + 1` loads that snapshot.
+    /// Epoch `0` is never a snapshot epoch, so the result is at least
+    /// `1`.
+    pub(crate) fn resume_after(self, frontier: u64) -> u64 {
+        let last_boundary = (frontier.saturating_sub(1) / self.0) * self.0;
+        last_boundary + 1
+    }
+}
+
+#[test]
+fn snapshot_epochs_boundaries() {
+    let every = SnapshotEpochs(1);
+    assert!((0..5).all(|epoch| every.is_boundary(epoch)));
+    let every_third = SnapshotEpochs(3);
+    let boundaries: Vec<u64> = (0..=6)
+        .filter(|epoch| every_third.is_boundary(*epoch))
+        .collect();
+    assert_eq!(boundaries, vec![0, 3, 6]);
+}
+
+#[test]
+fn snapshot_epochs_resume_after_frontier() {
+    // Every epoch is a snapshot epoch, so resume right after the frontier.
+    let every = SnapshotEpochs(1);
+    assert_eq!(every.resume_after(1), 1);
+    assert_eq!(every.resume_after(5), 5);
+    // With three epochs per snapshot, resume after the last boundary
+    // before the frontier.
+    let every_third = SnapshotEpochs(3);
+    assert_eq!(every_third.resume_after(0), 1);
+    assert_eq!(every_third.resume_after(3), 1);
+    assert_eq!(every_third.resume_after(4), 4);
+    assert_eq!(every_third.resume_after(6), 4);
+    assert_eq!(every_third.resume_after(7), 7);
+}
+
 /// To resume a dataflow execution, you need to know which epoch to
 /// resume for state, but also which execution to label progress data
 /// with.
@@ -307,27 +370,48 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 ///     storage (e.g. S3). Defaults to zero duration.
 ///
 /// :type backup_interval: typing.Optional[datetime.timedelta]
+///
+/// :arg snapshot_interval: Amount of system time between state
+///     snapshots and resume points. Snapshots are only taken at the
+///     end of epochs that are a multiple of this many epochs, plus at
+///     EOF, so resuming replays input from the last snapshot. Rounded
+///     up to a whole number of epochs. Defaults to `None`, which
+///     snapshots every epoch.
+///
+/// :type snapshot_interval: typing.Optional[datetime.timedelta]
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
     #[pyo3(get)]
     db_dir: PathBuf,
     #[pyo3(get)]
     backup_interval: BackupInterval,
+    #[pyo3(get)]
+    pub(crate) snapshot_interval: Option<TimeDelta>,
 }
 
 #[pymethods]
 impl RecoveryConfig {
     #[new]
-    #[pyo3(signature = (db_dir, backup_interval=None))]
-    fn new(db_dir: PathBuf, backup_interval: Option<BackupInterval>) -> Self {
+    #[pyo3(signature = (db_dir, backup_interval=None, snapshot_interval=None))]
+    fn new(
+        db_dir: PathBuf,
+        backup_interval: Option<BackupInterval>,
+        snapshot_interval: Option<TimeDelta>,
+    ) -> Self {
         Self {
             db_dir,
             backup_interval: backup_interval.unwrap_or_default(),
+            snapshot_interval,
         }
     }
 }
 
 impl RecoveryConfig {
+    /// How many epochs apart snapshots are taken for this config.
+    pub(crate) fn snapshot_epochs(&self, epoch_interval: EpochInterval) -> SnapshotEpochs {
+        epoch_interval.snapshot_epochs(self.snapshot_interval)
+    }
+
     /// Build the Rust-side bundle from the Python-side recovery
     /// config.
     #[instrument(name = "build_recovery", skip_all)]
@@ -1408,6 +1492,7 @@ where
     fn frontier(
         &self,
         resume_from: ResumeFrom,
+        snapshot_epochs: SnapshotEpochs,
     ) -> Stream<S, ((ExecutionNumber, WorkerIndex), FrontierMeta)>;
 }
 
@@ -1419,6 +1504,7 @@ where
     fn frontier(
         &self,
         resume_from: ResumeFrom,
+        snapshot_epochs: SnapshotEpochs,
     ) -> Stream<S, ((ExecutionNumber, WorkerIndex), FrontierMeta)> {
         let worker_index = self.scope().w_index();
         let ResumeFrom(ex_num, resume_epoch) = resume_from;
@@ -1444,6 +1530,10 @@ where
             let mut cap = init_caps.pop();
 
             let mut inbuf = Vec::new();
+            // The last resume epoch we wrote for this worker. Progress
+            // is only written when this changes, which happens when the
+            // frontier passes a snapshot boundary.
+            let mut last_written: Option<u64> = None;
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = name).in_scope(|| {
@@ -1473,9 +1563,10 @@ where
                             // epoch as one too small. That's fine, we
                             // just might resume further back than is
                             // optimal.
-                            let frontier_epoch = frontier.unwrap_or(*cap.time() + 1);
-                            let front =
-                                FrontierMeta(ex_num, worker_index, WorkerFrontier(frontier_epoch));
+                            let frontier_epoch = match frontier {
+                                Some(f) => snapshot_epochs.resume_after(f),
+                                None => *cap.time() + 1,
+                            };
                             tracing::trace!("Frontier now epoch {frontier_epoch:?}");
                             let key = (ex_num, worker_index);
 
@@ -1484,8 +1575,17 @@ where
                             // necessary if so. This would manifest as
                             // resuming from an epoch that seems "too
                             // early". Write out the progress at the end of
-                            // each epoch and where the frontier has moved.
-                            frontiers_output.activate().session(&cap).give((key, front));
+                            // each snapshot epoch and at EOF, and only when
+                            // the resume epoch changes.
+                            if frontier.is_none() || last_written != Some(frontier_epoch) {
+                                let front = FrontierMeta(
+                                    ex_num,
+                                    worker_index,
+                                    WorkerFrontier(frontier_epoch),
+                                );
+                                frontiers_output.activate().session(&cap).give((key, front));
+                                last_written = Some(frontier_epoch);
+                            }
 
                             // If EOF, drop caps after the write.
                             frontier.map(|f| {
@@ -1697,6 +1797,7 @@ where
         bundle: RecoveryBundle,
         epoch_interval: EpochInterval,
         backup_interval: BackupInterval,
+        snapshot_epochs: SnapshotEpochs,
     ) -> ClockStream<S>;
 }
 
@@ -1710,6 +1811,7 @@ where
         bundle: RecoveryBundle,
         epoch_interval: EpochInterval,
         backup_interval: BackupInterval,
+        snapshot_epochs: SnapshotEpochs,
     ) -> ClockStream<S> {
         let scope = self.scope();
         let local_parts = bundle.local_parts();
@@ -1750,7 +1852,7 @@ where
             // We do not have to monitor output progress because that
             // only makes sense on stateful outputs and their progress
             // will be captured in the snapshot stream already.
-            .frontier(resume_from)
+            .frontier(resume_from, snapshot_epochs)
             .partd_write(
                 String::from("recovery_front_writer"),
                 local_parts.clone(),
@@ -1770,7 +1872,12 @@ where
                     let committer = part.borrow().committer(*part_key);
                     committer
                 },
-                epoch_interval.epochs_per(backup_interval.0),
+                epoch_interval
+                    .epochs_per(backup_interval.0)
+                    .saturating_add(snapshot_epochs.0 - 1),
+                // Only commit at snapshot boundaries so a commit never
+                // gets ahead of the resume epoch recorded for them.
+                move |epoch: &u64| snapshot_epochs.is_boundary(*epoch),
             )
     }
 }

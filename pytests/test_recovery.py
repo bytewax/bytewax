@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 from datetime import timedelta
+from itertools import accumulate
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -50,6 +51,39 @@ def test_abort_no_snapshots(recovery_config):
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == [0, 1, 2, 3, 4]
+
+
+def test_abort_resumes_from_first_batch_snapshot(tmp_path):
+    init_db_dir(tmp_path, 1)
+    # Only a snapshot interval pre-ages the first epoch.
+    recovery_config = RecoveryConfig(str(tmp_path), snapshot_interval=FIVE_TD)
+
+    inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, TestingSink(out))
+
+    # The epoch interval is 5 sec, but the first batch closes the
+    # pre-aged first epoch, so a snapshot is written right after item 0.
+    # An abort right after start therefore resumes from that point
+    # instead of replaying from scratch.
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [0, 1, 2]
+    first_run = list(out)
+
+    # Resume starts at item 1, so item 0 is not replayed. Items 1 and 2
+    # were in an epoch that never closed, so they are emitted again.
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [1, 2, 3, 4]
+    resumed = list(out)
+
+    # At-least-once: every item is delivered, and item 0 exactly once.
+    delivered = first_run + resumed
+    assert set(delivered) == {0, 1, 2, 3, 4}
+    assert delivered.count(0) == 1
 
 
 def test_abort_with_snapshots(recovery_config):
@@ -142,6 +176,134 @@ def test_continuation_with_delayed_backup(tmp_path):
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == [4]
+
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == []
+
+
+def test_snapshot_interval_default_unchanged(tmp_path):
+    init_db_dir(tmp_path, 1)
+    # An explicit `None` must be the same as not setting it: snapshot
+    # every epoch.
+    recovery_config = RecoveryConfig(str(tmp_path), snapshot_interval=None)
+
+    inp = [0, 1, 2, TestingSource.ABORT(), 3, 4]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, TestingSink(out))
+
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [0, 1, 2]
+
+    out.clear()
+    run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+    assert out == [3, 4]
+
+
+def _slow_running_sum(state, item):
+    # Each item takes longer than the epoch interval, so every item
+    # lands in its own epoch. That makes the epoch arithmetic in the
+    # test below deterministic.
+    time.sleep(0.08)
+    total = (state or 0) + item
+    return (total, total)
+
+
+def _totals(keyed_outputs):
+    return [total for _key, total in keyed_outputs]
+
+
+@mark.parametrize(
+    ("abort_at", "resume_at"),
+    [
+        # The abort after 7 items leaves the epoch-6 snapshot as the
+        # last one, so item 6 is replayed.
+        (7, 6),
+        # The abort after 8 items leaves the epoch-9 snapshot intact,
+        # so nothing is replayed.
+        (8, 8),
+    ],
+)
+def test_snapshot_interval_resumes_from_boundary(tmp_path, abort_at, resume_at):
+    init_db_dir(tmp_path, 1)
+    # 0.15s snapshot over 0.05s epochs is 3 epochs per snapshot.
+    recovery_config = RecoveryConfig(
+        str(tmp_path), snapshot_interval=timedelta(seconds=0.15)
+    )
+
+    items = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+    # Powers of two make every prefix sum unique, so a resumed running
+    # sum identifies exactly which prefix the snapshot captured.
+    prefix_sums = list(accumulate(items))
+    # `stateful_map` needs `(key, value)` pairs; use a single key.
+    # Item i is emitted in epoch i + 1, and each item is slow enough to
+    # close its own epoch. With 3 epochs per snapshot the boundaries are
+    # at epochs 3, 6, and 9. The abort after `abort_at` items leaves the
+    # last boundary at or before epoch `abort_at + 1` as the resume
+    # point, so resume starts at item `resume_at`.
+    inp = (
+        [("k", x) for x in items[:abort_at]]
+        + [TestingSource.ABORT()]
+        + [("k", x) for x in items[abort_at:]]
+    )
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    s = op.stateful_map("sum", s, _slow_running_sum)
+    op.output("out", s, TestingSink(out))
+
+    run_main(
+        flow, epoch_interval=timedelta(seconds=0.05), recovery_config=recovery_config
+    )
+    assert _totals(out) == prefix_sums[:abort_at]
+    first_run = _totals(out)
+
+    # Resume must start from the last boundary snapshot, not from the
+    # abort point and not from the beginning of input.
+    out.clear()
+    run_main(
+        flow, epoch_interval=timedelta(seconds=0.05), recovery_config=recovery_config
+    )
+    resumed = _totals(out)
+    # The resumed state is the snapshot at the last surviving boundary,
+    # so the replay starts at `resume_at`.
+    assert resumed == prefix_sums[resume_at:]
+
+    # At-least-once: the union of both executions is every item.
+    assert set(first_run) | set(resumed) == set(prefix_sums)
+
+    out.clear()
+    run_main(
+        flow, epoch_interval=timedelta(seconds=0.05), recovery_config=recovery_config
+    )
+    assert out == []
+
+
+def test_snapshot_interval_eof_snapshots(tmp_path):
+    init_db_dir(tmp_path, 1)
+    # The snapshot interval is far longer than the whole run, so only
+    # EOF can take a snapshot. Resume must still work.
+    recovery_config = RecoveryConfig(
+        str(tmp_path), snapshot_interval=timedelta(seconds=3600)
+    )
+
+    inp = [0, 1, 2, TestingSource.EOF(), 3, 4]
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp))
+    op.output("out", s, TestingSink(out))
+
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [0, 1, 2]
+
+    out.clear()
+    run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
+    assert out == [3, 4]
 
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
@@ -284,6 +446,69 @@ def test_inconsistent_parts(tmp_path):
     shutil.copy(tmp_path / "part-0.run0", tmp_path / "part-0.sqlite3")
     with raises(InconsistentPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+
+def _slow_identity(item):
+    # Each item takes longer than the epoch interval, so every item
+    # closes its own epoch.
+    time.sleep(0.08)
+    return item
+
+
+@requires_strict_tables
+def test_backup_within_interval_resumes_with_snapshot_interval(tmp_path):
+    # The backup interval is one epoch and each snapshot covers three
+    # epochs. A backup of one partition, taken one item before the live
+    # store moved on, must still resume with no loss.
+    epoch = timedelta(seconds=0.05)
+    store = tmp_path / "store"
+    store.mkdir()
+    init_db_dir(store, 3)
+    recovery_config = RecoveryConfig(
+        str(store), backup_interval=epoch, snapshot_interval=epoch * 3
+    )
+    items = list(range(12))
+
+    def build(source, out):
+        df = Dataflow("backup_within")
+        s = op.input("inp", df, source)
+        s = op.map("slow", s, _slow_identity)
+        op.output("out", s, TestingSink(out))
+        return df
+
+    first = []
+    run_main(
+        build(TestingSource(items[:4] + [TestingSource.ABORT()] + items[4:]), first),
+        epoch_interval=epoch,
+        recovery_config=recovery_config,
+    )
+    backup = tmp_path / "backup"
+    shutil.copytree(store, backup)
+
+    live = []
+    run_main(
+        build(TestingSource(items[:5] + [TestingSource.ABORT()] + items[5:]), live),
+        epoch_interval=epoch,
+        recovery_config=recovery_config,
+    )
+
+    # Restore the partition that holds the newest progress rows from
+    # the backup; the others stay as the live store left them.
+    for part in sorted(store.glob("part-*.sqlite3")):
+        with closing(sqlite3.connect(part)) as conn:
+            rows = conn.execute("SELECT COUNT(*) FROM fronts").fetchone()[0]
+        if rows:
+            shutil.copy(backup / part.name, part)
+            break
+
+    resumed = []
+    run_main(
+        build(TestingSource(items), resumed),
+        epoch_interval=epoch,
+        recovery_config=recovery_config,
+    )
+
+    assert set(first + live + resumed) == set(items)
 
 
 NUM_BATCHES = 50

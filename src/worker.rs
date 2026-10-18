@@ -110,6 +110,19 @@ where
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
 
+    // How many epochs apart snapshots are taken. Without recovery
+    // there is nothing to snapshot, so every epoch is used.
+    let snapshot_epochs = recovery_config
+        .as_ref()
+        .map_or_else(SnapshotEpochs::default, |config| {
+            Python::with_gil(|py| config.borrow(py).snapshot_epochs(epoch_interval))
+        });
+    // The first epoch of each execution is only pre-aged when a
+    // snapshot interval is set; see `EpochInterval::first_epoch_started`.
+    let pre_age_first_epoch = recovery_config
+        .as_ref()
+        .is_some_and(|config| Python::with_gil(|py| config.borrow(py).snapshot_interval.is_some()));
+
     let recovery = recovery_config
         .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))
         .transpose()?;
@@ -142,6 +155,8 @@ where
             worker.worker,
             flow,
             epoch_interval,
+            snapshot_epochs,
+            pre_age_first_epoch,
             resume_from,
             recovery,
             &worker.abort,
@@ -252,11 +267,14 @@ where
 }
 
 /// Turn a Bytewax dataflow into a Timely dataflow.
+#[allow(clippy::too_many_arguments)]
 fn build_production_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
     flow: Dataflow,
     epoch_interval: EpochInterval,
+    snapshot_epochs: SnapshotEpochs,
+    pre_age_first_epoch: bool,
     resume_from: ResumeFrom,
     recovery: Option<(RecoveryBundle, BackupInterval)>,
     abort: &Arc<AtomicBool>,
@@ -346,6 +364,8 @@ where
                                     scope,
                                     step_id,
                                     epoch_interval,
+                                    snapshot_epochs,
+                                    pre_age_first_epoch,
                                     &probe,
                                     abort,
                                     resume_epoch,
@@ -366,6 +386,7 @@ where
                                     scope,
                                     step_id,
                                     epoch_interval,
+                                    pre_age_first_epoch,
                                     &probe,
                                     abort,
                                     resume_epoch,
@@ -417,7 +438,7 @@ where
 
                         if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
                             let (clock, snap) = up
-                                .partitioned_output(py, step_id, sink, &loads)
+                                .partitioned_output(py, step_id, sink, snapshot_epochs, &loads)
                                 .reraise("error building FixedPartitionedSink")?;
 
                             outputs.push(clock.clone());
@@ -451,7 +472,7 @@ where
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `stateful_batch` missing port")?;
 
-                        let (down, snap) = up.stateful_batch(py, step_id, builder, resume_epoch, &loads)?;
+                        let (down, snap) = up.stateful_batch(py, step_id, builder, resume_epoch, snapshot_epochs, &loads)?;
 
                         snaps.push(snap);
 
@@ -495,7 +516,7 @@ where
         if let Some((bundle, backup_interval)) = recovery {
             scope
                 .concatenate(snaps)
-                .write_recovery(resume_from, bundle, epoch_interval, backup_interval)
+                .write_recovery(resume_from, bundle, epoch_interval, backup_interval, snapshot_epochs)
                 .probe_with(&mut probe);
         }
 
