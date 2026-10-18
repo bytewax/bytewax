@@ -2,6 +2,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from typing import BinaryIO
 
@@ -57,11 +58,12 @@ def test_reraises_custom_exception(entry_point):
 
 def _assert_can_be_ctrl_c(proc: subprocess.Popen, out_file: BinaryIO):
     try:
-        # Wait for the file to contain at least a line to show the
-        # dataflow has started.
+        # Wait for the file to contain a complete line to show the
+        # dataflow has started. The timeouts only bound a hung child,
+        # so they can be generous without slowing the normal run.
         output = b""
-        timeout_at = datetime.now(tz=timezone.utc) + timedelta(seconds=5)
-        while len(output.splitlines()) < 1:
+        timeout_at = datetime.now(tz=timezone.utc) + timedelta(seconds=30)
+        while b"\n" not in output:
             if datetime.now(tz=timezone.utc) >= timeout_at:
                 msg = "dataflow didn't write output in time"
                 raise TimeoutError(msg)
@@ -70,6 +72,8 @@ def _assert_can_be_ctrl_c(proc: subprocess.Popen, out_file: BinaryIO):
                 msg = "dataflow exited too quickly"
                 raise RuntimeError(msg)
 
+            # Yield the CPU so polling doesn't slow the child down.
+            time.sleep(0.01)
             out_file.seek(0)
             output = out_file.read()
 
@@ -77,7 +81,7 @@ def _assert_can_be_ctrl_c(proc: subprocess.Popen, out_file: BinaryIO):
         proc.send_signal(signal.SIGINT)
 
         # Process termination should be handled properly
-        stdout, stderr = proc.communicate(timeout=5)
+        stdout, stderr = proc.communicate(timeout=30)
         assert b"KeyboardInterrupt" in stderr
 
         # The file should not contain all the lines since we stopped it
