@@ -11,6 +11,7 @@
 #   dm_dust    latent bad-block gates; Ubuntu does not ship it, see
 #              build-dm-dust.sh
 #   dm_flakey  dropped-writes gate
+#   dm_log_writes  power-cut gate (every flush point of a recorded run)
 #
 # Gates whose optional target is missing are skipped, unless
 # BLOCKFAULT_REQUIRE lists it (comma-separated), as CI does.
@@ -35,6 +36,7 @@ if [ "$(uname -s)" = Linux ]; then
     load dm_mod
     load dm_dust
     load dm_flakey
+    load dm_log_writes
     [ -d /sys/module/nbd ] || {
         echo "run.sh: the host kernel has no nbd module loaded (modprobe nbd nbds_max=16)" >&2
         exit 1

@@ -21,6 +21,14 @@
 #
 #   up NAME [SIZE_MB] [journal|nojournal]   create and mount a device
 #                                           (journaled ext4 unless told)
+#   record-up NAME [SIZE_MB] [LOG_MB]       the same, with every write
+#                                           (mkfs included) logged by
+#                                           dm-log-writes on log.img
+#   mark NAME LABEL                         write a mark into the log
+#   record-stop NAME                        unmount and stop logging;
+#                                           disk.img and log.img stay
+#   replay-mount NAME IMG                   mount a replayed image at MNT
+#   replay-umount NAME                      unmount it, detach its loop
 #   down NAME                               tear it down
 #   remount NAME                            unmount and mount (cold cache)
 #   umount NAME / mount NAME                unmount / mount only
@@ -69,6 +77,7 @@ DM=$DM
 DEV=/dev/mapper/$DM
 MNT=$DIR/mnt
 SECTORS=$SECTORS
+LOOP=${LOOP:-}
 EOF
 }
 
@@ -110,6 +119,8 @@ free_nbd() {
     die "no free /dev/nbd* device (load the module: modprobe nbd nbds_max=16)"
 }
 
+# Map the nbd device linearly, or with "record" through dm-log-writes,
+# which logs every write and flush to a loop device on log.img.
 attach() {
     NBD=$(free_nbd)
     # -N "": nbdkit serves one unnamed export. -t bounds how long a
@@ -117,7 +128,13 @@ attach() {
     nbd-client -unix "$DIR/nbd.sock" "$NBD" -b "$BS" -t "$NBD_TIMEOUT" -N "" \
         >/dev/null 2>&1 || die "nbd-client could not attach $NBD"
     SECTORS=$(blockdev --getsz "$NBD")
-    dmsetup create "$DM" --table "0 $SECTORS linear $NBD 0"
+    if [ "${1:-}" = record ]; then
+        LOOP=$(losetup --find --show "$DIR/log.img") ||
+            die "could not attach $DIR/log.img to a loop device"
+        dmsetup create "$DM" --table "0 $SECTORS log-writes $NBD $LOOP"
+    else
+        dmsetup create "$DM" --table "0 $SECTORS linear $NBD 0"
+    fi
     dmsetup mknodes "$DM"
 }
 
@@ -173,17 +190,28 @@ if pos < sectors:
 PY
 }
 
-cmd_up() {
-    local size_mb=${2:-128} journal=${3:-journal}
+# Create the image and its storage server, and attach them as the
+# environment NAME. $2 is the image size in MB, $3 the attach mode, $4
+# the log size in MB for record mode.
+new_device() {
     NAME=$1
     DIR="$ROOT/$NAME"
     DM="bwx-$NAME"
+    LOOP=
     [ ! -e "$DIR/env" ] || die "environment $NAME already exists"
     mkdir -p "$DIR/trigger" "$DIR/mnt"
-    truncate -s "${size_mb}M" "$DIR/disk.img"
+    truncate -s "${2}M" "$DIR/disk.img"
+    if [ "$3" = record ]; then
+        truncate -s "${4}M" "$DIR/log.img"
+    fi
     start_nbdkit
-    attach
+    attach "$3"
     MNT="$DIR/mnt"
+}
+
+cmd_up() {
+    local size_mb=${2:-128} journal=${3:-journal}
+    new_device "$1" "$size_mb" linear
     local opts=(-q -F -b "$BS")
     # Journaled by default, like a real deployment: after a failed
     # write, journal replay brings the metadata back to its last
@@ -197,6 +225,67 @@ cmd_up() {
     cat "$DIR/env"
 }
 
+cmd_record_up() {
+    local size_mb=${2:-128} log_mb=${3:-512}
+    new_device "$1" "$size_mb" record "$log_mb"
+    # mkfs runs through the log as well, so a replay from zeros rebuilds
+    # the filesystem along with everything written on top of it.
+    mkfs.ext4 -q -F -b "$BS" "/dev/mapper/$DM"
+    do_mount
+    save
+    cat "$DIR/env"
+}
+
+cmd_mark() {
+    load "$1"
+    [ -n "${LOOP:-}" ] || die "$1 is not recording"
+    dmsetup message "$DM" 0 mark "$2" >/dev/null
+}
+
+# Stop logging and release the storage. The log is complete only if
+# dm-log-writes kept logging to the end: removing the device then writes
+# the end mark, and a log that ran out of space says so in its status.
+cmd_record_stop() {
+    load "$1"
+    [ -n "${LOOP:-}" ] || die "$1 is not recording"
+    do_umount
+    if dmsetup status "$DM" | grep -q logging_disabled; then
+        die "$1: dm-log-writes stopped logging, so the log is incomplete"
+    fi
+    dmsetup remove "$DM" || die "$1: could not remove $DM"
+    nbd-client -d "$NBD" >/dev/null 2>&1 || true
+    local pid
+    pid=$(nbdkit_pid)
+    [ -z "$pid" ] || kill "$pid" 2>/dev/null || true
+    losetup -d "${LOOP:-}" || die "$1: could not detach $LOOP"
+    LOOP=
+    save
+}
+
+# Mount a replayed image where the device is mounted. ext4 replays its
+# journal on mount, which is the point of the exercise.
+cmd_replay_mount() {
+    load "$1"
+    [ -f "$2" ] || die "no such image: $2"
+    [ ! -e "$DIR/replay.loop" ] || die "$1 already has a replayed image mounted"
+    local loop
+    loop=$(losetup --find --show "$2") || die "could not attach $2"
+    if ! mount -o errors=continue "$loop" "$MNT"; then
+        losetup -d "$loop"
+        die "could not mount $2"
+    fi
+    echo "$loop" >"$DIR/replay.loop"
+}
+
+cmd_replay_umount() {
+    load "$1"
+    [ -f "$DIR/replay.loop" ] || die "no replayed image is mounted on $1"
+    sync -f "$MNT"
+    umount "$MNT" || die "could not unmount $MNT"
+    losetup -d "$(cat "$DIR/replay.loop")"
+    rm -f "$DIR/replay.loop"
+}
+
 cmd_down() {
     load "$1"
     rm -f "$DIR/trigger/"*
@@ -206,6 +295,10 @@ cmd_down() {
     do_umount 2>/dev/null || true
     detach
     [ -z "$pid" ] || kill "$pid" 2>/dev/null || true
+    [ -z "${LOOP:-}" ] || losetup -d "${LOOP:-}" 2>/dev/null || true
+    if [ -f "$DIR/replay.loop" ]; then
+        losetup -d "$(cat "$DIR/replay.loop")" 2>/dev/null || true
+    fi
     rm -rf "$DIR"
 }
 
@@ -339,6 +432,11 @@ main() {
     shift || true
     case "$cmd" in
     up) cmd_up "$@" ;;
+    record-up) cmd_record_up "$@" ;;
+    mark) cmd_mark "$@" ;;
+    record-stop) cmd_record_stop "$@" ;;
+    replay-mount) cmd_replay_mount "$@" ;;
+    replay-umount) cmd_replay_umount "$@" ;;
     down) cmd_down "$@" ;;
     remount)
         load "$1"

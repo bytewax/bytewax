@@ -22,6 +22,9 @@ sparse image file
   -> recovery store directory
 ```
 
+The power-cut gate puts dm-log-writes in place of the fault layers,
+with its log on a loop device; see [Power cuts](#power-cuts).
+
 `env.sh` builds and controls it. Each layer has its own faults:
 
 | layer | fault | models |
@@ -32,6 +35,7 @@ sparse image file
 | dm-dust | reads of chosen blocks fail; a write heals the block | latent bad sectors |
 | dm `error` | reads and writes of chosen blocks fail | bad sectors, on any kernel |
 | dm-flakey | writes are acknowledged and dropped | a drive that lies about its cache |
+| dm-log-writes | the device is cut after any prefix of its flushed writes | a power cut, at each flush point (`log-writes` on a loop device) |
 | raw device | one byte flipped while unmounted | silent corruption the drive's ECC missed |
 
 ## Determinism
@@ -57,6 +61,14 @@ come from the file's extent map, a remount drops the page cache so
 the reads reach the device, and the precondition probe proves the
 fault is armed.
 
+The power-cut recording is its own run, so its flush points come from
+the run as it happened: journal commits and fsyncs interleave a little
+differently each time, and the point count moved between 207 and 208
+across our runs. The gate
+checks every point of the recording it made, and each expectation
+comes from that recording's marks, so the outcome does not depend on
+the count.
+
 ## The gates
 
 `pytests/faults/test_block_faults.py`. The workload
@@ -77,6 +89,7 @@ commit.
 | `test_corrupt_wal_frame_rolls_back` | a byte flipped in the last committed WAL frame | SQLite's frame checksum drops that transaction; resumes one boundary back |
 | `test_corrupt_snapshot_is_detected` | a byte flipped in a snapshot in the main database file | **known gap, strict xfail**: resumes without error with a wrong total |
 | `test_rolled_back_store_is_detected` | the WAL, holding all progress, lost while the store is closed | **known gap, strict xfail**: the store looks freshly initialized and the next execution starts over from the first item |
+| `test_power_cut_at_every_flush_point` | a power cut at every FLUSH or FUA point of a full run, recorded by dm-log-writes; each point replayed onto a zeroed image | every point that mounts is clean after its journal replay; once the store exists, every point resumes from the last durable boundary or the batch after it, loses no item, and gets every running total right |
 
 Each test checks its own precondition before it acts: an armed read
 fault must make an O_DIRECT read of a target block fail, and a
@@ -84,6 +97,41 @@ corrupted byte must occur exactly once in the store and decode to the
 flipped value. A test whose fault never fired would otherwise pass
 while proving nothing. The xfail only accepts its own exception type,
 so a broken precondition there fails too.
+
+## Power cuts
+
+`test_power_cut_at_every_flush_point` injects no fault. It records a
+whole run instead. `env.sh record-up` puts dm-log-writes between the
+nbd device and ext4, with its log on a loop device (`log.img`), so
+mkfs and the store's init are recorded too. dm-log-writes logs each
+write in the order it became durable: a write waits for the next
+flush, which carries it into the log, and a FUA write is logged at
+once. So the prefix of the log that ends at a FLUSH or FUA entry is a
+state a power cut at that moment could leave.
+
+`log_writes.py` replays each such prefix onto a zeroed image. It reads
+the format of `drivers/md/dm-log-writes.c` (v6.8, the VM's kernel), with
+no xfstests dependency. The image is mounted, so ext4 replays its
+journal, and the workload resumes on it. The workload writes two kinds
+of mark into the log (`flow_driver.py --marks`), which give each point
+its expectation without consulting the store: `b<item>` when the source
+is asked for the batch starting at `item`, which is after that
+boundary's commit, and `o<item>` once that item's output line is on
+disk.
+
+Before `init_db_dir` returns (the `init` mark), the device is not a
+store yet. A point there may fail to mount, or the store may refuse to
+resume, as long as nothing is emitted. A point that does mount must
+still pass `e2fsck -fn` after its journal replay. From then on, a
+resume must start at or after the last boundary durable at the point
+and at most one batch past it. So a silent fresh start, and a replay
+from before the boundary, both fail. No item may be lost, and only
+items at or after that boundary may be emitted twice.
+
+Every flush point is replayed, up to 300. Beyond that, the gate samples
+at a fixed stride, always keeping the first and last point and every
+point after the last boundary. Before any point is checked, the log
+must replay exactly to the device it recorded.
 
 ## Findings
 
@@ -110,6 +158,13 @@ so a broken precondition there fails too.
   `SQLITE_CORRUPT`. An operator who sees
   this message should check the kernel log for I/O errors before
   deciding the store itself is damaged.
+- **A power cut during init leaves a store that is refused, not
+  resumed.** Until `init_db_dir` returns, the power-cut gate finds
+  the directory missing or without its partitions, and the next
+  execution fails with `NoPartitionsError` or `FileNotFoundError`
+  before it emits anything. That is not silent, but the store is
+  unusable until init runs again; the gate does not check re-running
+  init on a half-initialized store.
 - **A hung volume blocks the execution for as long as the storage
   lets it.** bytewax has no I/O watchdog of its own; the bound here
   comes from the nbd request timeout. Production volumes need their
@@ -139,6 +194,7 @@ load modules):
 | `nbd` | all | `modprobe nbd nbds_max=16` |
 | `dm_mod` | all | usually built in |
 | `dm_flakey` | dropped writes | Ubuntu ships it in `linux-modules-extra-$(uname -r)` |
+| `dm_log_writes` | power cut | Ubuntu ships it in `linux-modules-$(uname -r)` |
 | `dm_dust` | bad blocks | Ubuntu kernels are built without it; `sudo ./build-dm-dust.sh` builds it for the running kernel from the matching upstream source (needs `linux-headers-$(uname -r)` and a compiler; the module is unsigned, so not under enforced Secure Boot) |
 
 ```
@@ -152,9 +208,10 @@ unless `BLOCKFAULT_REQUIRE` names the target; then it fails.
 ### macOS (Docker Desktop)
 
 Docker Desktop's LinuxKit kernel has nbd, device-mapper with the
-`linear` and `error` targets, but neither dm-dust nor dm-flakey, so
-`run.sh` there runs every gate except the `dust` variants and the
-dropped-writes gate. For those, run it in a Linux VM; an Ubuntu cloud
+`linear` and `error` targets, but neither dm-dust, dm-flakey nor
+dm-log-writes, so `run.sh` there runs every gate except the `dust`
+variants, the dropped-writes gate and the power-cut gate, which skip
+with the reason. For those, run it in a Linux VM; an Ubuntu cloud
 image under QEMU with HVF works, with `build-dm-dust.sh`.
 
 ### CI
@@ -162,7 +219,10 @@ image under QEMU with HVF works, with `build-dm-dust.sh`.
 `.github/workflows/block-faults.yml` installs the modules on the
 hosted runner, builds dm-dust, and runs every gate with
 `BLOCKFAULT_REQUIRE=dust,flakey`. `act` on macOS cannot run it, for
-the same kernel reasons as Docker Desktop.
+the same kernel reasons as Docker Desktop. The power-cut gate runs
+there if `dm_log_writes` loads, and skips otherwise: `log-writes` is
+not in `BLOCKFAULT_REQUIRE` yet, so the hosted runner's kernel has not
+been checked for it.
 
 ## Exploring by hand
 
@@ -180,6 +240,4 @@ env.sh down demo
 ## Extending
 
 The same stack hosts more device-mapper targets with no new
-infrastructure: `dm-delay` for slow storage, and `dm-log-writes` to
-record every write and replay a power cut at each point of a run, the
-systematic version of the dropped-writes gate.
+infrastructure: `dm-delay` for slow storage.

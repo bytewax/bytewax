@@ -26,6 +26,7 @@ jobs:
             "linux-modules-extra-$(uname -r)" "linux-headers-$(uname -r)" build-essential
           sudo modprobe nbd nbds_max=16
           sudo modprobe dm_flakey
+          sudo modprobe dm_log_writes
           # Ubuntu kernels do not ship dm-dust; build it for this one.
           sudo ./scripts/blockfault/build-dm-dust.sh
       - name: Run the gates
@@ -33,5 +34,5 @@ jobs:
         env:
           # A gate whose device-mapper target is missing fails the job
           # instead of skipping.
-          BLOCKFAULT_REQUIRE: dust,flakey
+          BLOCKFAULT_REQUIRE: dust,flakey,log-writes
         run: ./scripts/blockfault/run.sh

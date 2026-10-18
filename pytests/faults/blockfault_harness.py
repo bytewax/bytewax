@@ -41,11 +41,16 @@ STORAGE_ERROR = re.compile(
 )
 
 
-def env_sh(*args: str, check: bool = True) -> str:
-    """Run an `env.sh` command and return its output."""
-    proc = subprocess.run(
+def env_run(*args: str) -> subprocess.CompletedProcess:
+    """Run an `env.sh` command and return the result without checking it."""
+    return subprocess.run(
         ["bash", str(ENV_SH), *args], capture_output=True, text=True, check=False
     )
+
+
+def env_sh(*args: str, check: bool = True) -> str:
+    """Run an `env.sh` command and return its output."""
+    proc = env_run(*args)
     if check and proc.returncode != 0:
         msg = f"env.sh {' '.join(args)} failed ({proc.returncode}): {proc.stderr}"
         raise RuntimeError(msg)
@@ -70,14 +75,25 @@ class Device:
 
     name: str
     mnt: Path
+    dir: Path
+    dm: str
+
+    @classmethod
+    def _create(cls, *args: str) -> "Device":
+        name = f"t{uuid.uuid4().hex[:8]}"
+        out = env_sh(args[0], name, *args[1:])
+        values = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+        return cls(name, Path(values["MNT"]), Path(values["DIR"]), values["DM"])
 
     @classmethod
     def up(cls) -> "Device":
         """Build and mount a new device."""
-        name = f"t{uuid.uuid4().hex[:8]}"
-        out = env_sh("up", name, "128")
-        values = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
-        return cls(name, Path(values["MNT"]))
+        return cls._create("up", "128")
+
+    @classmethod
+    def record_up(cls) -> "Device":
+        """Build and mount a device whose every write is logged."""
+        return cls._create("record-up", "128", "512")
 
     def down(self) -> None:
         """Tear the device down."""
@@ -153,14 +169,26 @@ class Run:
     """One `flow_driver.py` execution in a subprocess."""
 
     def __init__(
-        self, store: Path, out: Path, n: int, gate: Optional[Tuple[int, Path]] = None
+        self,
+        store: Path,
+        out: Path,
+        n: int,
+        gate: Optional[Tuple[int, Path]] = None,
+        marks: Optional[str] = None,
     ) -> None:
-        """Start the workload; `gate` is (item, directory) for `--gate`."""
+        """Start the workload.
+
+        `gate` is (item, directory) for `--gate`; `marks` is the name of a
+        dm-log-writes device to mark for `--marks`.
+
+        """
         self.gate_dir = gate[1] if gate else None
         args = [sys.executable, str(DRIVER), str(store), str(out), str(n)]
         if gate:
             gate[1].mkdir(parents=True, exist_ok=True)
             args += ["--gate", str(gate[0]), str(gate[1])]
+        if marks:
+            args += ["--marks", marks]
         self.stderr_path = out.with_name(f"{out.name}.{uuid.uuid4().hex[:6]}.err")
         self._stderr = open(self.stderr_path, "w")
         self.proc = subprocess.Popen(

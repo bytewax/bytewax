@@ -3,7 +3,7 @@
 Run as a subprocess, so that a panic or a stalled store only ends this
 process:
 
-    python flow_driver.py STORE_DIR OUT_FILE N [--gate G GATE_DIR]
+    python flow_driver.py STORE_DIR OUT_FILE N [--gate G GATE_DIR] [--marks DM]
 
 Items `0..N` are summed per key (`item % KEYS`) by `stateful_map`, and
 every emitted `(key, item, running_total)` is appended to OUT_FILE
@@ -18,10 +18,17 @@ so at the gate the store is durable up to item G exactly. Tests use
 the gate to kill the process at a known resume point or to arm a
 fault before the next commit.
 
+With `--marks DM`, the workload also writes marks into the dm-log-writes
+device DM, so a power-cut replay can be placed exactly in the log:
+`b<item>` when the source is asked for the batch starting at `item`
+(the store is durable up to `item` by then), and `o<item>` once that
+item's output line is on disk.
+
 """
 
 import argparse
 import os
+import subprocess
 import time
 from datetime import timedelta
 from typing import List, Optional, Tuple
@@ -45,6 +52,16 @@ def expected_total(item: int) -> int:
     return TOTAL_BASE + sum(range(item % KEYS, item + 1, KEYS))
 
 
+def _mark(dm: Optional[str], label: str) -> None:
+    """Write a mark into the dm-log-writes device, when recording."""
+    if dm is not None:
+        subprocess.run(
+            ["dmsetup", "message", dm, "0", "mark", label],
+            check=True,
+            capture_output=True,
+        )
+
+
 class _Partition(StatefulSourcePartition[int, int]):
     def __init__(
         self,
@@ -52,13 +69,16 @@ class _Partition(StatefulSourcePartition[int, int]):
         gate: Optional[int],
         gate_dir: Optional[str],
         resume: Optional[int],
+        marks: Optional[str],
     ) -> None:
         self._next = 0 if resume is None else resume
         self._n = n
         self._gate = gate
         self._gate_dir = gate_dir
+        self._marks = marks
 
     def next_batch(self) -> List[int]:
+        _mark(self._marks, f"b{self._next}")
         if self._next >= self._n:
             raise StopIteration()
         if self._gate is not None and self._next >= self._gate:
@@ -78,10 +98,17 @@ class _Partition(StatefulSourcePartition[int, int]):
 
 
 class _Source(FixedPartitionedSource[int, int]):
-    def __init__(self, n: int, gate: Optional[int], gate_dir: Optional[str]) -> None:
+    def __init__(
+        self,
+        n: int,
+        gate: Optional[int],
+        gate_dir: Optional[str],
+        marks: Optional[str],
+    ) -> None:
         self._n = n
         self._gate = gate
         self._gate_dir = gate_dir
+        self._marks = marks
 
     def list_parts(self) -> List[str]:
         return ["p0"]
@@ -89,31 +116,37 @@ class _Source(FixedPartitionedSource[int, int]):
     def build_part(
         self, step_id: str, for_part: str, resume_state: Optional[int]
     ) -> _Partition:
-        return _Partition(self._n, self._gate, self._gate_dir, resume_state)
+        return _Partition(
+            self._n, self._gate, self._gate_dir, resume_state, self._marks
+        )
 
 
 class _FilePartition(StatelessSinkPartition[Tuple[str, Tuple[int, int]]]):
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, marks: Optional[str]) -> None:
         self._f = open(path, "a")
+        self._marks = marks
 
     def write_batch(self, items: List[Tuple[str, Tuple[int, int]]]) -> None:
         for key, (item, total) in items:
             self._f.write(f"{key},{item},{total}\n")
         self._f.flush()
         os.fsync(self._f.fileno())
+        for _key, (item, _total) in items:
+            _mark(self._marks, f"o{item}")
 
     def close(self) -> None:
         self._f.close()
 
 
 class _FileSink(DynamicSink[Tuple[str, Tuple[int, int]]]):
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, marks: Optional[str]) -> None:
         self._path = path
+        self._marks = marks
 
     def build(
         self, step_id: str, worker_index: int, worker_count: int
     ) -> _FilePartition:
-        return _FilePartition(self._path)
+        return _FilePartition(self._path, self._marks)
 
 
 def _add(total: Optional[int], item: int) -> Tuple[int, Tuple[int, int]]:
@@ -128,16 +161,17 @@ def main() -> None:
     parser.add_argument("out")
     parser.add_argument("n", type=int)
     parser.add_argument("--gate", nargs=2, metavar=("ITEM", "DIR"))
+    parser.add_argument("--marks", metavar="DM")
     args = parser.parse_args()
 
     gate = int(args.gate[0]) if args.gate else None
     gate_dir = args.gate[1] if args.gate else None
 
     flow = Dataflow("blockfault")
-    nums = op.input("inp", flow, _Source(args.n, gate, gate_dir))
+    nums = op.input("inp", flow, _Source(args.n, gate, gate_dir, args.marks))
     keyed = op.key_on("key", nums, lambda x: str(x % KEYS))
     totals = op.stateful_map("sum", keyed, _add)
-    op.output("out", totals, _FileSink(args.out))
+    op.output("out", totals, _FileSink(args.out, args.marks))
     run_main(
         flow, epoch_interval=timedelta(0), recovery_config=RecoveryConfig(args.store)
     )
