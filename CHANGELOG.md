@@ -17,6 +17,16 @@ notes on GitHub when we make a new release.__
   more input may be re-emitted after a crash. The default (`None`)
   keeps the existing behavior: a snapshot every epoch.
 
+- Fixes a stateful output losing its last window when a stream ends
+  between snapshot boundaries. With `snapshot_interval`, an output
+  partition whose final epoch closed without a boundary was never
+  snapshotted, so a graceful drain, the end of the input, or an abort
+  dropped that window's writes, and the next execution did not replay
+  them. The output operator now snapshots its awoken partitions when
+  its input closes, as the input and stateful operators already do.
+  This gap came from the `snapshot_interval` change earlier in this
+  unreleased series, so no released version was affected.
+
 - Fixes the epoch clock falling one batch behind input progress when
   an execution starts or resumes, for dataflows with a
   `snapshot_interval`. The first batch after a start or resume now

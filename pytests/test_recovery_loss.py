@@ -25,7 +25,9 @@ from datetime import timedelta
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
+from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 from bytewax.recovery import RecoveryConfig, init_db_dir
+from bytewax.run import request_graceful_drain
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
 from pytest import mark, param, raises
 
@@ -455,3 +457,101 @@ def test_resumed_boundary_abort_stays_within_window(tmp_path):
     position = {item: index for index, item in enumerate(items)}
     replayed_twice = set(item_runs[1]) & set(item_runs[2])
     assert all(position[item] >= second for item in replayed_twice)
+
+
+# The sink column of this matrix was `TestingSink`, which is stateless:
+# its writes need no snapshot, so the output operator's own snapshots
+# were never exercised. The scenarios below add a stateful sink. It
+# holds writes until a snapshot publishes them, so anything the output
+# operator fails to snapshot before a stop is lost.
+
+
+class _BufferedSink(FixedPartitionedSink):
+    def __init__(self, out):
+        self._out = out
+
+    def list_parts(self):
+        return ["buffered"]
+
+    def build_part(self, step_id, for_part, resume_state):
+        return _BufferedPart(self._out)
+
+
+class _BufferedPart(StatefulSinkPartition):
+    def __init__(self, out):
+        self._out = out
+        self._buf = []
+
+    def write_batch(self, values):
+        self._buf.extend(values)
+
+    def snapshot(self):
+        self._out.extend(self._buf)
+        self._buf = []
+        return None
+
+
+def _buffered_flow(items, out, drain_at=None):
+    drained = [False]
+
+    def tag(item):
+        time.sleep(SLOW_SECONDS)
+        if item == drain_at and not drained[0]:
+            drained[0] = True
+            request_graceful_drain()
+        return ("buffered", item)
+
+    flow = Dataflow("buffered_df")
+    s = op.input("inp", flow, TestingSource(items))
+    s = op.map("tag", s, tag)
+    op.output("out", s, _BufferedSink(out))
+    return flow
+
+
+def _buffered_recovery(tmp_path):
+    init_db_dir(tmp_path, 1)
+    return RecoveryConfig(str(tmp_path), snapshot_interval=_snapshot_interval(3))
+
+
+@mark.parametrize(
+    "drain_at",
+    [
+        param(4, id="first-item-after-boundary"),
+        param(5, id="mid-window"),
+        param(7, id="mid-window-late"),
+        param(8, id="last-item-of-window"),
+    ],
+)
+def test_stateful_sink_drain_loses_nothing(tmp_path, drain_at):
+    items = list(range(1, 11))
+    recovery_config = _buffered_recovery(tmp_path)
+    out = []
+    flow = _buffered_flow(items, out, drain_at=drain_at)
+
+    run_main(flow, epoch_interval=EPOCH_TD, recovery_config=recovery_config)
+    assert out == items[: len(out)]
+    run_main(flow, epoch_interval=EPOCH_TD, recovery_config=recovery_config)
+    run_main(flow, epoch_interval=EPOCH_TD, recovery_config=recovery_config)
+
+    # Resume replays nothing, so the stateful sink sees each item once.
+    assert out == items
+
+
+@mark.parametrize(
+    "count",
+    [
+        param(10, id="mid-window"),
+        param(11, id="one-past-boundary"),
+        param(13, id="mid-window-late"),
+    ],
+)
+def test_stateful_sink_eof_mid_window_loses_nothing(tmp_path, count):
+    items = list(range(1, count + 1))
+    recovery_config = _buffered_recovery(tmp_path)
+    out = []
+    flow = _buffered_flow(items, out)
+
+    run_main(flow, epoch_interval=EPOCH_TD, recovery_config=recovery_config)
+    assert out == items
+    run_main(flow, epoch_interval=EPOCH_TD, recovery_config=recovery_config)
+    assert out == items

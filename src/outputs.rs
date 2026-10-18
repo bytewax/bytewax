@@ -430,6 +430,22 @@ where
                             }
                         },
                     );
+
+                    // The notificator only runs the close logic for
+                    // epochs it was told about, so the stream's final
+                    // epoch is never closed if it saw no data. Queue
+                    // the current frontier so that the EOF (or drain,
+                    // or abort) activation closes it, and the
+                    // partitions awoken since the last snapshot are
+                    // snapshotted at that closed epoch, as the input
+                    // and stateful operators do. Without a snapshot
+                    // interval every epoch with data is snapshotted,
+                    // so there is nothing left to close.
+                    if snapshot_epochs.0 > 1 {
+                        if let Some(frontier) = input_frontiers.simplify() {
+                            ncater.notify_at(frontier);
+                        }
+                    }
                 });
             }
         });
