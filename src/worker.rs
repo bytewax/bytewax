@@ -482,14 +482,21 @@ where
             return Err(tracked_err::<PyValueError>(msg));
         }
 
-        // Attach the probe to the relevant final output.
+        // Probe every final output, including dynamic sinks which
+        // produce no snapshots. Inputs wait on this probe before
+        // starting a new epoch, and the dataflow only finishes once
+        // all outputs are done.
+        scope.concatenate(outputs).probe_with(&mut probe);
+
+        // With recovery enabled, also probe the snapshot writes so
+        // inputs wait for recovery data to be written each epoch. A
+        // dataflow with no snapshotting steps has an empty snapshot
+        // stream, which must not end the dataflow early.
         if let Some((bundle, backup_interval)) = recovery {
             scope
                 .concatenate(snaps)
                 .write_recovery(resume_from, bundle, epoch_interval, backup_interval)
                 .probe_with(&mut probe);
-        } else {
-            scope.concatenate(outputs).probe_with(&mut probe);
         }
 
         Ok(probe)
