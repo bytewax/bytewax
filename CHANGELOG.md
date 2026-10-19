@@ -9,6 +9,13 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- The Kafka source sets librdkafka's `fetch.queue.backoff.ms` to 10 ms
+  instead of its default of 1000 ms. Once the local queue was full, the
+  consumer waited that long before it fetched again, so a dataflow that
+  drained the queue faster than the broker refilled it sat idle, which
+  held back reading a backlog. Set `fetch.queue.backoff.ms` in
+  `add_config` to use another value.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
