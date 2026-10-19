@@ -309,7 +309,6 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 /// :type backup_interval: typing.Optional[datetime.timedelta]
 #[pyclass(module = "bytewax.recovery")]
 pub(crate) struct RecoveryConfig {
-    #[pyo3(get)]
     db_dir: PathBuf,
     #[pyo3(get)]
     backup_interval: BackupInterval,
@@ -324,6 +323,16 @@ impl RecoveryConfig {
             db_dir,
             backup_interval: backup_interval.unwrap_or_default(),
         }
+    }
+
+    /// The recovery directory as a `str`.
+    ///
+    /// Local filesystem directory to search for recovery database
+    /// partitions. Bytes that are not valid UTF-8 are decoded like
+    /// `os.fsdecode`.
+    #[getter]
+    fn db_dir(&self) -> &OsStr {
+        self.db_dir.as_os_str()
     }
 }
 
