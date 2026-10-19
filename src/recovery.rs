@@ -1055,7 +1055,7 @@ fn gc_keeps_newest_snapshot_at_or_before_commit() {
             data.map(|data| data.as_bytes().to_vec()),
         )
     };
-    conn.snap_writer(None).write_batch(vec![
+    conn.snap_writer().write_batch(vec![
         // Newer snapshots after the commit are kept, as is the newest
         // one at or before it.
         snap("step_1", "a", 1, Some("a1")),
@@ -1074,7 +1074,7 @@ fn gc_keeps_newest_snapshot_at_or_before_commit() {
         // Keys are per step.
         snap("step_2", "a", 1, Some("s2a1")),
     ]);
-    conn.committer(PartitionIndex(0), None).commit(&4);
+    conn.committer(PartitionIndex(0)).commit(&4);
 
     let found = conn
         .conn
