@@ -77,6 +77,11 @@ notes on GitHub when we make a new release.__
   `collect_window(..., ordered=False)` even though it works at
   runtime.
 
+- Fixes {py:obj}`~bytewax.tracing.setup_tracing` silently stopping the
+  first tracer's exports when it is called a second time with an OTLP or
+  Jaeger config. The second call now raises its `RuntimeError` before it
+  installs a tracer, so the first tracer keeps exporting spans.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
