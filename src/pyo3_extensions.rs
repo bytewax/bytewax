@@ -58,6 +58,13 @@ pub(crate) struct TdPyAny {
     repr: AtomicPtr<ffi::PyObject>,
 }
 
+// `TdPyAny` is `Send` and `Sync` because its only field is an
+// `AtomicPtr`. That is sound for the same reason as the manual impls
+// on `Py<T>`, and needs one rule more: the Python refcount of the
+// object only changes with the GIL held. A clone only changes the
+// count of the `Arc`, and a drop without the GIL queues the decref in
+// PyO3's reference pool, which runs on the next GIL acquisition.
+
 /// Set in the address of an [`Arc`] in [`TdPyAny::repr`].
 const SHARED: usize = 1;
 
