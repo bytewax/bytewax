@@ -467,4 +467,32 @@ mod tests {
             Python::with_gil(|py| assert_eq!(obj.get_refcnt(py), base));
         }
     }
+
+    #[test]
+    fn last_copies_dropped_without_the_gil_release_their_references() {
+        pyo3::prepare_freethreaded_python();
+        let (obj, base) = Python::with_gil(|py| {
+            let obj = new_obj(py);
+            let base = obj.get_refcnt(py);
+            (obj, base)
+        });
+
+        // An unshared item, dropped on a thread without the GIL.
+        let unshared = Python::with_gil(|py| TdPyAny::from(obj.clone_ref(py)));
+        // A shared item. The main thread drops one copy, and the
+        // thread drops the last one, which is the last Arc.
+        let shared = Python::with_gil(|py| TdPyAny::from(obj.clone_ref(py)));
+        let last = shared.clone();
+        drop(shared);
+        std::thread::spawn(move || {
+            drop(unshared);
+            drop(last);
+        })
+        .join()
+        .unwrap();
+
+        // The drops on the thread are queued decrefs, run on the next
+        // GIL acquisition, which is this one.
+        Python::with_gil(|py| assert_eq!(obj.get_refcnt(py), base));
+    }
 }
