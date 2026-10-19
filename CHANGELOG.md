@@ -9,6 +9,15 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Recovery snapshots are written and garbage snapshots are deleted
+  faster. The snapshot `INSERT` is prepared once per connection instead
+  of once per row, and old snapshots are found with one index lookup
+  per row instead of grouping the whole snapshot table on every commit.
+  With recovery on, one worker running `stateful_map` over a million
+  keys with 1 s epochs went from 87K to 148K items per second, and with
+  100k keys and 500 ms epochs from 398K to 475K (medians of 5
+  interleaved runs).
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
