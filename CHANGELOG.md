@@ -9,6 +9,15 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes {py:obj}`~bytewax.connectors.kafka.KafkaSource` silently
+  skipping messages when resuming from a recovery snapshot whose
+  offset the broker has since purged by retention or log truncation.
+  Resuming now fails with a `RuntimeError` naming the partition, the
+  resume offset and the broker's log start. It also fails when the
+  resume offset is past the log end, which means the topic was
+  truncated or recreated. To accept the loss, start an execution
+  without the recovery state.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a

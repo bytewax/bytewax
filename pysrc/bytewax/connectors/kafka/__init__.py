@@ -209,6 +209,50 @@ def _list_parts(
             yield f"{i}-{topic}"
 
 
+_WATERMARK_TIMEOUT_S = 30.0
+"""How long to wait for a partition's log bounds when resuming."""
+
+
+def _check_resume_offset(
+    consumer: Consumer, topic: str, part_idx: int, resume_state: int
+) -> None:
+    """Fail if the resume offset is outside the partition's log.
+
+    Offsets below the log start were removed by retention or log
+    truncation, so replaying from them would silently skip data. An
+    offset past the log end means the topic was truncated or recreated
+    since the recovery state was written.
+
+    """
+    try:
+        low, high = consumer.get_watermark_offsets(
+            TopicPartition(topic, part_idx), timeout=_WATERMARK_TIMEOUT_S
+        )
+    except KafkaException as ex:
+        msg = (
+            f"could not fetch log offsets for Kafka topic partition "
+            f"`{topic}:{part_idx}` within {_WATERMARK_TIMEOUT_S:g} seconds: {ex}"
+        )
+        raise RuntimeError(msg) from ex
+    if resume_state < low:
+        msg = (
+            f"resume offset {resume_state} for {topic}:{part_idx} is below "
+            f"the broker's log start {low}: retention or log truncation "
+            "removed data needed for replay; data between them is "
+            "unrecoverable. Start a fresh execution without the recovery "
+            "state to accept the loss explicitly."
+        )
+        raise RuntimeError(msg)
+    if resume_state > high:
+        msg = (
+            f"resume offset {resume_state} for {topic}:{part_idx} is past "
+            f"the broker's log end {high}: the topic was truncated or "
+            "recreated since the recovery state was written. Start a fresh "
+            "execution without the recovery state to accept this explicitly."
+        )
+        raise RuntimeError(msg)
+
+
 class _KafkaSourcePartition(
     StatefulSourcePartition[
         Union[
@@ -230,12 +274,9 @@ class _KafkaSourcePartition(
         raise_on_errors: bool,
     ):
         self._offset = starting_offset if resume_state is None else resume_state
-        # Collect metrics from Kafka every 1s
-        config.update({"stats_cb": self._process_stats})
-        consumer = Consumer(config)
-        # Assign does not activate consumer grouping.
-        consumer.assign([TopicPartition(topic, part_idx, self._offset)])
-        self._consumer = consumer
+        # Set before creating the consumer: librdkafka drains queued
+        # callbacks during close(), so the stats callback can fire on
+        # the error paths below and must find these attributes.
         self._topic = topic
         self._part_idx = part_idx
         self._batch_size = batch_size
@@ -247,6 +288,21 @@ class _KafkaSourcePartition(
             "topic": topic,
             "partition": part_idx,
         }
+        # Collect metrics from Kafka every 1s
+        config.update({"stats_cb": self._process_stats})
+        consumer = Consumer(config)
+        # Only a non-negative offset is a position read from the log.
+        # The starting_offset sentinels are negative, so a snapshot
+        # taken before any read never reaches the watermark check.
+        if resume_state is not None and resume_state >= 0:
+            try:
+                _check_resume_offset(consumer, topic, part_idx, resume_state)
+            except BaseException:
+                consumer.close()
+                raise
+        # Assign does not activate consumer grouping.
+        consumer.assign([TopicPartition(topic, part_idx, self._offset)])
+        self._consumer = consumer
 
     def _process_stats(self, json_stats: str):
         """Process stats collected by librdkafka.
