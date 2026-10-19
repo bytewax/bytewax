@@ -4,7 +4,7 @@ import subprocess
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import BinaryIO
+from typing import BinaryIO, Dict, List
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -75,7 +75,7 @@ def test_cluster_main_keeps_thread_local_state_across_activations():
 
     cluster_main(flow, [], 0, worker_count_per_proc=2)
 
-    counts_by_thread: dict[int, list[int]] = {}
+    counts_by_thread: Dict[int, List[int]] = {}
     for thread_id, n in out:
         counts_by_thread.setdefault(thread_id, []).append(n)
     assert len(counts_by_thread) == 2
