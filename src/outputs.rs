@@ -18,6 +18,7 @@ use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 use timely::progress::Timestamp;
 
+use crate::debug_span_if_traced;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::operators::ExtractKeyOp;
@@ -293,7 +294,7 @@ where
             let mut ncater = EagerNotificator::new(init_caps, (parts, awoken));
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = op_name).in_scope(|| {
                     routed_input.for_each(|cap, incoming| {
                         let epoch = cap.time();
                         assert!(routed_tmp.is_empty());

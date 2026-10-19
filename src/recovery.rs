@@ -47,6 +47,7 @@ use timely::progress::Timestamp;
 use timely::Data;
 use tracing::instrument;
 
+use crate::debug_span_if_traced;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::pyo3_extensions::TdPyAny;
@@ -1446,7 +1447,7 @@ where
             let mut inbuf = Vec::new();
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = name).in_scope(|| {
                     input.for_each(|_cap, incoming| {
                         assert!(inbuf.is_empty());
                         incoming.swap(&mut inbuf);

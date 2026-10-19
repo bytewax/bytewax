@@ -23,6 +23,7 @@ use timely::order::TotalOrder;
 use timely::progress::Antichain;
 use timely::ExchangeData;
 
+use crate::debug_span_if_traced;
 use crate::errors::PythonException;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
@@ -181,7 +182,7 @@ where
             let mut outbuf = Vec::new();
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
+                debug_span_if_traced!("operator", operator = step_id.0.clone()).in_scope(|| {
                     self_handle.buffer_notify(&mut inbuf, &mut ncater);
 
                     let mut downstream_handle = downstream_output.activate();
@@ -264,7 +265,7 @@ where
             let mut ncater = EagerNotificator::new(init_caps, ());
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = step_id.0.clone()).in_scope(|| {
+                debug_span_if_traced!("operator", operator = step_id.0.clone()).in_scope(|| {
                     self_handle.buffer_notify(&mut items_inbuf, &mut ncater);
 
                     let mut downstream_handle = downstream_output.activate();
@@ -668,7 +669,7 @@ where
             let mut awoken_keys_this_epoch_buffer: BTreeSet<StateKey> = BTreeSet::new();
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = op_name).in_scope(|| {
                     if let (Some(output_cap), Some(state_update_cap)) =
                         (kv_downstream_cap.as_mut(), snap_cap.as_mut())
                     {

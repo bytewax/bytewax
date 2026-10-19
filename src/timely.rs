@@ -36,6 +36,8 @@ use timely::worker::AsWorker;
 use timely::Data;
 use timely::ExchangeData;
 
+use crate::debug_span_if_traced;
+use crate::trace_span_if_traced;
 use crate::with_timer;
 
 /// Timely's name for a dataflow stream where you only care about the
@@ -519,7 +521,7 @@ where
             let mut ncater = EagerNotificator::new(init_caps, known);
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = name).in_scope(|| {
                     items_input.buffer_notify(&mut items_inbuf, &mut ncater);
                     known_input.buffer_notify(&mut known_inbuf, &mut ncater);
 
@@ -657,7 +659,7 @@ where
             let mut ncater = EagerNotificator::new(init_caps, (known, primaries));
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = name).in_scope(|| {
                     known_input.buffer_notify(&mut inbuf, &mut ncater);
 
                     ncater.for_each(
@@ -758,7 +760,7 @@ where
             let mut ncater = EagerNotificator::new(init_caps, routing_map);
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = name).in_scope(|| {
                 items_input.buffer_notify(&mut items_inbuf, &mut ncater);
                 routing_input.buffer_notify(&mut routing_inbuf, &mut ncater);
 
@@ -921,7 +923,7 @@ where
             let mut ncater = EagerNotificator::new(init_caps, parts);
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = op_name).in_scope(|| {
                 routed_input.for_each(|cap, incoming| {
                     let epoch = cap.time();
                     assert!(routed_tmp.is_empty());
@@ -1154,7 +1156,7 @@ where
             let mut queue: BinaryHeap<LoadPartEntry<S::Timestamp, P, L>> = BinaryHeap::new();
 
             move |_input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = op_name).in_scope(|| {
                     let mut just_emitted = false;
 
                     primaries_input.for_each(|cap, incoming| {
@@ -1188,7 +1190,7 @@ where
                     // being open.
                     let mut eof = false;
                     if let Some(mut entry) = queue.peek_mut() {
-                        tracing::trace_span!("partition", part_key = ?entry.key).in_scope(|| {
+                        trace_span_if_traced!("partition", part_key = ?entry.key).in_scope(|| {
                             if let Some(mut items) = entry.part.next_batch() {
                                 if !items.is_empty() {
                                     just_emitted = true;
@@ -1300,7 +1302,7 @@ where
             let mut ncater = EagerNotificator::new(init_caps, parts);
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = op_name).in_scope(|| {
                     clock_input.buffer_notify(&mut clock_inbuf, &mut ncater);
                     primaries_input.buffer_notify(&mut primaries_inbuf, &mut ncater);
 
@@ -1318,7 +1320,7 @@ where
                             // write operator.
                             if let Some(delayed) = epoch.checked_sub(&delay) {
                                 for (part_key, part) in parts.iter_mut() {
-                                    tracing::trace_span!("partition", part_key = ?part_key)
+                                    trace_span_if_traced!("partition", part_key = ?part_key)
                                         .in_scope(|| {
                                             part.commit(&delayed);
                                         });
