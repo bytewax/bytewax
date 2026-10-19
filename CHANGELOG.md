@@ -9,6 +9,13 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- `stateful_map` and `stateful_flat_map` run faster. Keyed operator
+  state is kept in hash maps, and `stateful_flat_map` runs over a whole
+  batch instead of one item at a time. Keys are still processed, and
+  their output emitted, in key order. One worker running `stateful_map`
+  over 1000 keys with 1000 items per batch went from 916K to 1.22M items
+  per second (medians of 5 interleaved runs).
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
