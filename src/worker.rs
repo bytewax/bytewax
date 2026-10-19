@@ -55,14 +55,19 @@ impl PyThreadStateKeeper {
         // Safety: Python is initialized, because the dataflow was
         // built from Python objects. `PyGILState_Ensure` gives this
         // thread a state if it has none and takes the GIL for it.
-        // `PyEval_SaveThread` then releases the GIL without deleting
-        // the state, so the count of `PyGILState_Ensure` calls on it
-        // stays above zero until `drop`.
-        unsafe {
-            let gil = ffi::PyGILState_Ensure();
-            let saved = ffi::PyEval_SaveThread();
-            Self { gil, saved }
-        }
+        let gil = unsafe { ffi::PyGILState_Ensure() };
+        // If the GIL was already held here, the caller holds it, so
+        // keep it. Otherwise `PyEval_SaveThread` releases the GIL
+        // without deleting the state, and the count of
+        // `PyGILState_Ensure` calls on it stays above zero until
+        // `drop`.
+        let saved = if gil == ffi::PyGILState_STATE::PyGILState_LOCKED {
+            std::ptr::null_mut()
+        } else {
+            // Safety: this thread holds the GIL, as `Ensure` took it.
+            unsafe { ffi::PyEval_SaveThread() }
+        };
+        Self { gil, saved }
     }
 }
 
@@ -71,7 +76,9 @@ impl Drop for PyThreadStateKeeper {
         // Safety: this undoes `new` on the same thread. Releasing the
         // last count deletes the thread state and the GIL with it.
         unsafe {
-            ffi::PyEval_RestoreThread(self.saved);
+            if !self.saved.is_null() {
+                ffi::PyEval_RestoreThread(self.saved);
+            }
             ffi::PyGILState_Release(self.gil);
         }
     }
