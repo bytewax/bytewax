@@ -9,6 +9,20 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Each worker thread of `cluster_main` keeps its Python thread state for
+  the whole run, as `run_main` already does. Per-thread Python state,
+  such as `threading.local`, `contextvars`, `sys.settrace`, and the
+  `threading.current_thread()` name on Python 3.13+, now persists for the
+  whole worker in `cluster_main`. Two workers running `stateful_map` over
+  1000 keys went from 867K to 1.08M items per second, and four workers
+  from 562K to 1.09M (medians of 5 interleaved runs). The `stateful_map`
+  numbers include the change described below.
+
+- Keyed output is wrapped into `(key, value)` tuples once per batch
+  instead of once per item, so with several workers that output takes
+  the GIL once per batch. The `stateful_map` numbers above include this
+  change.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
