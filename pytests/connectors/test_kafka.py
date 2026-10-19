@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import bytewax.operators as op
+import confluent_kafka
 from bytewax.connectors.kafka import (
     KafkaSink,
     KafkaSinkMessage,
@@ -48,6 +49,9 @@ config = {"bootstrap.servers": KAFKA_BROKER}
 # settling. Tests assert on that order.
 producer_config = {**config, "enable.idempotence": "true"}
 ZERO_TD = timedelta(seconds=0)
+CONFLUENT_KAFKA_VERSION = tuple(
+    int(n) for n in re.findall(r"\d+", confluent_kafka.__version__)[:3]
+)
 
 
 @fixture
@@ -441,8 +445,11 @@ def test_input_resume_after_failure_loses_nothing(tmp_topic, recovery_config):
 
 
 @mark.skipif(
-    not hasattr(AdminClient, "delete_records"),
-    reason="AdminClient.delete_records needs a newer confluent-kafka",
+    CONFLUENT_KAFKA_VERSION < (2, 15, 1),
+    reason="AdminClient.delete_records needs confluent-kafka 2.15.1+; "
+    "older releases drop a reference they do not own, which corrupts "
+    "the heap and segfaults on CPython 3.14 "
+    "(https://github.com/confluentinc/confluent-kafka-python/issues/2275)",
 )
 def test_input_resume_below_log_start_raises(tmp_topic, recovery_config):
     # A failed execution leaves a resume state inside the partition.
