@@ -35,6 +35,21 @@ notes on GitHub when we make a new release.__
   This gap came from the `snapshot_interval` change earlier in this
   unreleased series, so no released version was affected.
 
+- Added an exclusive lock per recovery partition. One execution at a
+  time may use a recovery store. Each partition is locked by the
+  execution that opens it, for as long as that execution runs. A second
+  execution fails with a `RuntimeError` after a few seconds, without
+  writing any recovery data, and orchestrators can retry it once the
+  first has exited. The lock is a sidecar file beside each partition,
+  `part-N.sqlite3.lock`. The OS releases it when the process exits,
+  even when the process is killed. Earlier bytewax versions don't take
+  the lock, so an execution of an earlier version is not kept out.
+
+  Recovery directories must be on storage attached to a single host,
+  such as a Kubernetes ReadWriteOnce block volume, not a network share
+  mounted on several hosts. Locks on such a share may only exclude
+  processes on the same client.
+
 - Fixes the epoch clock falling one batch behind input progress when
   an execution starts or resumes, for dataflows with a
   `snapshot_interval`. The first batch after a start or resume now

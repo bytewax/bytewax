@@ -120,7 +120,7 @@ where
     let pre_age_first_epoch = snapshot_interval.is_some();
 
     let recovery = recovery_config
-        .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))
+        .map(|config| Python::with_gil(|py| config.borrow(py).build()))
         .transpose()?;
 
     let resume_from = recovery

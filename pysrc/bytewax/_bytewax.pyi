@@ -25,8 +25,18 @@ class BytewaxTracer:
 class RecoveryConfig:
     """Configuration settings for recovery.
 
+    One execution at a time may use a recovery store. Each partition is
+    locked for as long as the execution that opened it runs. A second
+    execution fails with a `RuntimeError` after a few seconds, without
+    writing any recovery data. Wait for the first execution to exit,
+    then retry.
+
     :arg db_dir: Local filesystem directory to search for recovery
-        database partitions.
+        database partitions. It must be attached to a single host, such
+        as a Kubernetes ReadWriteOnce block volume. A network share
+        mounted on several hosts is not supported: SQLite WAL does not
+        work across hosts, and locks on such a share may only exclude
+        processes on the same client.
 
     :type db_dir: pathlib.Path
 
