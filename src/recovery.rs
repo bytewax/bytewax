@@ -966,29 +966,28 @@ impl Committer<u64> for RecoveryCommitter {
             (self.part_key.0, epoch),
         )
         .unwrap();
-        // Find the most recent snapshot including the commited epoch
-        // (since we can GC everything before that epoch). Then find
-        // all less recent snapshots and delete those. So we never
-        // want to delete a snapshot in the commited epoch, but since
-        // the most recent snapshot is not deleted it's ok for this to
-        // be `<=`.
-        txn.execute(
-            "WITH max_epoch_snapshots AS (
-             SELECT step_id, state_key, MAX(snap_epoch) AS snap_epoch
-             FROM snaps
-             WHERE snap_epoch <= ?1
-             GROUP BY step_id, state_key
-             ),
-             garbage_snapshots AS (
-             SELECT step_id, state_key, snaps.snap_epoch
-             FROM snaps
-             JOIN max_epoch_snapshots USING (step_id, state_key)
-             WHERE snaps.snap_epoch < max_epoch_snapshots.snap_epoch
-             )
-             DELETE FROM snaps
-             WHERE (step_id, state_key, snap_epoch) IN garbage_snapshots",
-            (epoch,),
+        // Delete every snapshot that has a more recent snapshot of the
+        // same key at or before the commited epoch, since we can GC
+        // everything before the most recent snapshot including that
+        // epoch. So we never delete a snapshot in the commited epoch,
+        // or the most recent one before it.
+        //
+        // Each row only needs a lookup of its newer sibling in the
+        // primary key index, which avoids grouping the whole table.
+        txn.prepare_cached(
+            "DELETE FROM snaps
+             WHERE snap_epoch < ?1
+             AND EXISTS (
+             SELECT 1
+             FROM snaps AS newer
+             WHERE newer.step_id = snaps.step_id
+             AND newer.state_key = snaps.state_key
+             AND newer.snap_epoch > snaps.snap_epoch
+             AND newer.snap_epoch <= ?1
+             )",
         )
+        .unwrap()
+        .execute((epoch,))
         .unwrap();
         txn.commit().unwrap();
     }
@@ -1041,6 +1040,72 @@ fn gc_leaves_only_final_snap() {
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     let expected = Vec::new();
+    assert_eq!(found, expected);
+}
+
+#[test]
+fn gc_keeps_newest_snapshot_at_or_before_commit() {
+    pyo3::prepare_freethreaded_python();
+    let conn = Python::with_gil(|py| RecoveryPart::init_open_mem(py));
+    let snap = |step: &str, key: &str, epoch: u64, data: Option<&str>| {
+        SerializedSnapshot(
+            StepId(String::from(step)),
+            StateKey(String::from(key)),
+            SnapshotEpoch(epoch),
+            data.map(|data| data.as_bytes().to_vec()),
+        )
+    };
+    conn.snap_writer(None).write_batch(vec![
+        // Newer snapshots after the commit are kept, as is the newest
+        // one at or before it.
+        snap("step_1", "a", 1, Some("a1")),
+        snap("step_1", "a", 2, Some("a2")),
+        snap("step_1", "a", 5, Some("a5")),
+        // A lone snapshot is the newest one, however old.
+        snap("step_1", "b", 3, Some("b3")),
+        // The newest snapshot at the commit is kept, but not the
+        // older ones.
+        snap("step_1", "c", 3, Some("c3")),
+        snap("step_1", "c", 4, None),
+        snap("step_1", "c", 6, Some("c6")),
+        // All snapshots after the commit are kept.
+        snap("step_1", "d", 5, Some("d5")),
+        snap("step_1", "d", 7, Some("d7")),
+        // Keys are per step.
+        snap("step_2", "a", 1, Some("s2a1")),
+    ]);
+    conn.committer(PartitionIndex(0), None).commit(&4);
+
+    let found = conn
+        .conn
+        .borrow()
+        .prepare("SELECT step_id, state_key, snap_epoch FROM snaps ORDER BY 1, 2, 3")
+        .unwrap()
+        .query_map((), |row| {
+            let step_id: String = row.get(0)?;
+            let state_key: String = row.get(1)?;
+            let snap_epoch: u64 = row.get(2)?;
+
+            Ok((step_id, state_key, snap_epoch))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let expected: Vec<_> = [
+        ("step_1", "a", 2),
+        ("step_1", "a", 5),
+        ("step_1", "b", 3),
+        ("step_1", "c", 4),
+        ("step_1", "c", 6),
+        ("step_1", "d", 5),
+        ("step_1", "d", 7),
+        ("step_2", "a", 1),
+    ]
+    .into_iter()
+    .map(|(step_id, state_key, snap_epoch)| {
+        (String::from(step_id), String::from(state_key), snap_epoch)
+    })
+    .collect();
     assert_eq!(found, expected);
 }
 
