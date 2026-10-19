@@ -1,8 +1,9 @@
 //! Code implementing Bytewax's core operators.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
 
 use chrono::DateTime;
@@ -643,12 +644,18 @@ where
             // each key representing the state at the frontier epoch;
             // we only modify state carefully in epoch order once we
             // know we won't be getting any input on closed epochs.
-            let mut logics: BTreeMap<StateKey, StatefulBatchLogic> = BTreeMap::new();
+            //
+            // Hash maps and sets here: a tree costs a string
+            // comparison per level for every touch of every key. Where
+            // the order of keys is observable (the order logic is
+            // called, the order output is emitted, the order
+            // snapshots are taken), keys are sorted at that point.
+            let mut logics: HashMap<StateKey, StatefulBatchLogic> = HashMap::new();
             // Contains the last known return value for
             // `logic.notify_at` for each key (if any). We don't
             // snapshot this because the logic itself should contain
             // any notify times within.
-            let mut sched_cache: BTreeMap<StateKey, DateTime<Utc>> = BTreeMap::new();
+            let mut sched_cache: HashMap<StateKey, DateTime<Utc>> = HashMap::new();
 
             // Here we have "buffers" that store items across
             // activations.
@@ -665,7 +672,7 @@ where
             // only snapshot state of keys that could have resulted in
             // state modifications. This is drained after each epoch
             // is processed.
-            let mut awoken_keys_this_epoch_buffer: BTreeSet<StateKey> = BTreeSet::new();
+            let mut awoken_keys_this_epoch_buffer: HashSet<StateKey> = HashSet::new();
 
             move |input_frontiers| {
                 tracing::debug_span!("operator", operator = op_name).in_scope(|| {
@@ -751,18 +758,26 @@ where
                             // Keep track of all keys that had logic
                             // methods called so we know which to call
                             // `notify_at` on.
-                            let mut awoken_keys_this_activation: BTreeSet<StateKey> = BTreeSet::new();
+                            let mut awoken_keys_this_activation: Vec<StateKey> = Vec::new();
 
                             // First, call `on_batch` for all the input
                             // items.
                             if let Some(items) = inbuf.remove(&epoch) {
                                 item_inp_count.add(items.len() as u64, &labels);
 
-                                let mut keyed_items: BTreeMap<StateKey, Vec<PyObject>> = BTreeMap::new();
+                                // Most batches have a key for a good part of their
+                                // items, and the map should not grow to get there.
+                                // Not so many that a huge buffered epoch takes memory
+                                // for keys it may not have.
+                                let mut keyed_items: HashMap<StateKey, Vec<PyObject>> =
+                                    HashMap::with_capacity(items.len().min(4096));
                                 for (worker, (key, value)) in items {
                                     assert!(worker == this_worker);
                                     keyed_items.entry(key).or_default().push(PyObject::from(value));
                                 }
+                                // Call the logic for each key in key order.
+                                let mut keyed_items: Vec<_> = keyed_items.into_iter().collect();
+                                keyed_items.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let builder = builder.bind(py);
@@ -771,15 +786,18 @@ where
                                         // Ok, let's actually run the logic code!
                                         // Pull out or build the logic for the
                                         // current key.
-                                        let logic =
-                                            logics.entry(key.clone()).or_insert_with(|| {
-                                                unwrap_any!((|| {
+                                        let logic = match logics.get(&key) {
+                                            Some(logic) => logic,
+                                            None => {
+                                                let logic = unwrap_any!((|| {
                                                     builder
                                                         .call1((None::<PyObject>, ))?
                                                         .extract::<StatefulBatchLogic>()
                                                 })(
-                                                ))
-                                            });
+                                                ));
+                                                logics.entry(key.clone()).or_insert(logic)
+                                            }
+                                        };
 
                                         let (output, is_complete) = with_timer!(
                                             on_batch_histogram,
@@ -801,7 +819,7 @@ where
                                             sched_cache.remove(&key);
                                         }
 
-                                        awoken_keys_this_activation.insert(key);
+                                        awoken_keys_this_activation.push(key);
                                     }
 
                                     Ok(())
@@ -810,11 +828,13 @@ where
 
                             // Then call all logic that has a due
                             // notification.
-                            let notify_keys: Vec<_> = sched_cache
+                            let mut notify_keys: Vec<_> = sched_cache
                                 .iter()
                                 .filter(|(_key, sched)| **sched <= now)
                                 .map(|(key, sched)| (key.clone(), *sched))
                                 .collect();
+                            // Notify in key order.
+                            notify_keys.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
                             if !notify_keys.is_empty() {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for (key, _sched) in notify_keys {
@@ -853,7 +873,7 @@ where
                                             sched_cache.remove(&key);
                                         }
 
-                                        awoken_keys_this_activation.insert(key);
+                                        awoken_keys_this_activation.push(key);
                                     }
 
                                     Ok(())
@@ -865,8 +885,13 @@ where
                             if input_frontiers.is_eof() {
                                 let mut discarded_keys = Vec::new();
 
+                                // Finish the keys in key order.
+                                let mut eof_keys: Vec<&StateKey> = logics.keys().collect();
+                                eof_keys.sort_unstable();
+
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
-                                    for (key, logic) in logics.iter() {
+                                    for key in eof_keys {
+                                        let logic = &logics[key];
                                         let (output, is_complete) = with_timer!(
                                             on_eof_histogram,
                                             labels,
@@ -884,7 +909,7 @@ where
                                             discarded_keys.push(key.clone());
                                         }
 
-                                        awoken_keys_this_activation.insert(key.clone());
+                                        awoken_keys_this_activation.push(key.clone());
                                     }
 
                                     Ok(())
@@ -898,7 +923,10 @@ where
 
                             // Then go through all awoken keys and
                             // update the next scheduled notification
-                            // times.
+                            // times. A key can be awoken more than once
+                            // in an epoch.
+                            awoken_keys_this_activation.sort_unstable();
+                            awoken_keys_this_activation.dedup();
                             if !awoken_keys_this_activation.is_empty() {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     for key in awoken_keys_this_activation.iter() {
@@ -945,8 +973,12 @@ where
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     // Finally drain
                                     // `awoken_keys_buffer` since the
-                                    // epoch is over.
-                                    for key in std::mem::take(&mut awoken_keys_this_epoch_buffer) {
+                                    // epoch is over. In key order.
+                                    let mut snap_keys: Vec<_> = std::mem::take(&mut awoken_keys_this_epoch_buffer)
+                                        .into_iter()
+                                        .collect();
+                                    snap_keys.sort_unstable();
+                                    for key in snap_keys {
                                         let change = if let Some(logic) = logics.get(&key) {
                                             let state = with_timer!(
                                                 snapshot_histogram,
