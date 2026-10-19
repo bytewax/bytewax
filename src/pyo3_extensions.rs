@@ -62,15 +62,19 @@ pub(crate) struct TdPyAny {
 const SHARED: usize = 1;
 
 fn is_shared(repr: *mut ffi::PyObject) -> bool {
-    repr as usize & SHARED != 0
+    repr.addr() & SHARED != 0
 }
 
 fn tag_shared(arc: *const PyObject) -> *mut ffi::PyObject {
-    (arc as usize | SHARED) as *mut ffi::PyObject
+    arc.cast::<ffi::PyObject>()
+        .cast_mut()
+        .map_addr(|addr| addr | SHARED)
 }
 
 fn untag_shared(repr: *mut ffi::PyObject) -> *const PyObject {
-    (repr as usize & !SHARED) as *const PyObject
+    repr.map_addr(|addr| addr & !SHARED)
+        .cast::<PyObject>()
+        .cast_const()
 }
 
 /// Take back the reference an item holds.
