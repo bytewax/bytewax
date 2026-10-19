@@ -2,13 +2,14 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import BinaryIO
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.errors import BytewaxRuntimeError
-from bytewax.testing import TestingSink, TestingSource
+from bytewax.testing import TestingSink, TestingSource, cluster_main
 from pytest import mark, raises
 
 
@@ -53,6 +54,33 @@ def test_reraises_custom_exception(entry_point):
             entry_point(flow)
 
     assert len(out) < 3
+
+
+def test_cluster_main_keeps_thread_local_state_across_activations():
+    # Each worker thread of `cluster_main` keeps its Python thread
+    # state, so `threading.local` values persist across activations,
+    # as they do under `run_main`.
+    local = threading.local()
+
+    def count(x):
+        local.count = getattr(local, "count", 0) + 1
+        return (threading.get_ident(), local.count)
+
+    flow = Dataflow("thread_local_df")
+    stream = op.input("inp", flow, TestingSource(list(range(20)), batch_size=1))
+    stream = op.redistribute("redistribute", stream)
+    stream = op.map("count", stream, count)
+    out = []
+    op.output("out", stream, TestingSink(out))
+
+    cluster_main(flow, [], 0, worker_count_per_proc=2)
+
+    counts_by_thread: dict[int, list[int]] = {}
+    for thread_id, n in out:
+        counts_by_thread.setdefault(thread_id, []).append(n)
+    assert len(counts_by_thread) == 2
+    for counts in counts_by_thread.values():
+        assert sorted(counts) == list(range(1, len(counts) + 1))
 
 
 def _assert_can_be_ctrl_c(proc: subprocess.Popen, out_file: BinaryIO):
