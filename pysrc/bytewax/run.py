@@ -20,11 +20,12 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Tuple
 
-from bytewax._bytewax import cli_main
+from bytewax._bytewax import cli_main, request_graceful_drain
 from bytewax.recovery import RecoveryConfig
 
 __all__ = [
     "cli_main",
+    "request_graceful_drain",
 ]
 
 

@@ -3,6 +3,7 @@
 //! For a user-centric version of input, read the `bytewax.inputs`
 //! Python module docstring. Read that first.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::atomic;
@@ -26,11 +27,13 @@ use timely::dataflow::ProbeHandle;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 use timely::progress::Timestamp;
+use timely::scheduling::Activator;
 
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+use crate::run::DRAIN;
 use crate::timely::*;
 use crate::unwrap_any;
 use crate::with_timer;
@@ -39,6 +42,37 @@ const DEFAULT_COOLDOWN: TimeDelta = TimeDelta::microseconds(1000);
 
 // See `BlockedWait` for when this applies.
 const COOLDOWN_GRACE: TimeDelta = TimeDelta::microseconds(500);
+
+thread_local! {
+    /// Activators of the input partitions built on this worker thread.
+    ///
+    /// A drain request wakes them, so each partition sees it without
+    /// waiting out its awake time. Cleared when an execution starts and
+    /// when it ends.
+    static INPUT_ACTIVATORS: RefCell<Vec<Activator>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Remember an input partition's activator so a drain can wake it.
+fn register_input_activator(activator: Activator) {
+    INPUT_ACTIVATORS.with_borrow_mut(|activators| activators.push(activator));
+}
+
+/// Wake every registered input partition once.
+///
+/// The activators are taken out of the registry, so a later call wakes
+/// nothing until another execution registers more.
+pub(crate) fn wake_inputs() {
+    INPUT_ACTIVATORS.with_borrow_mut(|activators| {
+        for activator in activators.drain(..) {
+            activator.activate();
+        }
+    });
+}
+
+/// Forget the input partitions of the execution on this worker thread.
+pub(crate) fn clear_input_activators() {
+    INPUT_ACTIVATORS.with_borrow_mut(Vec::clear);
+}
 
 /// Length of epoch.
 ///
@@ -479,6 +513,7 @@ impl FixedPartitionedSource {
 
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
+        register_input_activator(activator.clone());
         let probe = probe.clone();
         let abort = abort.clone();
 
@@ -661,12 +696,21 @@ impl FixedPartitionedSource {
                                     part_state.epoch_started += now - blocked_at;
                                 }
                                 let mut eof = false;
+                                // A graceful drain is treated as EOF.
+                                // Stop reading and let the EOF path
+                                // below snapshot this partition at its
+                                // exact position and remove it, so the
+                                // run closes at a point that resumes
+                                // with no replay.
+                                if DRAIN.load(atomic::Ordering::Acquire) {
+                                    eof = true;
+                                    eofd_parts_buffer.push(part_key.clone());
                                 // Separately check wheither we should
                                 // call `next_batch` because we need
                                 // to keep advancing the epoch for
                                 // this input, even if it hasn't been
                                 // awoken to prevent dataflow stall.
-                                if part_state.awake_due(now) {
+                                } else if part_state.awake_due(now) {
                                     unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                         let batch_res = with_timer!(
                                             next_batch_histogram,
@@ -788,7 +832,16 @@ impl FixedPartitionedSource {
                         if let Some(min_next_awake) = parts
                             .values()
                             .map(|part_state| {
-                                let base = part_state.next_awake.unwrap_or(now);
+                                // While a drain is pending, a partition
+                                // still blocked on the probe must keep
+                                // re-checking it instead of sleeping to
+                                // its own awake time, so it can reach
+                                // the drain's EOF.
+                                let base = if DRAIN.load(atomic::Ordering::Acquire) {
+                                    now
+                                } else {
+                                    part_state.next_awake.unwrap_or(now)
+                                };
                                 part_state.blocked.wake_time(base, now)
                             })
                             .min()
@@ -969,6 +1022,7 @@ impl DynamicSource {
 
         let info = op_builder.operator_info();
         let activator = scope.activator_for(&info.address[..]);
+        register_input_activator(activator.clone());
         let probe = probe.clone();
         let abort = abort.clone();
 
@@ -1025,12 +1079,17 @@ impl DynamicSource {
                                 // the epoch clock past the wait.
                                 part_state.epoch_started += now - blocked_at;
                             }
+                            // A graceful drain is treated as EOF: stop
+                            // reading so the partition ends at its
+                            // exact position. See `FixedPartitionedSource`.
+                            if DRAIN.load(atomic::Ordering::Acquire) {
+                                eof = true;
                             // Separately check wheither we should
                             // call `next_batch` because we need to
                             // keep advancing the epoch for this
                             // input, even if it hasn't been awoken to
                             // prevent dataflow stall.
-                            if part_state.awake_due(now) {
+                            } else if part_state.awake_due(now) {
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {
                                     let res = with_timer!(
                                         next_batch_histogram,
@@ -1097,7 +1156,12 @@ impl DynamicSource {
                     }
 
                     if let Some(part_state) = &part_state {
-                        let base = part_state.next_awake.unwrap_or(now);
+                        // See `FixedPartitionedSource` for the drain.
+                        let base = if DRAIN.load(atomic::Ordering::Acquire) {
+                            now
+                        } else {
+                            part_state.next_awake.unwrap_or(now)
+                        };
                         let next_awake = part_state.blocked.wake_time(base, now);
                         let awake_after = next_awake - now;
                         // If we are already late for the next

@@ -182,6 +182,52 @@ def init_db_dir(db_dir, count):
     """
     ...
 
+def request_graceful_drain():
+    """Ask the execution in progress to drain and exit cleanly.
+
+    A drain needs a single-process execution with a recovery config.
+    Without a recovery config it would discard open windows and folds,
+    so this raises `RuntimeError` while such an execution runs in this
+    process. A multi-process cluster is not drained at all, so this
+    raises while one runs too. A request made while no execution runs is
+    kept for the next execution in this process, which then refuses to
+    start unless it can be drained. The last execution to end clears it.
+
+    Inputs stop reading new data and treat the request as EOF, so each
+    partition snapshots its exact position and the execution closes
+    through the normal EOF path. A following execution on the same
+    recovery store then resumes with no replayed items.
+
+    Stateful operators pause rather than finish. Their logic is kept
+    and snapshotted, so an open window or fold is not emitted early,
+    and the next execution continues it. Only a true end of input runs
+    their final output.
+
+    To drain on SIGTERM, install a handler before the execution starts.
+    SIGTERM keeps its default action otherwise.
+
+    % Skip this doctest because it installs a signal handler.
+
+    ```python
+    import signal
+    from bytewax.run import request_graceful_drain
+
+    def _drain_on_sigterm(signum, frame):
+        # A second SIGTERM ends the process the usual way.
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        request_graceful_drain()
+
+    signal.signal(signal.SIGTERM, _drain_on_sigterm)
+    ```
+
+    A multi-process cluster is resumed by recovery after a crash or a
+    kill, as before. In a container, the process must receive the
+    signal: run Python in exec form, not under `sh -c`, or under an init
+    such as `tini`.
+
+    """
+    ...
+
 def run_main(flow, *, epoch_interval=None, recovery_config=None):
     """Execute a dataflow in the current thread.
 

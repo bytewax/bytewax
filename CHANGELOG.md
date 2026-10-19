@@ -50,6 +50,59 @@ notes on GitHub when we make a new release.__
   mounted on several hosts. Locks on such a share may only exclude
   processes on the same client.
 
+- Added graceful drain. The new
+  {py:obj}`~bytewax.run.request_graceful_drain` function drains a
+  dataflow with a recovery config to a consistent snapshot and exits
+  cleanly with status 0. A following execution on the same recovery
+  store resumes with zero replayed items. Inputs stop reading and treat
+  the request as EOF. An execution that closes cleanly logs
+  `Execution N closed cleanly` at `INFO`, once per process. Killed,
+  aborted, or crashed executions do not log it.
+
+  A drain pauses stateful logic instead of finishing it. Windows stay
+  open, and folds and collects keep their state, so a drain does not
+  emit their partial results and the next execution continues where the
+  first stopped. Only a true end of input runs their final output. If
+  the inputs reach their natural end while a drain is pending, that
+  final output is also deferred to the next execution.
+
+  A drain needs a single-process execution with a recovery config.
+  Without a recovery config, a drain would discard open windows and
+  folds with no store to keep them. A multi-process cluster is not
+  drained at all, since its processes would not agree on the end of
+  input. So `request_graceful_drain` raises `RuntimeError` while such an
+  execution runs in the process, and no such execution can start while
+  a drain is pending. Executions that run concurrently in one process
+  drain together, as long as they are all single-process executions
+  with recovery. A multi-process cluster is resumed by recovery after a
+  crash or kill, as before.
+
+  A request made while no execution runs is kept, and drains the next
+  execution in the process as soon as it starts. A request made during
+  an execution does not carry over once the last one ends.
+
+  SIGTERM keeps its default action, so the process ends by signal, as
+  in 0.21. To drain on SIGTERM instead, install a handler before the
+  execution starts:
+
+```python
+import signal
+from bytewax.run import request_graceful_drain
+
+
+def _drain_on_sigterm(signum, frame):
+    # A second SIGTERM ends the process the usual way.
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    request_graceful_drain()
+
+
+signal.signal(signal.SIGTERM, _drain_on_sigterm)
+```
+
+- An execution that ends normally logs `Execution N closed cleanly` at
+  `INFO`, once per process. A drained or finished execution logs it; a
+  killed, aborted, or crashed one does not.
+
 - Fixes the epoch clock falling one batch behind input progress when
   an execution starts or resumes, for dataflows with a
   `snapshot_interval`. The first batch after a start or resume now
@@ -117,7 +170,9 @@ notes on GitHub when we make a new release.__
   their throughput at any pipeline depth. Until a partition closes
   its first epoch, as at the start of an execution, it keeps
   re-checking every step, so the inputs of a dataflow still start
-  together.
+  together. While a graceful drain is pending, a waiting partition
+  never sleeps past the cooldown, even when its next awake time is
+  further away, so the drain reaches it once the wait ends.
 
 - Fixes {py:obj}`~bytewax.tracing.setup_tracing` hanging forever
   instead of raising a `RuntimeError` when tracing can't be set up:

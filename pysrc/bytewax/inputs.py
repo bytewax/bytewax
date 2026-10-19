@@ -133,8 +133,11 @@ class StatefulSourcePartition(ABC, Generic[X, S]):
         """Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
-        when the dataflow finishes on finite input. It will not be
-        called during an abrupt or abort shutdown.
+        when the dataflow finishes on finite input, or when a graceful
+        drain (see {py:obj}`~bytewax.run.request_graceful_drain`) ends
+        the execution. It will not be called during an abrupt or abort
+        shutdown. A drained execution can be continued by the next
+        one, so don't make the destination final here.
 
         """
         return
@@ -243,8 +246,11 @@ class StatelessSourcePartition(ABC, Generic[X]):
         """Cleanup this partition when the dataflow completes.
 
         This is not guaranteed to be called. It will only be called
-        when the dataflow finishes on finite input. It will not be
-        called during an abrupt or abort shutdown.
+        when the dataflow finishes on finite input, or when a graceful
+        drain (see {py:obj}`~bytewax.run.request_graceful_drain`) ends
+        the execution. It will not be called during an abrupt or abort
+        shutdown. A drained execution can be continued by the next
+        one, so don't make the destination final here.
 
         """
         return

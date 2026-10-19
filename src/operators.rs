@@ -27,6 +27,7 @@ use crate::errors::PythonException;
 use crate::pyo3_extensions::TdPyAny;
 use crate::pyo3_extensions::TdPyCallable;
 use crate::recovery::*;
+use crate::run::DRAIN;
 use crate::timely::*;
 use crate::unwrap_any;
 use crate::with_timer;
@@ -864,7 +865,25 @@ where
 
                             // Then if EOF, call all logic that still
                             // exists.
-                            if input_frontiers.is_eof() {
+                            //
+                            // A graceful drain also reads as EOF to
+                            // every input, but it pauses the dataflow
+                            // rather than ending the stream. Running
+                            // `on_eof` here would emit partial results
+                            // and discard their state. So a drain-induced
+                            // EOF leaves the logic in place: it is
+                            // snapshotted below, and the next execution
+                            // resumes it. Only a true end of input runs
+                            // `on_eof`.
+                            //
+                            // Corner case: if the inputs reach their
+                            // natural EOF while a drain is pending, this
+                            // is skipped as well. The next execution
+                            // then finalizes instead, which is the safe
+                            // direction.
+                            if input_frontiers.is_eof()
+                                && !DRAIN.load(std::sync::atomic::Ordering::Acquire)
+                            {
                                 let mut discarded_keys = Vec::new();
 
                                 unwrap_any!(Python::with_gil(|py| -> PyResult<()> {

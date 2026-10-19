@@ -24,16 +24,13 @@ from collections import Counter
 from datetime import timedelta
 
 import bytewax.operators as op
-import bytewax.run
 from bytewax.connectors.files import FileSink
 from bytewax.dataflow import Dataflow
 from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 from bytewax.recovery import RecoveryConfig, init_db_dir
+from bytewax.run import request_graceful_drain
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
 from pytest import mark, param, raises
-
-# Graceful drain ships on cheeeee/graceful-handoff, not this branch.
-request_graceful_drain = getattr(bytewax.run, "request_graceful_drain", None)
 
 ITEMS = list(range(1, 21))
 NUM_KEYS = 4
@@ -517,10 +514,6 @@ def _buffered_recovery(tmp_path):
     return RecoveryConfig(str(tmp_path), snapshot_interval=_snapshot_interval(3))
 
 
-@mark.skipif(
-    request_graceful_drain is None,
-    reason="bytewax.run.request_graceful_drain is not on this branch",
-)
 @mark.parametrize(
     "drain_at",
     [

@@ -33,6 +33,7 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+use crate::run::DRAIN;
 
 /// Bytewax worker.
 ///
@@ -64,8 +65,11 @@ where
 
     /// Run a specific dataflow until it is complete.
     ///
+    /// Returns whether the dataflow completed. A run that an abort or
+    /// an interrupt stops first returns `false`.
+    ///
     /// [`ProbeHandle`]s are how we ID a dataflow.
-    fn run<T>(&mut self, probe: ProbeHandle<T>)
+    fn run<T>(&mut self, probe: ProbeHandle<T>) -> bool
     where
         T: Timestamp,
     {
@@ -75,11 +79,17 @@ where
             || (self.interrupt_callback)()
             || probe.done())
         {
+            // Wake the input partitions that are asleep so they see a
+            // drain request now, not when their awake time comes round.
+            if DRAIN.load(atomic::Ordering::Acquire) {
+                wake_inputs();
+            }
             tracing::debug_span!("step").in_scope(|| {
                 self.worker.step_or_park(Some(cooldown));
             });
         }
         tracing::info!("Timely dataflow stop");
+        probe.done()
     }
 
     /// Terminate all dataflows in this worker.
@@ -96,6 +106,9 @@ where
 }
 
 /// Public, main entry point for a worker thread.
+///
+/// Returns the execution number if the dataflow completed, and `None`
+/// if an abort or an interrupt stopped it first.
 #[instrument(name = "worker_main", skip_all, fields(worker = worker.index()))]
 pub(crate) fn worker_main<A>(
     worker: &mut TimelyWorker<A>,
@@ -103,12 +116,13 @@ pub(crate) fn worker_main<A>(
     flow: Dataflow,
     epoch_interval: EpochInterval,
     recovery_config: Option<Py<RecoveryConfig>>,
-) -> PyResult<()>
+) -> PyResult<Option<ExecutionNumber>>
 where
     A: Allocate,
 {
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
+    clear_input_activators();
 
     // Without recovery there is nothing to snapshot, so every epoch is
     // used. The snapshot interval also decides whether the first epoch
@@ -160,13 +174,12 @@ where
         .reraise("error building production dataflow")
     })?;
 
-    tracing::info_span!("production_dataflow").in_scope(|| {
-        worker.run(probe);
-    });
+    let completed = tracing::info_span!("production_dataflow").in_scope(|| worker.run(probe));
 
     worker.shutdown();
+    clear_input_activators();
     tracing::info!("Worker stop");
-    Ok(())
+    Ok(completed.then_some(resume_from.0))
 }
 
 /// Compile a dataflow which loads the progress data from the previous
