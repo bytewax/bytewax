@@ -91,6 +91,8 @@ impl EpochInterval {
     /// snapshot epoch.
     pub(crate) fn snapshot_epochs(&self, snapshot_interval: Option<TimeDelta>) -> SnapshotEpochs {
         match snapshot_interval {
+            // A zero epoch interval is a zero divisor: fall back to
+            // every epoch rather than dividing by it.
             Some(snapshot_interval) if !self.0.is_zero() => {
                 SnapshotEpochs(self.epochs_per(snapshot_interval).max(1))
             }
@@ -114,6 +116,42 @@ impl EpochInterval {
         // is nothing to pre-age.
         now.checked_sub_signed(self.0).unwrap_or(now)
     }
+}
+
+#[test]
+fn test_snapshot_epochs_rounds_up() {
+    let epoch = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap());
+    let snapshot = TimeDelta::try_milliseconds(12000).unwrap();
+    assert_eq!(epoch.snapshot_epochs(Some(snapshot)), SnapshotEpochs(3));
+    // A snapshot interval no longer than an epoch snapshots every epoch.
+    let short = TimeDelta::try_milliseconds(1000).unwrap();
+    assert_eq!(epoch.snapshot_epochs(Some(short)), SnapshotEpochs(1));
+    assert_eq!(epoch.snapshot_epochs(None), SnapshotEpochs(1));
+}
+
+#[test]
+fn test_snapshot_epochs_zero_epoch_interval() {
+    // Zero is a zero divisor, so every epoch is a snapshot epoch.
+    let epoch = EpochInterval(TimeDelta::zero());
+    let snapshot = TimeDelta::try_seconds(10).unwrap();
+    assert_eq!(epoch.snapshot_epochs(Some(snapshot)), SnapshotEpochs(1));
+}
+
+#[test]
+fn test_snapshot_epochs_sub_millisecond_epoch() {
+    // The ratio is exact below a millisecond: 1 s over 500 µs is 2000.
+    let epoch = EpochInterval(TimeDelta::microseconds(500));
+    let snapshot = TimeDelta::try_seconds(1).unwrap();
+    assert_eq!(epoch.snapshot_epochs(Some(snapshot)), SnapshotEpochs(2000));
+}
+
+#[test]
+fn test_snapshot_epochs_huge_snapshot_interval() {
+    // A snapshot interval beyond the clock's range saturates instead of
+    // overflowing.
+    let epoch = EpochInterval(TimeDelta::try_seconds(1).unwrap());
+    let SnapshotEpochs(found) = epoch.snapshot_epochs(Some(TimeDelta::MAX));
+    assert!(found > 1 << 40, "{found}");
 }
 
 #[test]

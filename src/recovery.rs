@@ -407,11 +407,6 @@ impl RecoveryConfig {
 }
 
 impl RecoveryConfig {
-    /// How many epochs apart snapshots are taken for this config.
-    pub(crate) fn snapshot_epochs(&self, epoch_interval: EpochInterval) -> SnapshotEpochs {
-        epoch_interval.snapshot_epochs(self.snapshot_interval)
-    }
-
     /// Build the Rust-side bundle from the Python-side recovery
     /// config.
     #[instrument(name = "build_recovery", skip_all)]

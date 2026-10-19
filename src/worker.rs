@@ -110,18 +110,14 @@ where
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
 
-    // How many epochs apart snapshots are taken. Without recovery
-    // there is nothing to snapshot, so every epoch is used.
-    let snapshot_epochs = recovery_config
+    // Without recovery there is nothing to snapshot, so every epoch is
+    // used. The snapshot interval also decides whether the first epoch
+    // of each execution is pre-aged; see `EpochInterval::first_epoch_started`.
+    let snapshot_interval = recovery_config
         .as_ref()
-        .map_or_else(SnapshotEpochs::default, |config| {
-            Python::with_gil(|py| config.borrow(py).snapshot_epochs(epoch_interval))
-        });
-    // The first epoch of each execution is only pre-aged when a
-    // snapshot interval is set; see `EpochInterval::first_epoch_started`.
-    let pre_age_first_epoch = recovery_config
-        .as_ref()
-        .is_some_and(|config| Python::with_gil(|py| config.borrow(py).snapshot_interval.is_some()));
+        .and_then(|config| Python::with_gil(|py| config.borrow(py).snapshot_interval));
+    let snapshot_epochs = epoch_interval.snapshot_epochs(snapshot_interval);
+    let pre_age_first_epoch = snapshot_interval.is_some();
 
     let recovery = recovery_config
         .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))

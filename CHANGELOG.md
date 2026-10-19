@@ -17,6 +17,14 @@ notes on GitHub when we make a new release.__
   more input may be re-emitted after a crash. The default (`None`)
   keeps the existing behavior: a snapshot every epoch.
 
+  The CLI's `-s/--snapshot-interval` historically sets the epoch
+  interval, and that is unchanged. The per-boundary snapshot cadence is
+  set with `--recovery-snapshot-interval SECONDS` (or
+  `BYTEWAX_RECOVERY_SNAPSHOT_INTERVAL`; only used with
+  `-r/--recovery-directory`), or with
+  `RecoveryConfig(snapshot_interval=...)`. The `-s`, `-b` and
+  `--recovery-snapshot-interval` flags accept fractional seconds.
+
 - Fixes a stateful output losing its last window when a stream ends
   between snapshot boundaries. With `snapshot_interval`, an output
   partition whose final epoch closed without a boundary was never

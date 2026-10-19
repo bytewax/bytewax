@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from contextlib import closing
 from datetime import timedelta
 from itertools import accumulate
 
@@ -308,6 +309,50 @@ def test_snapshot_interval_eof_snapshots(tmp_path):
     out.clear()
     run_main(flow, epoch_interval=FIVE_TD, recovery_config=recovery_config)
     assert out == []
+
+
+def _snap_epochs(db_dir):
+    """Distinct epochs with a snapshot row in recovery partition 0."""
+    with closing(sqlite3.connect(db_dir / "part-0.sqlite3")) as conn:
+        rows = conn.execute("SELECT DISTINCT snap_epoch FROM snaps").fetchall()
+    return sorted(epoch for (epoch,) in rows)
+
+
+def _sleepy_running_sum(state, item):
+    # Longer than the 500 us epoch below, so each item closes its own.
+    time.sleep(0.002)
+    total = (state or 0) + item
+    return (total, total)
+
+
+@requires_strict_tables
+def test_sub_millisecond_epoch_interval_snapshots_mid_stream(tmp_path):
+    init_db_dir(tmp_path, 1)
+    # 5 ms over 500 us epochs is 10 epochs per snapshot. Dividing whole
+    # milliseconds made that ratio infinite, so only the EOF snapshot was
+    # ever written.
+    recovery_config = RecoveryConfig(
+        str(tmp_path), snapshot_interval=timedelta(milliseconds=5)
+    )
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource([("k", x) for x in range(30)]))
+    s = op.stateful_map("sum", s, _sleepy_running_sum)
+    op.output("out", s, TestingSink(out))
+
+    run_main(
+        flow,
+        epoch_interval=timedelta(microseconds=500),
+        recovery_config=recovery_config,
+    )
+    assert len(out) == 30
+
+    epochs = _snap_epochs(tmp_path)
+    eof_epoch = max(epochs)
+    # Epoch 0 is a boundary too, but it holds no state; a mid-stream
+    # snapshot is one strictly between it and the EOF snapshot.
+    assert any(0 < epoch < eof_epoch for epoch in epochs), epochs
 
 
 def keep_max(max_val, new_val):

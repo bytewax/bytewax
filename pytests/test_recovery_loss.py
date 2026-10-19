@@ -24,12 +24,16 @@ from collections import Counter
 from datetime import timedelta
 
 import bytewax.operators as op
+import bytewax.run
+from bytewax.connectors.files import FileSink
 from bytewax.dataflow import Dataflow
 from bytewax.outputs import FixedPartitionedSink, StatefulSinkPartition
 from bytewax.recovery import RecoveryConfig, init_db_dir
-from bytewax.run import request_graceful_drain
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
 from pytest import mark, param, raises
+
+# Graceful drain ships on cheeeee/graceful-handoff, not this branch.
+request_graceful_drain = getattr(bytewax.run, "request_graceful_drain", None)
 
 ITEMS = list(range(1, 21))
 NUM_KEYS = 4
@@ -513,6 +517,10 @@ def _buffered_recovery(tmp_path):
     return RecoveryConfig(str(tmp_path), snapshot_interval=_snapshot_interval(3))
 
 
+@mark.skipif(
+    request_graceful_drain is None,
+    reason="bytewax.run.request_graceful_drain is not on this branch",
+)
 @mark.parametrize(
     "drain_at",
     [
@@ -555,3 +563,58 @@ def test_stateful_sink_eof_mid_window_loses_nothing(tmp_path, count):
     assert out == items
     run_main(flow, epoch_interval=EPOCH_TD, recovery_config=recovery_config)
     assert out == items
+
+
+# Failure mode: a partitioned sink's last write landed in a non-boundary
+# epoch, and every later boundary epoch was quiet for that sink. The
+# sink's snapshot callback only ran for epochs where the sink saw data,
+# so the writes awoken since the last snapshot were never snapshotted at
+# those quiet boundaries. A crash after them resumed past the writes, and
+# the sink lost them. Every epoch now closes, so a quiet boundary
+# snapshots the awoken partition.
+
+# Only the first items reach the sink. With `n = 2`, item `i` is in epoch
+# `i + 1`, so the last sink write (item 2, epoch 3) is in a non-boundary
+# epoch, and the boundaries after it carry no sink data.
+KEPT_ITEMS = 3
+QUIET_ITEMS = list(range(12))
+
+
+def _quiet_sink_flow(out_path, crash_at, crashed):
+    flow = Dataflow("quiet_df")
+    s = op.input("inp", flow, TestingSource(QUIET_ITEMS))
+    s = op.key_on("key", s, lambda _x: "ALL")
+    s = op.map("crash", s, _crash_once(crash_at, crashed))
+    s = op.filter("keep", s, lambda pair: pair[1] < KEPT_ITEMS)
+    s = op.map_value("fmt", s, str)
+    op.output("out", s, FileSink(out_path))
+    return flow
+
+
+@mark.parametrize(
+    "crash_at",
+    [
+        # Crash in epoch 7: boundaries 4 and 6 were quiet for the sink.
+        param(6, id="after-two-quiet-boundaries"),
+        # Crash in epoch 11: boundaries 4, 6, 8, and 10 were quiet.
+        param(10, id="after-four-quiet-boundaries"),
+    ],
+)
+def test_quiet_boundary_after_last_sink_write_loses_nothing(tmp_path, crash_at):
+    init_db_dir(tmp_path, 1)
+    recovery_config = RecoveryConfig(
+        str(tmp_path), snapshot_interval=_snapshot_interval(2)
+    )
+    out_path = tmp_path / "out.txt"
+    expected = [str(item) for item in range(KEPT_ITEMS)]
+    crashed = [False]
+    flow = _quiet_sink_flow(out_path, crash_at, crashed)
+
+    with raises(RuntimeError) as excinfo:
+        run_main(flow, epoch_interval=EPOCH_TD, recovery_config=recovery_config)
+    assert "simulated crash" in _error_text(excinfo.value)
+    # Precondition: the sink wrote its items before the crash.
+    assert out_path.read_text().split() == expected
+
+    run_main(flow, epoch_interval=EPOCH_TD, recovery_config=recovery_config)
+    assert out_path.read_text().split() == expected

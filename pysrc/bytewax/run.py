@@ -206,7 +206,13 @@ def _prepare_import(import_str: str) -> Tuple[str, str]:
 
 
 def _parse_timedelta(s):
-    return timedelta(seconds=int(s))
+    try:
+        return timedelta(seconds=float(s))
+    except OverflowError:
+        # argparse reports a `ValueError` as an invalid value, but would
+        # not catch this and would crash instead.
+        msg = f"out of range: {s!r}"
+        raise ValueError(msg) from None
 
 
 def _create_arg_parser():
@@ -258,6 +264,16 @@ def _create_arg_parser():
         set this to the interval at which you are backing up recovery partitions""",
         action=_EnvDefault,
         envvar="BYTEWAX_RECOVERY_BACKUP_INTERVAL",
+    )
+    recovery.add_argument(
+        "--recovery-snapshot-interval",
+        type=_parse_timedelta,
+        help="""System time duration in seconds between state snapshots and resume
+        points, taken at epoch boundaries; only used with `-r/--recovery-directory`.
+        This does not change the epoch interval, which `-s/--snapshot-interval`
+        still sets""",
+        action=_EnvDefault,
+        envvar="BYTEWAX_RECOVERY_SNAPSHOT_INTERVAL",
     )
     return parser
 
@@ -343,6 +359,7 @@ def _parse_args():
 if __name__ == "__main__":
     kwargs = vars(_parse_args())
     snapshot_interval = kwargs.pop("snapshot_interval")
+    recovery_snapshot_interval = kwargs.pop("recovery_snapshot_interval")
 
     recovery_directory, backup_interval = (
         kwargs.pop("recovery_directory"),
@@ -351,7 +368,11 @@ if __name__ == "__main__":
     kwargs["recovery_config"] = None
     if recovery_directory is not None:
         kwargs["epoch_interval"] = snapshot_interval
-        kwargs["recovery_config"] = RecoveryConfig(recovery_directory, backup_interval)
+        kwargs["recovery_config"] = RecoveryConfig(
+            recovery_directory,
+            backup_interval,
+            snapshot_interval=recovery_snapshot_interval,
+        )
     else:
         # Default epoch interval if there is no recovery setup. Since
         # there's no recovery, this needs not be coordinated with
