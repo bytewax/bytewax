@@ -28,6 +28,7 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use pyo3::types::PyString;
 use rusqlite::Connection;
+use rusqlite::ErrorCode;
 use rusqlite::OpenFlags;
 use rusqlite_migration::Migrations;
 use rusqlite_migration::M;
@@ -47,6 +48,7 @@ use timely::progress::Timestamp;
 use timely::Data;
 use tracing::instrument;
 
+use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::pyo3_extensions::TdPyAny;
@@ -295,8 +297,18 @@ struct SerializedSnapshot(StepId, StateKey, SnapshotEpoch, Option<Vec<u8>>);
 
 /// Configuration settings for recovery.
 ///
+/// One execution at a time may use a recovery store. Each partition is
+/// locked for as long as the execution that opened it runs. A second
+/// execution fails with a `RuntimeError` after a few seconds, without
+/// writing any recovery data. Wait for the first execution to exit,
+/// then retry.
+///
 /// :arg db_dir: Local filesystem directory to search for recovery
-///     database partitions.
+///     database partitions. It must be attached to a single host, such
+///     as a Kubernetes ReadWriteOnce block volume. A network share
+///     mounted on several hosts is not supported: SQLite WAL does not
+///     work across hosts, and locks on such a share may only exclude
+///     processes on the same client.
 ///
 /// :type db_dir: pathlib.Path
 ///
@@ -331,7 +343,7 @@ impl RecoveryConfig {
     /// Build the Rust-side bundle from the Python-side recovery
     /// config.
     #[instrument(name = "build_recovery", skip_all)]
-    pub(crate) fn build(&self, py: Python) -> PyResult<(RecoveryBundle, BackupInterval)> {
+    pub(crate) fn build(&self) -> PyResult<(RecoveryBundle, BackupInterval)> {
         let mut part_paths = HashMap::new();
         let sqlite_ext = OsStr::new("sqlite3");
         if !self.db_dir.is_dir() {
@@ -343,8 +355,8 @@ impl RecoveryConfig {
         for entry in fs::read_dir(self.db_dir.clone()).reraise("Error listing recovery DB dir")? {
             let path = entry.reraise("Error accessing recovery DB file")?.path();
             if path.extension().is_some_and(|ext| *ext == *sqlite_ext) {
-                let part =
-                    RecoveryPart::open(py, &path).reraise("Error opening recovery DB file")?;
+                let part = RecoveryPart::open_read_only(&path)
+                    .reraise("Error opening recovery DB file")?;
                 let mut part_loader = part.part_loader();
                 while let Some(batch) = part_loader.next_batch() {
                     for PartitionMeta(index, _count) in batch {
@@ -401,7 +413,8 @@ impl RecoveryBundle {
     /// write and commit operators can use to build partitions.
     ///
     /// This clones all the [`Rc`]s appropriately internally so that
-    /// the cache is used.
+    /// the cache is used. Building a partition opens it for an
+    /// execution, which takes the partition's lock.
     fn new_builder(&self) -> impl FnMut(&PartitionIndex) -> Rc<RefCell<RecoveryPart>> {
         let part_paths = self.part_paths.clone();
         let built_parts = self.built_parts.clone();
@@ -416,7 +429,9 @@ impl RecoveryBundle {
                             panic!("Trying to build RecoveryPartition for {part_key:?} but no path is known");
                         });
 
-                    let part = unwrap_any!(Python::with_gil(|py| RecoveryPart::open(py, path)));
+                    let part = unwrap_any!(Python::with_gil(|py| {
+                        RecoveryPart::open_for_execution(py, path)
+                    }));
 
                     Rc::new(RefCell::new(part))
                 })
@@ -443,6 +458,10 @@ struct RecoveryPart {
     /// This is [`Rc<RefCell>`] so that our reader and writer structs
     /// can maintain an internal connection reference across batches.
     conn: Rc<RefCell<Connection>>,
+    /// The execution's exclusive lock on this partition, if the part
+    /// was opened for an execution. It is released when the part is
+    /// dropped.
+    lock: Option<Connection>,
 }
 
 // The `'static` lifetime within [`Migrations`] is saying that the
@@ -518,6 +537,10 @@ fn migrations_valid() -> rusqlite_migration::Result<()> {
     Python::with_gil(|py| get_migrations(py).validate())
 }
 
+/// How long a connection waits for a database lock held by another
+/// connection before it fails.
+const BUSY_TIMEOUT: &str = "5000";
+
 /// Setup our connection-level pragmas. Run this on each connection.
 fn setup_conn(py: Python, conn: &Rc<RefCell<Connection>>) {
     let mut conn = conn.borrow_mut();
@@ -526,8 +549,59 @@ fn setup_conn(py: Python, conn: &Rc<RefCell<Connection>>) {
     conn.pragma_update(None, "foreign_keys", "ON").unwrap();
     // These are recommended by Litestream.
     conn.pragma_update(None, "journal_mode", "WAL").unwrap();
-    conn.pragma_update(None, "busy_timeout", "5000").unwrap();
+    conn.pragma_update(None, "busy_timeout", BUSY_TIMEOUT)
+        .unwrap();
     get_migrations(py).to_latest(&mut conn).unwrap();
+}
+
+/// Take the exclusive lock on a recovery partition for one execution.
+///
+/// The lock is a sidecar file beside the partition, `part-N.sqlite3.lock`,
+/// so the partition's own connections never wait on it. In exclusive
+/// locking mode SQLite keeps the lock until this connection closes, and
+/// the OS releases it when a process dies, even by SIGKILL. The in-memory
+/// journal leaves no file beside the lock.
+///
+/// A second execution waits [`BUSY_TIMEOUT`] for the lock, then fails.
+/// It must not wait forever: two executions that each hold part of a
+/// store would then wait on each other for good.
+fn lock_partition(file: &Path) -> PyResult<Connection> {
+    let mut lock_name = file.as_os_str().to_owned();
+    lock_name.push(".lock");
+    let conn = Connection::open_with_flags(
+        PathBuf::from(lock_name),
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .reraise("can't open recovery partition lock")?;
+    conn.pragma_update(None, "busy_timeout", BUSY_TIMEOUT)
+        .reraise("can't set recovery partition lock timeout")?;
+    conn.pragma_update(None, "locking_mode", "EXCLUSIVE")
+        .reraise("can't set recovery partition lock mode")?;
+    // Any step that needs the file lock can find it busy, so the busy
+    // check covers the whole sequence.
+    let locked = conn
+        .pragma_update(None, "journal_mode", "MEMORY")
+        .and_then(|()| conn.execute_batch("BEGIN EXCLUSIVE; COMMIT;"));
+    match locked {
+        Ok(()) => Ok(conn),
+        Err(rusqlite::Error::SqliteFailure(code, _))
+            if matches!(
+                code.code,
+                ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
+            ) =>
+        {
+            let msg = format!(
+                "recovery partition {file:?} is in use by another execution; a store can be used by one execution at a time, so wait for the other execution to exit (orchestrators retry), and check that no two deployments share this directory"
+            );
+            Err(tracked_err::<PyRuntimeError>(&msg))
+        }
+        Err(err) => {
+            let msg = format!("can't lock recovery partition {file:?}: {err}");
+            Err(tracked_err::<PyRuntimeError>(&msg))
+        }
+    }
 }
 
 struct PartitionMetaWriter {
@@ -1084,7 +1158,7 @@ impl RecoveryPart {
         ));
         setup_conn(py, &conn);
 
-        let _self = Self { conn };
+        let _self = Self { conn, lock: None };
         _self
             .part_writer()
             .write_batch(vec![PartitionMeta(index, count)]);
@@ -1092,6 +1166,42 @@ impl RecoveryPart {
         Ok(())
     }
 
+    /// Open a partition for an execution.
+    ///
+    /// The partition's exclusive lock is taken before anything is read
+    /// from or written to it, and the part holds the lock until it is
+    /// dropped. Only the primary worker of a partition opens it for an
+    /// execution, so one process takes each lock once.
+    fn open_for_execution(py: Python, file: &Path) -> PyResult<Self> {
+        // A second execution can wait here for `BUSY_TIMEOUT`, so let
+        // other Python threads run meanwhile.
+        let lock = py.allow_threads(|| lock_partition(file))?;
+        // Migrating before the lock would let a newer version change a
+        // store that an older execution still holds.
+        let mut part = Self::open(py, file)?;
+        part.lock = Some(lock);
+        Ok(part)
+    }
+
+    /// Open a partition read-only, to read its partition map at
+    /// startup. It is not locked and not migrated, so a store that a
+    /// running execution holds is left exactly as it is.
+    fn open_read_only(file: &Path) -> PyResult<Self> {
+        tracing::debug!("Opening recovery partition read-only at {file:?}");
+        let conn = Rc::new(RefCell::new(
+            Connection::open_with_flags(
+                file,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+            .reraise("can't open recovery DB")?,
+        ));
+
+        Ok(Self { conn, lock: None })
+    }
+
+    /// Open a partition read-write and bring its schema up to date.
+    /// Only called once the partition's lock is held; see
+    /// [`RecoveryPart::open_for_execution`].
     fn open(py: Python, file: &Path) -> PyResult<Self> {
         tracing::debug!("Opening recovery partition at {file:?}");
         let conn = Rc::new(RefCell::new(
@@ -1103,14 +1213,14 @@ impl RecoveryPart {
         ));
         setup_conn(py, &conn);
 
-        Ok(Self { conn })
+        Ok(Self { conn, lock: None })
     }
 
     fn init_open_mem(py: Python) -> Self {
         let conn = Rc::new(RefCell::new(Connection::open_in_memory().unwrap()));
         setup_conn(py, &conn);
 
-        Self { conn }
+        Self { conn, lock: None }
     }
 
     fn part_writer(&self) -> PartitionMetaWriter {
@@ -1717,6 +1827,7 @@ where
         let mut new_ex_part = bundle.new_builder();
 
         let ResumeFrom(ex_num, resume_epoch) = resume_from;
+
         let write_ex_clock = Some((ex_num, ExecutionMeta(ex_num, scope.w_count(), resume_epoch)))
             .into_stream_once_at(&scope, resume_epoch.0)
             .partd_write(
@@ -1764,7 +1875,7 @@ where
             .broadcast()
             .partd_commit(
                 String::from("recovery_committer"),
-                local_parts,
+                local_parts.clone(),
                 move |part_key| {
                     let part = new_commit_part(part_key);
                     let committer = part.borrow().committer(*part_key);
