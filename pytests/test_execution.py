@@ -10,7 +10,7 @@ import bytewax.operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.errors import BytewaxRuntimeError
 from bytewax.testing import TestingSink, TestingSource
-from pytest import mark, raises
+from pytest import fixture, mark, raises
 
 
 def test_run(entry_point):
@@ -54,6 +54,21 @@ def test_reraises_custom_exception(entry_point):
             entry_point(flow)
 
     assert len(out) < 3
+
+
+@fixture
+def sigint_not_ignored():
+    """Make sure child processes do not inherit an ignored SIGINT.
+
+    A shell that runs pytest as a background job starts it with SIGINT
+    ignored, and a child inherits an ignored signal. Python then
+    installs no KeyboardInterrupt handler, so the dataflow would ignore
+    the test's SIGINT and run to its end.
+
+    """
+    previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+    yield
+    signal.signal(signal.SIGINT, previous)
 
 
 def _assert_can_be_ctrl_c(proc: subprocess.Popen, out_file: BinaryIO):
@@ -111,7 +126,7 @@ def _assert_can_be_ctrl_c(proc: subprocess.Popen, out_file: BinaryIO):
         " processes on this console so interrupts pytest itself"
     ),
 )
-def test_single_worker_can_be_ctrl_c(tmp_path):
+def test_single_worker_can_be_ctrl_c(tmp_path, sigint_not_ignored):
     tmp_path = tmp_path / "out.txt"
 
     with open(tmp_path, "w+b") as tmp_file:
@@ -149,7 +164,7 @@ def test_single_worker_can_be_ctrl_c(tmp_path):
         " processes on this console so interrupts pytest itself"
     ),
 )
-def test_manual_cluster_can_be_ctrl_c(tmp_path):
+def test_manual_cluster_can_be_ctrl_c(tmp_path, sigint_not_ignored):
     tmp_path = tmp_path / "out.txt"
 
     with open(tmp_path, "w+b") as tmp_file:
@@ -188,7 +203,7 @@ def test_manual_cluster_can_be_ctrl_c(tmp_path):
         " processes on this console so interrupts pytest itself"
     ),
 )
-def test_testing_cluster_can_be_ctrl_c(tmp_path):
+def test_testing_cluster_can_be_ctrl_c(tmp_path, sigint_not_ignored):
     """Test that we can stop cluster execution by sending SIGINT (ctrl+c)."""
     tmp_path = tmp_path / "out.txt"
 
