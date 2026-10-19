@@ -616,17 +616,23 @@ impl Writer for SerializedSnapshotWriter {
     fn write_batch(&mut self, items: Vec<Self::Item>) {
         let mut conn = self.conn.borrow_mut();
         let txn = conn.transaction().unwrap();
-        for snap in items {
-            tracing::trace!("Writing {snap:?}");
-            let SerializedSnapshot(step_id, state_key, snap_epoch, ser_change) = snap;
-            txn.execute(
-                "INSERT INTO snaps (step_id, state_key, snap_epoch, ser_change)
-                 VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT (step_id, state_key, snap_epoch) DO UPDATE
-                 SET ser_change = EXCLUDED.ser_change",
-                (step_id.0, state_key.0, snap_epoch.0, ser_change),
-            )
-            .unwrap();
+        {
+            // Prepare once per connection, not once per snapshot row.
+            let mut insert = txn
+                .prepare_cached(
+                    "INSERT INTO snaps (step_id, state_key, snap_epoch, ser_change)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT (step_id, state_key, snap_epoch) DO UPDATE
+                     SET ser_change = EXCLUDED.ser_change",
+                )
+                .unwrap();
+            for snap in items {
+                tracing::trace!("Writing {snap:?}");
+                let SerializedSnapshot(step_id, state_key, snap_epoch, ser_change) = snap;
+                insert
+                    .execute((step_id.0, state_key.0, snap_epoch.0, ser_change))
+                    .unwrap();
+            }
         }
         txn.commit().unwrap();
     }
