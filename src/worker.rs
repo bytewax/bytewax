@@ -538,3 +538,20 @@ where
         Ok(probe)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeper_keeps_a_gil_that_was_held() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|_py| {
+            let keeper = PyThreadStateKeeper::new();
+            let held_while_kept = unsafe { ffi::PyGILState_Check() };
+            drop(keeper);
+            assert_eq!(held_while_kept, 1);
+            assert_eq!(unsafe { ffi::PyGILState_Check() }, 1);
+        });
+    }
+}
