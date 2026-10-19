@@ -15,7 +15,6 @@ use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::operators::Concatenate;
 use timely::dataflow::operators::Exchange;
-use timely::dataflow::operators::Map;
 use timely::dataflow::operators::ToStream;
 use timely::dataflow::Scope;
 use timely::dataflow::Stream;
@@ -427,14 +426,34 @@ where
     S: Scope,
 {
     fn wrap_key(&self) -> Stream<S, TdPyAny> {
-        self.map(move |(key, value)| {
-            let value = PyObject::from(value);
+        let mut op_builder = OperatorBuilder::new(String::from("wrap_key"), self.scope());
+        let mut self_handle = op_builder.new_input(self, Pipeline);
 
-            let item: PyObject =
-                Python::with_gil(|py| (key, value).into_pyobject(py).unwrap().unbind().into());
+        let (mut downstream_output, downstream) = op_builder.new_output();
 
-            TdPyAny::from(item)
-        })
+        op_builder.build(move |_| {
+            let mut inbuf = Vec::new();
+            move |_frontiers| {
+                let mut downstream_handle = downstream_output.activate();
+
+                self_handle.for_each(|time, data| {
+                    data.swap(&mut inbuf);
+                    let mut downstream_session = downstream_handle.session(&time);
+                    // Take the GIL once for the batch, not once for
+                    // each item.
+                    Python::with_gil(|py| {
+                        for (key, value) in inbuf.drain(..) {
+                            let value = PyObject::from(value);
+                            let item: PyObject =
+                                (key, value).into_pyobject(py).unwrap().unbind().into();
+                            downstream_session.give(TdPyAny::from(item));
+                        }
+                    });
+                });
+            }
+        });
+
+        downstream
     }
 }
 
