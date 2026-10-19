@@ -1,5 +1,9 @@
 import os
 import shutil
+import sqlite3
+import subprocess
+import sys
+import time
 from datetime import timedelta
 
 import bytewax.operators as op
@@ -13,7 +17,16 @@ from bytewax.recovery import (
     init_db_dir,
 )
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
-from pytest import raises
+from pytest import mark, raises
+
+# Recovery stores use STRICT tables, which need SQLite 3.37. Python 3.8 on
+# Windows bundles an older SQLite, so tests that read a store with
+# `sqlite3` skip there.
+requires_strict_tables = mark.skipif(
+    sqlite3.sqlite_version_info < (3, 37, 0),
+    reason=f"sqlite3 {sqlite3.sqlite_version} predates STRICT tables (3.37)",
+)
+
 
 ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
@@ -328,3 +341,63 @@ def test_recovery_stateless_flow_reads_all_input_cluster(recovery_config):
         worker_count_per_proc=2,
     )
     assert sorted(out) == list(range(NUM_BATCHES * BATCH_SIZE))
+
+
+_READ_SNAP_EPOCHS = """
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+rows = conn.execute("SELECT DISTINCT snap_epoch FROM snaps").fetchall()
+print(" ".join(str(epoch) for (epoch,) in rows))
+"""
+
+
+def _snap_epochs_after_run(db_dir):
+    """Distinct snapshot epochs in recovery partition 0.
+
+    Read in a child process, so the store is never opened by the test
+    process while or after an execution uses it.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-c", _READ_SNAP_EPOCHS, str(db_dir / "part-0.sqlite3")],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return sorted(int(epoch) for epoch in proc.stdout.split())
+
+
+def _sleep_then_sum(state, item):
+    # Each item lasts several 500 us epochs.
+    time.sleep(0.001)
+    total = (state or 0) + item
+    return (total, total)
+
+
+@requires_strict_tables
+def test_sub_millisecond_epoch_interval_garbage_collects_snapshots(tmp_path):
+    init_db_dir(tmp_path, 1)
+    # 5 ms over 500 us epochs is a commit delay of 10 epochs. Dividing
+    # whole milliseconds made that delay infinite, so no commit ever
+    # ran and every old snapshot was kept.
+    recovery_config = RecoveryConfig(
+        str(tmp_path), backup_interval=timedelta(milliseconds=5)
+    )
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource([("k", x) for x in range(200)]))
+    s = op.stateful_map("sum", s, _sleep_then_sum)
+    op.output("out", s, TestingSink(out))
+
+    run_main(
+        flow,
+        epoch_interval=timedelta(microseconds=500),
+        recovery_config=recovery_config,
+    )
+    assert len(out) == 200
+
+    # The run spans about 200 epochs, so without garbage collection
+    # the store would keep a snapshot for nearly all of them.
+    epochs = _snap_epochs_after_run(tmp_path)
+    assert max(epochs) >= 100, epochs
+    assert len(epochs) <= 30, epochs

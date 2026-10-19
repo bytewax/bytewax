@@ -70,7 +70,12 @@ impl EpochInterval {
     ///
     /// Useful for calculating GC commit epochs.
     pub(crate) fn epochs_per(&self, other: TimeDelta) -> u64 {
-        (other.num_milliseconds() as f64 / self.0.num_milliseconds() as f64)
+        // Divide in microseconds. Whole milliseconds round a
+        // sub-millisecond epoch down to zero, which made the ratio
+        // infinite and saturated the count to `u64::MAX`.
+        let epoch_us = self.0.num_microseconds().unwrap_or(i64::MAX);
+        let other_us = other.num_microseconds().unwrap_or(i64::MAX);
+        (other_us as f64 / epoch_us as f64)
             // Round up so we always have at least the backup interval
             // time. Unless it's 0, then it's ok. The integer part of
             // the result will always fit into a u64 so chopping off
@@ -91,6 +96,16 @@ fn test_epochs_per_zero() {
     let found = EpochInterval(TimeDelta::try_milliseconds(5000).unwrap())
         .epochs_per(TimeDelta::try_milliseconds(0).unwrap());
     assert_eq!(found, 0);
+}
+
+#[test]
+fn test_epochs_per_sub_millisecond_delay() {
+    // Below a millisecond the ratio is still taken in whole microseconds.
+    let epoch = EpochInterval(TimeDelta::microseconds(500));
+    assert_eq!(epoch.epochs_per(TimeDelta::try_milliseconds(1).unwrap()), 2);
+    assert_eq!(epoch.epochs_per(TimeDelta::microseconds(750)), 2);
+    assert_eq!(epoch.epochs_per(TimeDelta::zero()), 0);
+    assert!(epoch.epochs_per(TimeDelta::MAX) > 1 << 40);
 }
 
 impl Default for EpochInterval {
