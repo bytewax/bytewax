@@ -22,10 +22,20 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple, TypeVar
 
 from bytewax.recovery import init_db_dir
 from pytest import mark
+
+# Recovery stores use STRICT tables, which need SQLite 3.37. Python 3.8 on
+# macOS and Windows bundles an older SQLite, so tests that read a store
+# with `sqlite3` skip there.
+requires_strict_tables = mark.skipif(
+    sqlite3.sqlite_version_info < (3, 37, 0),
+    reason=f"sqlite3 {sqlite3.sqlite_version} predates STRICT tables (3.37)",
+)
+
+T = TypeVar("T")
 
 N = 100
 GATE = 50
@@ -218,24 +228,55 @@ def _crash_at_gate(store: Path, out: Path, tmp_path: Path) -> None:
     assert emitted == list(range(GATE)), "the store is not durable exactly to the gate"
 
 
+def _until_released(action: Callable[[], T]) -> T:
+    """Run `action`, retrying on Windows while a killed process's files are held.
+
+    On Windows the files of a process that was just killed can stay held for
+    a moment after `wait()` returns. The first SQLite open of the store then
+    fails with a disk I/O error, since it truncates the `-shm` file, and the
+    store's files cannot be deleted. Both pass once the files are free, so
+    the action is retried for a few seconds on Windows. Elsewhere it runs
+    once, so a real error still fails.
+
+    """
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            return action()
+        except (OSError, sqlite3.OperationalError):
+            if sys.platform != "win32" or time.monotonic() > deadline:
+                raise
+            time.sleep(0.05)
+
+
 def _checkpoint(part: Path) -> None:
     """Move the WAL into the main file, so that the pages live there."""
-    con = sqlite3.connect(str(part))
-    try:
-        busy, _log, _ckpt = con.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-    finally:
-        con.close()
-    assert busy == 0, f"checkpoint of {part} was blocked"
+
+    def checkpoint() -> int:
+        con = sqlite3.connect(str(part))
+        try:
+            busy, _log, _ckpt = con.execute(
+                "PRAGMA wal_checkpoint(TRUNCATE)"
+            ).fetchone()
+        finally:
+            con.close()
+        return int(busy)
+
+    assert _until_released(checkpoint) == 0, f"checkpoint of {part} was blocked"
 
 
 def _count(db: Path, sql: str) -> int:
     """Read-only count, which also sees rows still in the WAL."""
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    try:
-        (value,) = con.execute(sql).fetchone()
-    finally:
-        con.close()
-    return int(value)
+
+    def count() -> int:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            (value,) = con.execute(sql).fetchone()
+        finally:
+            con.close()
+        return int(value)
+
+    return _until_released(count)
 
 
 def _snapshot_int_offset(db: Path, state_key: str) -> Tuple[int, int]:
@@ -282,6 +323,7 @@ def _flip_low_byte_bit(path: Path, offset: int) -> None:
         f.write(bytes([byte ^ 0x01]))
 
 
+@requires_strict_tables
 @mark.xfail(
     raises=SilentCorruption,
     strict=True,
@@ -321,6 +363,7 @@ def test_corrupt_snapshot_is_detected(tmp_path: Path) -> None:
         raise SilentCorruption(msg)
 
 
+@requires_strict_tables
 @mark.xfail(
     raises=SilentFreshStart,
     strict=True,
@@ -348,8 +391,8 @@ def test_lost_wal_is_not_a_fresh_start(tmp_path: Path) -> None:
     shm = part.with_name(part.name + "-shm")
     assert wal.exists(), "the killed execution left no WAL"
     assert _count(part, "SELECT count(*) FROM snaps") > 0, "no progress in the WAL"
-    wal.unlink()
-    shm.unlink(missing_ok=True)
+    _until_released(wal.unlink)
+    _until_released(lambda: shm.unlink(missing_ok=True))
     assert (
         _count(part, "SELECT count(*) FROM exs") == 0
     ), "the main database file holds progress of its own"

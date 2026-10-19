@@ -30,7 +30,7 @@ import time
 import uuid
 from concurrent.futures import wait
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, TypeVar
 
 from bytewax.connectors.kafka import KafkaSource
 from bytewax.recovery import init_db_dir
@@ -44,6 +44,17 @@ pytestmark = mark.skipif(
 )
 BROKER = os.environ.get("TEST_KAFKA_BROKER", "localhost")
 config = {"bootstrap.servers": BROKER}
+
+# Recovery stores use STRICT tables, which need SQLite 3.37. Python 3.8 on
+# macOS and Windows bundles an older SQLite, so tests that read a store
+# with `sqlite3` skip there.
+requires_strict_tables = mark.skipif(
+    sqlite3.sqlite_version_info < (3, 37, 0),
+    reason=f"sqlite3 {sqlite3.sqlite_version} predates STRICT tables (3.37)",
+)
+
+T = TypeVar("T")
+
 N = 200
 KILL_AFTER = 30
 
@@ -165,14 +176,39 @@ def _count_lines(out: Path) -> int:
     return len(out.read_text().splitlines())
 
 
+def _until_released(action: Callable[[], T]) -> T:
+    """Run `action`, retrying on Windows while a killed process's files are held.
+
+    On Windows the files of a process that was just killed can stay held for
+    a moment after `wait()` returns. The first SQLite open of the store then
+    fails with a disk I/O error, since it truncates the `-shm` file, and the
+    store's files cannot be deleted. Both pass once the files are free, so
+    the action is retried for a few seconds on Windows. Elsewhere it runs
+    once, so a real error still fails.
+
+    """
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            return action()
+        except (OSError, sqlite3.OperationalError):
+            if sys.platform != "win32" or time.monotonic() > deadline:
+                raise
+            time.sleep(0.05)
+
+
 def _count(db: Path, sql: str) -> int:
     """Read-only count, which also sees rows still in the WAL."""
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    try:
-        (value,) = con.execute(sql).fetchone()
-    finally:
-        con.close()
-    return int(value)
+
+    def count() -> int:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            (value,) = con.execute(sql).fetchone()
+        finally:
+            con.close()
+        return int(value)
+
+    return _until_released(count)
 
 
 def _durable_offset(part: Path, state_key: str) -> int:
@@ -183,23 +219,30 @@ def _durable_offset(part: Path, state_key: str) -> int:
     epoch is where a resume would start.
 
     """
-    con = sqlite3.connect(f"file:{part}?mode=ro", uri=True)
-    try:
-        commit = con.execute(
-            "SELECT commit_epoch FROM commits WHERE part_index = 0"
-        ).fetchone()
-        assert commit is not None, f"{part} has no commit row"
-        row = con.execute(
-            "SELECT ser_change FROM snaps WHERE state_key = ? AND snap_epoch <= ? "
-            "AND ser_change IS NOT NULL ORDER BY snap_epoch DESC LIMIT 1",
-            (state_key, commit[0]),
-        ).fetchone()
-    finally:
-        con.close()
+
+    def read() -> Optional[Tuple[Any, ...]]:
+        con = sqlite3.connect(f"file:{part}?mode=ro", uri=True)
+        try:
+            commit = con.execute(
+                "SELECT commit_epoch FROM commits WHERE part_index = 0"
+            ).fetchone()
+            assert commit is not None, f"{part} has no commit row"
+            row = con.execute(
+                "SELECT ser_change FROM snaps WHERE state_key = ? "
+                "AND snap_epoch <= ? AND ser_change IS NOT NULL "
+                "ORDER BY snap_epoch DESC LIMIT 1",
+                (state_key, commit[0]),
+            ).fetchone()
+        finally:
+            con.close()
+        return row
+
+    row = _until_released(read)
     assert row is not None, f"no durable snapshot for {state_key!r} in {part}"
     return int(pickle.loads(row[0]))
 
 
+@requires_strict_tables
 @mark.xfail(
     raises=WitnessUnsupported,
     strict=True,
@@ -248,8 +291,8 @@ def test_kafka_source_fresh_start_witness(tmp_path: Path, witness_topic: str) ->
     wal = part.with_name(part.name + "-wal")
     shm = part.with_name(part.name + "-shm")
     assert _count(part, "SELECT count(*) FROM snaps") > 0, "no progress in the WAL"
-    wal.unlink()
-    shm.unlink(missing_ok=True)
+    _until_released(wal.unlink)
+    _until_released(lambda: shm.unlink(missing_ok=True))
     assert (
         _count(part, "SELECT count(*) FROM exs") == 0
     ), "the main database file holds progress of its own"
