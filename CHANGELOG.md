@@ -10,11 +10,17 @@ __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
 - The Kafka source sets librdkafka's `fetch.queue.backoff.ms` to 10 ms
-  instead of its default of 1000 ms. Once the local queue was full, the
-  consumer waited that long before it fetched again, so a dataflow that
-  drained the queue faster than the broker refilled it sat idle, which
-  held back reading a backlog. Set `fetch.queue.backoff.ms` in
-  `add_config` to use another value.
+  instead of its default of 1000 ms. This changes when the source fetches
+  for every {py:obj}`~bytewax.connectors.kafka.KafkaSource`: once the
+  local queue is full, librdkafka retries a fetch after 10 ms instead of
+  1 s. A source that drains the queue faster than that used to sit idle
+  with messages waiting on the broker. Which messages are read, and how
+  many are queued at once, does not change. Set
+  `fetch.queue.backoff.ms` in `add_config` to use another value. Reading
+  a backlog of 1M 110-byte messages from one partition with one worker,
+  a source followed by a map went from 107K to 532K messages per second,
+  and a source followed by a JSON parse and filter from 108K to 366K
+  (medians of 5 interleaved runs).
 
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
