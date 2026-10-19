@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
+use pyo3::ffi;
 use pyo3::prelude::*;
 use timely::communication::Allocate;
 use timely::dataflow::operators::generic::operator::empty;
@@ -33,6 +34,48 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+
+/// Keeps a Python thread state alive for the thread that holds it.
+///
+/// A thread that Python did not start gets a fresh thread state from
+/// every outermost [`Python::with_gil`] and loses it again when that
+/// returns. Creating and deleting a thread state takes locks shared by
+/// all threads in the interpreter, which a worker thread pays on every
+/// operator activation. A thread state that is kept makes each
+/// [`Python::with_gil`] only take and release the GIL.
+///
+/// The GIL itself is not held between uses.
+pub(crate) struct PyThreadStateKeeper {
+    gil: ffi::PyGILState_STATE,
+    saved: *mut ffi::PyThreadState,
+}
+
+impl PyThreadStateKeeper {
+    pub(crate) fn new() -> Self {
+        // Safety: Python is initialized, because the dataflow was
+        // built from Python objects. `PyGILState_Ensure` gives this
+        // thread a state if it has none and takes the GIL for it.
+        // `PyEval_SaveThread` then releases the GIL without deleting
+        // the state, so the count of `PyGILState_Ensure` calls on it
+        // stays above zero until `drop`.
+        unsafe {
+            let gil = ffi::PyGILState_Ensure();
+            let saved = ffi::PyEval_SaveThread();
+            Self { gil, saved }
+        }
+    }
+}
+
+impl Drop for PyThreadStateKeeper {
+    fn drop(&mut self) {
+        // Safety: this undoes `new` on the same thread. Releasing the
+        // last count deletes the thread state and the GIL with it.
+        unsafe {
+            ffi::PyEval_RestoreThread(self.saved);
+            ffi::PyGILState_Release(self.gil);
+        }
+    }
+}
 
 /// Bytewax worker.
 ///
