@@ -449,7 +449,8 @@ mod tests {
                     std::thread::spawn(move || {
                         barrier.wait();
                         let copies: Vec<_> = (0..16).map(|_| (*item).clone()).collect();
-                        // Unwrapping the last copy needs no GIL.
+                        // The main thread still holds the item, so
+                        // these drops are never the last one.
                         drop(copies);
                     })
                 })
@@ -460,8 +461,7 @@ mod tests {
             Python::with_gil(|py| {
                 let item = Arc::try_unwrap(item).ok().unwrap();
                 assert!(item.bind(py).is(&obj));
-                // The thread drops are queued decrefs, run on the next
-                // GIL acquisition, which is this one.
+                // The last copy is dropped here, under the GIL.
                 drop(item);
             });
             Python::with_gil(|py| assert_eq!(obj.get_refcnt(py), base));
