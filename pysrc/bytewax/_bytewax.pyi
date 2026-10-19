@@ -168,6 +168,24 @@ def cluster_main(
     """
     ...
 
+def execution_state():
+    """The recovery, completion and lock state of this thread's execution.
+
+    Returns whether the execution that a partition belongs to has a
+    recovery config, whether it completed, and whether this process
+    holds one of its recovery partition locks.
+
+    `KafkaEosSink` reads this in its partitions' `close`, which runs on
+    the worker thread. A partition closed with `completed` true knows
+    that the recovery writes of its execution are durable. A process
+    without a lock cannot keep a successor out, so it must not publish
+    at close. A partition closed after its run has ended sees the run's
+    locks only while the run is still alive, and all are `False` once
+    it has returned.
+
+    """
+    ...
+
 def init_db_dir(db_dir, count):
     """Create and init a set of empty recovery partitions.
 

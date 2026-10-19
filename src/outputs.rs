@@ -3,6 +3,7 @@
 //! For a user-centric version of output, read the `bytewax.output`
 //! Python module docstring. Read that first.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
@@ -27,6 +28,7 @@ use crate::recovery::*;
 use crate::timely::*;
 use crate::unwrap_any;
 use crate::with_timer;
+use crate::worker::closes_after_run;
 
 /// Represents a `bytewax.outputs.Sink` from Python.
 pub(crate) struct Sink(Py<PyAny>);
@@ -131,7 +133,9 @@ impl FixedPartitionedSink {
 }
 
 /// Represents a `bytewax.outputs.StatefulSinkPartition` in Python.
-struct StatefulPartition(Py<PyAny>);
+/// The partition object, and whether it opts in to closing once the
+/// run has ended. See [`StatefulPartition::drop`].
+struct StatefulPartition(Py<PyAny>, bool);
 
 /// Do some eager type checking.
 impl<'py> FromPyObject<'py> for StatefulPartition {
@@ -145,7 +149,12 @@ impl<'py> FromPyObject<'py> for StatefulPartition {
                 "stateful sink partition must subclass `bytewax.outputs.StatefulSinkPartition`",
             ))
         } else {
-            Ok(Self(ob.clone().unbind()))
+            // Read once here, so that dropping a partition needs no lookup.
+            let opts_in = ob
+                .getattr(intern!(py, "_close_after_run"))
+                .and_then(|flag| flag.is_truthy())
+                .unwrap_or(false);
+            Ok(Self(ob.clone().unbind(), opts_in))
         }
     }
 }
@@ -161,19 +170,61 @@ impl StatefulPartition {
     fn snapshot(&self, py: Python) -> PyResult<TdPyAny> {
         Ok(self.0.call_method0(py, intern!(py, "snapshot"))?.into())
     }
+}
 
-    fn close(&self, py: Python) -> PyResult<()> {
-        let _ = self.0.call_method0(py, "close")?;
-        Ok(())
-    }
+thread_local! {
+    /// Partitions this worker thread has dropped during an execution,
+    /// awaiting `close`.
+    static DROPPED_PARTS: RefCell<Vec<Py<PyAny>>> = const { RefCell::new(Vec::new()) };
 }
 
 impl Drop for StatefulPartition {
+    /// A partition that opts in with `_close_after_run` closes once the
+    /// execution has ended. An operator drops its partitions when its
+    /// input ends, which can be before the recovery writes of that last
+    /// snapshot are durable, and `close` needs to know whether the
+    /// execution completed. Without the opt-in, `close` runs as the
+    /// partition is dropped, as it always has.
     fn drop(&mut self) {
-        unwrap_any!(
-            Python::with_gil(|py| self.close(py)).reraise("error closing StatefulSinkPartition")
-        );
+        let part = Python::with_gil(|py| self.0.clone_ref(py));
+        if !self.1 {
+            unwrap_any!(close_part(&part));
+        } else if closes_after_run() {
+            DROPPED_PARTS.with(|dropped| dropped.borrow_mut().push(part));
+        } else {
+            // Dropped outside a recovering execution, as when a worker
+            // unwinds after its run has returned. Nothing is published.
+            let closed = close_part(&part);
+            if std::thread::panicking() {
+                if let Err(err) = closed {
+                    tracing::error!("error closing a StatefulSinkPartition while unwinding: {err}");
+                }
+            } else {
+                unwrap_any!(closed);
+            }
+        }
     }
+}
+
+fn close_part(part: &Py<PyAny>) -> PyResult<()> {
+    Python::with_gil(|py| part.call_method0(py, "close"))
+        .map(|_| ())
+        .reraise("error closing StatefulSinkPartition")
+}
+
+/// Close the partitions this worker thread has dropped during the
+/// execution, and clear the list.
+///
+/// Every partition is closed, even after one of them fails. The first
+/// error is returned. Called once the run has ended, so
+/// [`crate::worker`] has recorded whether the execution completed.
+pub(crate) fn release_dropped_partitions() -> PyResult<()> {
+    let dropped = DROPPED_PARTS.with(|dropped| std::mem::take(&mut *dropped.borrow_mut()));
+    let mut first = Ok(());
+    for part in dropped {
+        first = first.and(close_part(&part));
+    }
+    first
 }
 
 /// This is a separate object than the bundle so we can use Python's

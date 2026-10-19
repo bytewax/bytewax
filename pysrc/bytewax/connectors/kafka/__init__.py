@@ -167,27 +167,49 @@ _LIST_TOPICS_TIMEOUT_S = 30.0
 """How long to wait for topic metadata when listing partitions."""
 
 
+def _start_auth_callbacks(client) -> None:
+    """Start the auth callbacks of a new client, before its first request.
+
+    Workaround for https://github.com/confluentinc/librdkafka/issues/3753#issuecomment-1058272987
+    to start any configured auth callbacks. Without it, a request made
+    with an `oauth_cb` waits out its timeout.
+
+    """
+    client.poll(0)
+
+
+def _topic_metadata(client, brokers: str, topic: str):
+    """The metadata of `topic` as `client` lists it, or `None` if it is absent.
+
+    A `KafkaException`, such as `_TRANSPORT` when no broker answers in
+    time, is raised as a `RuntimeError` that names the topic and the
+    brokers. The errors of the topic itself are left to the caller.
+
+    """
+    try:
+        cluster_metadata = client.list_topics(topic, timeout=_LIST_TOPICS_TIMEOUT_S)
+    except KafkaException as ex:
+        # E.g. `_TRANSPORT` when no broker could be reached
+        # before the timeout.
+        err = ex.args[0] if ex.args else None
+        reason = err.str() if isinstance(err, ConfluentKafkaError) else str(ex)
+        msg = (
+            f"could not fetch metadata for Kafka topic `{topic!r}` "
+            f"from brokers `{brokers!r}` within "
+            f"{_LIST_TOPICS_TIMEOUT_S:g} seconds: {reason}"
+        )
+        raise RuntimeError(msg) from ex
+    assert cluster_metadata.topics is not None
+    return cluster_metadata.topics.get(topic)
+
+
 def _list_parts(
     client: AdminClient, brokers: str, topics: Iterable[str]
 ) -> Iterable[str]:
     for topic in topics:
         # List topics one-by-one so if auto-create is turned on,
         # we respect that.
-        try:
-            cluster_metadata = client.list_topics(topic, timeout=_LIST_TOPICS_TIMEOUT_S)
-        except KafkaException as ex:
-            # E.g. `_TRANSPORT` when no broker could be reached
-            # before the timeout.
-            err = ex.args[0] if ex.args else None
-            reason = err.str() if isinstance(err, ConfluentKafkaError) else str(ex)
-            msg = (
-                f"could not fetch metadata for Kafka topic `{topic!r}` "
-                f"from brokers `{brokers!r}` within "
-                f"{_LIST_TOPICS_TIMEOUT_S:g} seconds: {reason}"
-            )
-            raise RuntimeError(msg) from ex
-        assert cluster_metadata.topics is not None
-        topic_metadata = cluster_metadata.topics.get(topic)
+        topic_metadata = _topic_metadata(client, brokers, topic)
         # A missing topic is normally still listed, with its `error`
         # set (handled below); this only guards against a response
         # that leaves it out entirely.
@@ -416,9 +438,7 @@ class KafkaSource(
         }
         config.update(self._add_config)
         client = AdminClient(config)
-        # Workaround for https://github.com/confluentinc/librdkafka/issues/3753#issuecomment-1058272987
-        # to start any configured auth callbacks.
-        client.poll(0)
+        _start_auth_callbacks(client)
 
         return list(_list_parts(client, config["bootstrap.servers"], self._topics))
 

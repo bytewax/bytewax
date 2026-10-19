@@ -50,6 +50,12 @@ notes on GitHub when we make a new release.__
   mounted on several hosts. Locks on such a share may only exclude
   processes on the same client.
 
+  The locks of an execution are held until every worker of the execution
+  in the process has returned, so a worker that finishes early does not
+  let a successor start while a sibling still runs. Each execution keeps
+  its own locks, so a second execution on the same directory cannot
+  release the locks of the first.
+
 - Added graceful drain. The new
   {py:obj}`~bytewax.run.request_graceful_drain` function drains a
   dataflow with a recovery config to a consistent snapshot and exits
@@ -102,6 +108,41 @@ signal.signal(signal.SIGTERM, _drain_on_sigterm)
 - An execution that ends normally logs `Execution N closed cleanly` at
   `INFO`, once per process. A drained or finished execution logs it; a
   killed, aborted, or crashed one does not.
+
+- Added {py:obj}`~bytewax.connectors.kafka.eos.KafkaEosSink`, an
+  exactly-once Kafka output that needs no broker transactions. With a
+  recovery config, each result reaches the topic once across crashes,
+  graceful drains and resumes, in multi-process clusters too. Each
+  partition of the topic is written by one sink partition, placed by the
+  CRC-32 of the item's routing key, which matches librdkafka's
+  `consistent` partitioner. Each message carries `eos-window`, `eos-seq`
+  and `eos-store` headers, so a consumer can deduplicate by partition,
+  window and sequence.
+
+  A window is produced only after the snapshot that closes it is
+  durable, so publication trails one snapshot behind. A finite run
+  publishes its last window at its clean end, if the process holds a
+  recovery partition lock, and a failure there fails the run. An
+  unfinished execution leaves its pending windows to the next execution
+  on the same recovery store. Deliveries are confirmed asynchronously,
+  and a delivery failure fails the execution at the next snapshot.
+
+  A restored store checks the topic against its own windows, by offset.
+  The topic must hold a prefix of them, and every record it holds must
+  carry the headers of its place. A store refuses a topic it did not
+  write, a topic whose partition count has changed, and a compacted
+  topic. Retention may remove the head of the topic without any window
+  being produced twice.
+
+  The sink needs a recovery config, and the recovery lock lets only one
+  execution use a store at a time. `enable.idempotence`,
+  `enable.gapless.guarantee` and `message.timeout.ms` are fixed at
+  `true`, `true` and `0`, and the constructor refuses a different value.
+  `resume_grace` optionally waits once per execution before a restored
+  store reads the topic, so that records a killed execution already
+  handed to the network can land. A process with no recovery partition
+  lock publishes nothing at close and logs a warning, so run with at
+  least as many recovery partitions as processes.
 
 - Fixes the epoch clock falling one batch behind input progress when
   an execution starts or resumes, for dataflows with a

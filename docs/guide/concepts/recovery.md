@@ -110,8 +110,9 @@ work across hosts, and locks on such a share may only exclude
 processes on the same client.
 
 Only one execution may use a recovery directory at a time. Each
-partition is locked while its execution runs, so a second execution
-fails after a few seconds rather than writing alongside the first.
+partition is locked while its execution runs, and until every worker
+of that execution has returned, so a second execution fails after a
+few seconds rather than writing alongside the first.
 Earlier bytewax versions don't take this lock, so don't overlap an
 execution of an earlier version with one of this version, for example
 during a rolling upgrade.

@@ -29,6 +29,7 @@ use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::metrics::initialize_metrics;
+use crate::recovery::ExecutionLocks;
 use crate::recovery::ExecutionNumber;
 use crate::recovery::RecoveryConfig;
 use crate::unwrap_any;
@@ -197,6 +198,9 @@ pub(crate) fn run_main(
 
     let _execution = ExecutionGuard::begin(recovery_config.is_some())?;
     let recovering = recovery_config.is_some();
+    // Partition locks stay held until every local worker has returned.
+    let locks = Arc::new(ExecutionLocks::default());
+    let worker_locks = locks.clone();
     let res = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
             timely::execute::execute_directly::<Option<ExecutionNumber>, _>(move |worker| {
@@ -214,7 +218,8 @@ pub(crate) fn run_main(
                     },
                     flow,
                     epoch_interval,
-                    recovery_config
+                    recovery_config,
+                    worker_locks.clone(),
                 ))
             })
         })
@@ -336,6 +341,8 @@ pub(crate) fn cluster_main(
     let multi_process = addresses.as_ref().is_some_and(|addrs| !addrs.is_empty());
     let _execution = ExecutionGuard::begin(recovery_config.is_some() && !multi_process)?;
     let recovering = recovery_config.is_some();
+    // Partition locks stay held until every local worker has returned.
+    let locks = Arc::new(ExecutionLocks::default());
     py.allow_threads(move || {
         let addresses = addresses.unwrap_or_default();
         let (builders, other) = if addresses.is_empty() {
@@ -400,7 +407,8 @@ pub(crate) fn cluster_main(
                     || should_shutdown_w.load(Ordering::Relaxed),
                     flow,
                     epoch_interval,
-                    recovery_config
+                    recovery_config,
+                    locks.clone(),
                 ))
             },
         )

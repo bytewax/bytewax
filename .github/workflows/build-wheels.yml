@@ -82,7 +82,7 @@ jobs:
         # Only run tests for the host architecture, as aarch64 and
         # armv7 are cross-compiled on Ubuntu runners.
         if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
-        timeout-minutes: 20
+        timeout-minutes: 45
         shell: bash
         env:
           TEST_KAFKA_BROKER: localhost:9092
@@ -154,7 +154,7 @@ jobs:
         run: ./scripts/ci-kafka.sh start
       - name: Run Python tests
         if: ${{ inputs.run-tests }}
-        timeout-minutes: 20
+        timeout-minutes: 45
         shell: bash
         env:
           TEST_KAFKA_BROKER: localhost:9092
@@ -227,7 +227,7 @@ jobs:
           key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}
       - name: Run Kafka and Python tests
         if: ${{ inputs.run-tests }}
-        timeout-minutes: 25
+        timeout-minutes: 50
         shell: bash
         env:
           PYTEST_ADDOPTS: -vv

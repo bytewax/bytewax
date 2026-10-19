@@ -15,6 +15,11 @@ use std::hash::Hash;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 
 use chrono::TimeDelta;
 use pyo3::create_exception;
@@ -422,7 +427,10 @@ impl RecoveryConfig {
     /// Build the Rust-side bundle from the Python-side recovery
     /// config.
     #[instrument(name = "build_recovery", skip_all)]
-    pub(crate) fn build(&self) -> PyResult<(RecoveryBundle, BackupInterval)> {
+    pub(crate) fn build(
+        &self,
+        execution: &Arc<ExecutionLocks>,
+    ) -> PyResult<(RecoveryBundle, BackupInterval)> {
         let mut part_paths = HashMap::new();
         let sqlite_ext = OsStr::new("sqlite3");
         if !self.db_dir.is_dir() {
@@ -447,6 +455,7 @@ impl RecoveryConfig {
         }
 
         let bundle = RecoveryBundle {
+            execution: execution.clone(),
             part_paths: Rc::new(part_paths),
             built_parts: Rc::new(RefCell::new(HashMap::new())),
         };
@@ -458,6 +467,8 @@ impl RecoveryConfig {
 
 /// Clone-able reference to all local recovery partition info.
 pub(crate) struct RecoveryBundle {
+    /// The execution that the partitions of this bundle are locked for.
+    execution: Arc<ExecutionLocks>,
     /// This is a map to all known local partitions.
     ///
     /// It is an [`Rc`] because the builder functions created by
@@ -479,6 +490,7 @@ pub(crate) struct RecoveryBundle {
 impl RecoveryBundle {
     pub(crate) fn clone_ref(&self, _py: Python) -> Self {
         Self {
+            execution: self.execution.clone(),
             part_paths: self.part_paths.clone(),
             built_parts: self.built_parts.clone(),
         }
@@ -497,6 +509,7 @@ impl RecoveryBundle {
     fn new_builder(&self) -> impl FnMut(&PartitionIndex) -> Rc<RefCell<RecoveryPart>> {
         let part_paths = self.part_paths.clone();
         let built_parts = self.built_parts.clone();
+        let execution = self.execution.clone();
         move |part_key| {
             built_parts
                 .borrow_mut()
@@ -509,7 +522,7 @@ impl RecoveryBundle {
                         });
 
                     let part = unwrap_any!(Python::with_gil(|py| {
-                        RecoveryPart::open_for_execution(py, path)
+                        RecoveryPart::open_for_execution(py, path, &execution)
                     }));
 
                     Rc::new(RefCell::new(part))
@@ -537,10 +550,50 @@ struct RecoveryPart {
     /// This is [`Rc<RefCell>`] so that our reader and writer structs
     /// can maintain an internal connection reference across batches.
     conn: Rc<RefCell<Connection>>,
-    /// The execution's exclusive lock on this partition, if the part
-    /// was opened for an execution. It is released when the part is
-    /// dropped.
-    lock: Option<Connection>,
+    /// The execution's exclusive lock on this partition, and the
+    /// execution that took it, if the part was opened for an
+    /// execution. See [`RecoveryPart::drop`].
+    lock: Option<(Arc<ExecutionLocks>, Connection)>,
+}
+
+/// The recovery locks that one execution holds in this process.
+///
+/// A worker that drops a recovery partition before the execution has
+/// returned from every worker parks the partition's lock here, instead
+/// of releasing it. A sibling worker can still be closing an output
+/// partition, and that close can publish, so no successor may take the
+/// locks until the execution has returned everywhere. Each execution has
+/// its own, so a second execution on the same directory cannot release
+/// the locks of the first.
+#[derive(Default)]
+pub(crate) struct ExecutionLocks {
+    /// Whether this execution has taken a partition lock in this process.
+    held: AtomicBool,
+    /// Locks of dropped partitions, released when this is dropped.
+    parked: Mutex<Vec<Connection>>,
+}
+
+impl ExecutionLocks {
+    /// Whether this process holds at least one recovery partition lock
+    /// for the execution. Only such a process may publish when the
+    /// execution completes, since its locks keep a successor out.
+    pub(crate) fn holds_lock(&self) -> bool {
+        self.held.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for RecoveryPart {
+    /// Parks the lock with its execution, which holds it until the
+    /// execution has returned from every local worker.
+    fn drop(&mut self) {
+        if let Some((execution, lock)) = self.lock.take() {
+            execution
+                .parked
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(lock);
+        }
+    }
 }
 
 // The `'static` lifetime within [`Migrations`] is saying that the
@@ -1251,14 +1304,19 @@ impl RecoveryPart {
     /// from or written to it, and the part holds the lock until it is
     /// dropped. Only the primary worker of a partition opens it for an
     /// execution, so one process takes each lock once.
-    fn open_for_execution(py: Python, file: &Path) -> PyResult<Self> {
+    fn open_for_execution(
+        py: Python,
+        file: &Path,
+        execution: &Arc<ExecutionLocks>,
+    ) -> PyResult<Self> {
         // A second execution can wait here for `BUSY_TIMEOUT`, so let
         // other Python threads run meanwhile.
         let lock = py.allow_threads(|| lock_partition(file))?;
         // Migrating before the lock would let a newer version change a
         // store that an older execution still holds.
         let mut part = Self::open(py, file)?;
-        part.lock = Some(lock);
+        execution.held.store(true, Ordering::Release);
+        part.lock = Some((execution.clone(), lock));
         Ok(part)
     }
 

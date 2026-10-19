@@ -6,7 +6,7 @@ If you want pre-built connectors for various external systems, see
 """
 
 from abc import ABC, abstractmethod
-from typing import Generic, List, Optional, Tuple, TypeVar
+from typing import ClassVar, Generic, List, Optional, Tuple, TypeVar
 from zlib import adler32
 
 X = TypeVar("X")
@@ -31,6 +31,11 @@ class Sink(ABC, Generic[X]):  # noqa: B024
 
 class StatefulSinkPartition(ABC, Generic[X, S]):
     """Output partition that maintains state of its position."""
+
+    # Private. When true, the engine calls `close` once the execution has
+    # ended and its outcome is known, rather than when the partition is
+    # dropped. See `bytewax._bytewax.execution_state`.
+    _close_after_run: ClassVar[bool] = False
 
     @abstractmethod
     def write_batch(self, values: List[X]) -> None:
@@ -60,6 +65,11 @@ class StatefulSinkPartition(ABC, Generic[X, S]):
         _after the last written item_, not overwriting the same item.
 
         This is guaranteed to never be called after {py:obj}`close`.
+
+        With a recovery config, when this runs for a later epoch, the
+        recovery writes of every earlier snapshot of the execution are
+        already durable. A partition can therefore act on what an earlier
+        snapshot recorded, such as producing the window it closed.
 
         :returns: Resume state.
 

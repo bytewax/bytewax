@@ -1,11 +1,13 @@
 //! Definition of a Bytewax worker.
 
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::Weak;
 use std::time::Duration;
 
 use pyo3::exceptions::PyTypeError;
@@ -34,6 +36,7 @@ use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
 use crate::run::DRAIN;
+use crate::unwrap_any;
 
 /// Bytewax worker.
 ///
@@ -105,6 +108,92 @@ where
     }
 }
 
+thread_local! {
+    /// Whether this thread's execution has a recovery config.
+    static RECOVERING: Cell<bool> = const { Cell::new(false) };
+    /// The recovery locks of this thread's execution. A weak reference:
+    /// the run owns the locks, and a thread must not keep them past it.
+    /// A partition that is dropped after the run still finds them while
+    /// the run is alive, which is when its close needs them.
+    static LOCKS: RefCell<Weak<ExecutionLocks>> = const { RefCell::new(Weak::new()) };
+    /// Whether this thread's execution completed: its dataflow finished
+    /// with no abort and no interrupt. Set before the worker shuts down.
+    static COMPLETED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether this thread is running an execution with a recovery config.
+///
+/// A partition that opts in closes once the run has ended, when the
+/// execution's outcome is known. Otherwise it closes as it is dropped.
+pub(crate) fn closes_after_run() -> bool {
+    RECOVERING.with(Cell::get)
+}
+
+/// Marks an execution on this worker thread, from start to return.
+struct WorkerExecution;
+
+impl WorkerExecution {
+    /// `locks` is the execution's recovery locks, or `None` without a
+    /// recovery config.
+    fn begin(locks: Option<&Arc<ExecutionLocks>>) -> Self {
+        RECOVERING.with(|flag| flag.set(locks.is_some()));
+        LOCKS.with(|slot| *slot.borrow_mut() = locks.map_or_else(Weak::new, Arc::downgrade));
+        COMPLETED.with(|flag| flag.set(false));
+        Self
+    }
+
+    /// Record the run's outcome, then close the output partitions that
+    /// the run has dropped. The probe is done when `completed` is true,
+    /// so every recovery write of the execution is durable by then.
+    /// The recovery partitions are still locked here.
+    ///
+    /// A close error fails the run, since a completed run must not
+    /// report success with output undelivered.
+    fn finish_run(&self, completed: bool) {
+        COMPLETED.with(|flag| flag.set(completed));
+        unwrap_any!(release_dropped_partitions());
+    }
+}
+
+impl Drop for WorkerExecution {
+    /// Partitions that shutdown dropped close here, and so do those an
+    /// unwinding worker dropped. A run that unwound did not complete.
+    /// Errors from these closes are logged while unwinding, since a
+    /// panic during unwinding would abort the process.
+    fn drop(&mut self) {
+        let released = release_dropped_partitions();
+        COMPLETED.with(|flag| flag.set(false));
+        RECOVERING.with(|flag| flag.set(false));
+        if std::thread::panicking() {
+            if let Err(err) = released {
+                tracing::error!("error closing a StatefulSinkPartition while unwinding: {err}");
+            }
+        } else {
+            unwrap_any!(released);
+        }
+    }
+}
+
+/// The recovery, completion and lock state of this thread's execution.
+///
+/// Returns whether the execution that a partition belongs to has a
+/// recovery config, whether it completed, and whether this process
+/// holds one of its recovery partition locks.
+///
+/// `KafkaEosSink` reads this in its partitions' `close`, which runs on
+/// the worker thread. A partition closed with `completed` true knows
+/// that the recovery writes of its execution are durable. A process
+/// without a lock cannot keep a successor out, so it must not publish
+/// at close. A partition closed after its run has ended sees the run's
+/// locks only while the run is still alive, and all are `False` once
+/// it has returned.
+#[pyfunction]
+pub(crate) fn execution_state() -> (bool, bool, bool) {
+    let locks = LOCKS.with(|slot| slot.borrow().upgrade());
+    let holds = locks.as_ref().is_some_and(|locks| locks.holds_lock());
+    (locks.is_some(), COMPLETED.with(Cell::get), holds)
+}
+
 /// Public, main entry point for a worker thread.
 ///
 /// Returns the execution number if the dataflow completed, and `None`
@@ -116,6 +205,7 @@ pub(crate) fn worker_main<A>(
     flow: Dataflow,
     epoch_interval: EpochInterval,
     recovery_config: Option<Py<RecoveryConfig>>,
+    locks: Arc<ExecutionLocks>,
 ) -> PyResult<Option<ExecutionNumber>>
 where
     A: Allocate,
@@ -123,6 +213,7 @@ where
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
     clear_input_activators();
+    let execution = WorkerExecution::begin(recovery_config.is_some().then_some(&locks));
 
     // Without recovery there is nothing to snapshot, so every epoch is
     // used. The snapshot interval also decides whether the first epoch
@@ -134,7 +225,7 @@ where
     let pre_age_first_epoch = snapshot_interval.is_some();
 
     let recovery = recovery_config
-        .map(|config| Python::with_gil(|py| config.borrow(py).build()))
+        .map(|config| Python::with_gil(|py| config.borrow(py).build(&locks)))
         .transpose()?;
 
     let resume_from = recovery
@@ -175,6 +266,7 @@ where
     })?;
 
     let completed = tracing::info_span!("production_dataflow").in_scope(|| worker.run(probe));
+    execution.finish_run(completed);
 
     worker.shutdown();
     clear_input_activators();
@@ -531,4 +623,9 @@ where
 
         Ok(probe)
     })
+}
+
+pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(execution_state, m)?)?;
+    Ok(())
 }
