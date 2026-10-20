@@ -36,8 +36,7 @@ fn main() {
         .filter(|revision| !revision.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
     let git_dirty = git_output(&["status", "--porcelain"], &manifest_dir)
-        .map(|status| !status.is_empty())
-        .unwrap_or(false);
+        .map_or(false, |status| !status.is_empty());
     // Python spells booleans differently than Rust.
     let git_dirty = if git_dirty { "True" } else { "False" };
 
