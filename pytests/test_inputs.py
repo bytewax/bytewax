@@ -26,7 +26,13 @@ from bytewax.inputs import (
     batch_getter,
     batch_getter_ex,
 )
-from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
+from bytewax.testing import (
+    TestingSink,
+    TestingSource,
+    _IterSourcePartition,
+    cluster_main,
+    run_main,
+)
 from pytest import raises, skip
 from typing_extensions import override
 
@@ -917,3 +923,37 @@ def test_dynamic_source_zero_epoch_interval_is_fast():
 
     assert sorted(out) == list(range(3000))
     assert elapsed < 1.5, f"zero epoch interval took {elapsed:.2f} s (want < 1.5 s)"
+
+
+class _SlowStartSource(TestingSource[str]):
+    """A `TestingSource` whose partition takes 5 ms to build."""
+
+    @override
+    def build_part(
+        self, step_id: str, for_part: str, resume_state: Optional[int]
+    ) -> _IterSourcePartition[str]:
+        time.sleep(0.005)
+        return super().build_part(step_id, for_part, resume_state)
+
+
+def test_inputs_start_together():
+    # At the start of an execution every input waits for the probe to
+    # move past the first epoch, which takes several worker steps in
+    # this dataflow. `first` starts waiting, then takes 5 ms, longer
+    # than the cooldown grace, to build its partition; `second` starts
+    # waiting only after that. If `first` cooled down on that wait, it
+    # would sleep while `second` emitted all of its items.
+    out: List[Tuple[str, str]] = []
+
+    flow = Dataflow("test_df")
+    first = op.input("first", flow, _SlowStartSource(["f1", "f2", "f3"]))
+    second = op.input("second", flow, TestingSource(["s1", "s2", "s3"]))
+    merged = op.merge("merge", first, second)
+    keyed = op.key_on("key", merged, lambda _item: "all")
+    passed = op.stateful_map("pass", keyed, lambda state, item: (state, item))
+    op.output("out", passed, TestingSink(out))
+
+    run_main(flow)
+
+    items = [item for _key, item in out]
+    assert items.index("f1") < items.index("s3"), f"first input started late: {items}"

@@ -56,7 +56,10 @@ notes on GitHub when we make a new release.__
   CPU load while it waits. Re-checks within the grace stay immediate,
   covering the few worker steps the downstream operators need to
   process a closed epoch, so zero and short epoch intervals keep
-  their throughput at any pipeline depth.
+  their throughput at any pipeline depth. Until a partition closes
+  its first epoch, as at the start of an execution, it keeps
+  re-checking every step, so the inputs of a dataflow still start
+  together.
 
 - Fixes {py:obj}`~bytewax.tracing.setup_tracing` hanging forever
   instead of raising a `RuntimeError` when tracing can't be set up:

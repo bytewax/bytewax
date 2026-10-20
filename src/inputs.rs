@@ -212,11 +212,20 @@ fn default_next_awake(
 // `COOLDOWN_GRACE` of becoming blocked stay immediate so those steps
 // never pay the cooldown, no matter how deep the dataflow is; only a
 // wait that outlives the grace is treated as sustained backpressure.
+//
+// A partition that has not advanced to a later epoch yet never cools
+// down: any wait before that is the start of the execution, while the
+// probe moves past the first epoch. It re-checks every step, as inputs
+// always did, so the inputs of a dataflow start together instead of
+// one sleeping while another runs ahead.
 #[derive(Default)]
 struct BlockedWait {
     // When this partition started waiting, or `None` if its last
     // activation found it free to advance.
     blocked_since: Option<DateTime<Utc>>,
+    // Whether this partition has closed an epoch and advanced to the
+    // next one.
+    advanced: bool,
 }
 
 impl BlockedWait {
@@ -228,9 +237,14 @@ impl BlockedWait {
         self.blocked_since = None;
     }
 
-    /// Whether the wait has outlived `COOLDOWN_GRACE` at `now`.
+    fn mark_advanced(&mut self) {
+        self.advanced = true;
+    }
+
+    /// Whether the wait has outlived `COOLDOWN_GRACE` at `now`, once
+    /// the partition has advanced to a later epoch.
     fn cooldown_applies(&self, now: DateTime<Utc>) -> bool {
-        matches!(self.blocked_since, Some(since) if now - since >= COOLDOWN_GRACE)
+        self.advanced && matches!(self.blocked_since, Some(since) if now - since >= COOLDOWN_GRACE)
     }
 
     /// Clamp a partition's own awake time `base` to the cooldown.
@@ -246,6 +260,35 @@ impl BlockedWait {
             base
         }
     }
+}
+
+#[test]
+fn test_blocked_wait_cools_down_only_after_the_first_advance() {
+    let since = Utc::now();
+    let late = since + COOLDOWN_GRACE + COOLDOWN_GRACE;
+
+    // Waiting before the first advance: every re-check is immediate,
+    // however long the wait.
+    let mut wait = BlockedWait::default();
+    wait.mark_blocked(since);
+    assert_eq!(wait.wake_time(late, late), late);
+
+    // Being let through by the probe is not advancing: the probe's
+    // frontier starts empty, which lets a source's first activation
+    // through before the probe has seen any progress.
+    wait.mark_unblocked();
+    wait.mark_blocked(since);
+    assert_eq!(wait.wake_time(late, late), late);
+
+    // After the first advance, a wait past the grace backs off.
+    wait.mark_unblocked();
+    wait.mark_advanced();
+    wait.mark_blocked(since);
+    assert_eq!(wait.wake_time(late, late), late + DEFAULT_COOLDOWN);
+
+    // Within the grace it stays immediate.
+    let soon = since + COOLDOWN_GRACE / 2;
+    assert_eq!(wait.wake_time(soon, soon), soon);
 }
 
 struct PartitionedPartState {
@@ -586,6 +629,7 @@ impl FixedPartitionedSource {
                                         part_state.downstream_cap.downgrade(&next_epoch);
                                         part_state.snap_cap.downgrade(&next_epoch);
                                         part_state.epoch_started = now;
+                                        part_state.blocked.mark_advanced();
                                         tracing::debug!("Advanced to epoch {next_epoch}");
 
                                         Ok(())
@@ -906,6 +950,7 @@ impl DynamicSource {
                                 let next_epoch = epoch + 1;
                                 part_state.epoch_started = now;
                                 part_state.output_cap.downgrade(&next_epoch);
+                                part_state.blocked.mark_advanced();
                                 tracing::trace!("Advanced to epoch {next_epoch}");
                             }
                         } else {
