@@ -9,8 +9,9 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- Adds `bytewax.__version__`, so the installed Bytewax version can
-  be checked from Python code, e.g. when sanity-checking an
+- Adds `bytewax.__version__`, `bytewax.__git_revision__`, and
+  `bytewax.__git_dirty__`, so the exact installed build can be
+  identified from Python code, e.g. when sanity-checking an
   environment or reporting a bug.
 
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
