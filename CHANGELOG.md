@@ -9,10 +9,10 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
-- Adds `bytewax.__version__`, `bytewax.__git_revision__`, and
-  `bytewax.__git_dirty__`, so the exact installed build can be
-  identified from Python code, e.g. when sanity-checking an
-  environment or reporting a bug.
+- Adds `bytewax.__version__`, exposing the installed package version
+  from Python code, e.g. when sanity-checking an environment or
+  reporting a bug. It is read from the package metadata, so importing
+  the package stays cheap and does not load the compiled extension.
 
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
@@ -657,3 +657,4 @@ now = datetime.now(timezone.utc)
   arguments and environment variables for the above entrypoints.
 
 - Renames `bytewax.inp` to `bytewax.inputs`.
+
