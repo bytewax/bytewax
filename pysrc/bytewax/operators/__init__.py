@@ -1096,8 +1096,10 @@ def stateful(
 
     """
 
-    def shim_builder(resume_state: Optional[S]) -> _StatefulLogic[V, W, S]:
+    def shim_builder(resume_state: Optional[S]) -> StatefulBatchLogic[V, W, S]:
         inner_logic = builder(resume_state)
+        if isinstance(inner_logic, _StatefulFlatMapLogic):
+            return inner_logic.as_batch_logic()
         return _StatefulLogic(inner_logic, builder)
 
     return stateful_batch("stateful_batch", up, shim_builder)
@@ -2883,6 +2885,69 @@ class _StatefulFlatMapLogic(StatefulLogic[V, W, S]):
         else:
             self.state = s
             return (ws, StatefulLogic.RETAIN)
+
+    @override
+    def snapshot(self) -> S:
+        assert self.state is not None
+        return copy.deepcopy(self.state)
+
+    def as_batch_logic(self) -> "_StatefulFlatMapBatchLogic[V, W, S]":
+        return _StatefulFlatMapBatchLogic(self.step_id, self.mapper, self.state)
+
+
+@dataclass
+class _StatefulFlatMapBatchLogic(StatefulBatchLogic[V, W, S]):
+    """Same as {py:obj}`_StatefulFlatMapLogic` under {py:obj}`stateful`.
+
+    That is one call to `on_item` per item, which calls the mapper.
+    Here the whole batch is a loop over the mapper.
+
+    """
+
+    step_id: str
+    mapper: Callable[[Optional[S], V], Tuple[Optional[S], Iterable[W]]]
+    state: Optional[S]
+
+    @override
+    def on_batch(self, values: List[V]) -> Tuple[Iterable[W], bool]:
+        mapper = self.mapper
+        out: List[W] = []
+        for value in values:
+            res = mapper(self.state, value)
+            try:
+                state, ws = res
+            except TypeError as ex:
+                msg = (
+                    f"return value of `mapper` {f_repr(mapper)} "
+                    f"in step {self.step_id!r} "
+                    "must be a 2-tuple of `(updated_state, emit_values)`; "
+                    f"got a {type(res)!r} instead"
+                )
+                raise TypeError(msg) from ex
+            discard = state is None
+            if not discard:
+                # Match on_item: release replaced state before consuming ws.
+                self.state = state
+            del res, state
+            out.extend(ws)
+            if discard:
+                # Match _StatefulLogic: keep discarded state alive until ws
+                # is consumed, then start the next item from None.
+                self.state = None
+
+        return (out, self.state is None)
+
+    @override
+    def on_notify(self) -> Tuple[Iterable[W], bool]:
+        return (_EMPTY, StatefulBatchLogic.RETAIN)
+
+    @override
+    def on_eof(self) -> Tuple[Iterable[W], bool]:
+        return (_EMPTY, StatefulBatchLogic.RETAIN)
+
+    @override
+    def notify_at(self) -> Optional[datetime]:
+        return None
 
     @override
     def snapshot(self) -> S:
