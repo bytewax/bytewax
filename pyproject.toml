@@ -105,4 +105,3 @@ docstring-code-format = true
 "test_*.py" = ["D"]
 # Because it has huge literals in it.
 "pytests/test_visualize.py" = ["E501"]
-

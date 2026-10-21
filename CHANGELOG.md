@@ -657,4 +657,3 @@ now = datetime.now(timezone.utc)
   arguments and environment variables for the above entrypoints.
 
 - Renames `bytewax.inp` to `bytewax.inputs`.
-
