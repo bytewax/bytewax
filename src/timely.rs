@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use num::CheckedSub;
 use opentelemetry::global;
+use opentelemetry::metrics::Histogram;
 use opentelemetry::KeyValue;
 use serde::Deserialize;
 use serde::Serialize;
@@ -844,6 +845,7 @@ where
     fn partd_write<P, W>(
         &self,
         name: String,
+        histogram: Histogram<f64>,
         local_parts: Vec<P>,
         pf: impl PartitionFn<K> + 'static,
         builder: impl FnMut(&P) -> W + 'static,
@@ -863,6 +865,7 @@ where
     fn partd_write<P, W>(
         &self,
         name: String,
+        histogram: Histogram<f64>,
         local_parts: Vec<P>,
         pf: impl PartitionFn<K> + 'static,
         mut builder: impl FnMut(&P) -> W + 'static,
@@ -873,11 +876,6 @@ where
     {
         let this_worker = self.scope().w_index();
 
-        let meter = global::meter("dataflow");
-        let histogram = meter
-            .f64_histogram("partd_write_duration_seconds")
-            .with_description("partitioned state write duration in seconds")
-            .init();
         let worker_label = KeyValue::new("worker_id", this_worker.0.to_string());
         // Create a map of metric labels to use for each part_id
         let part_label_map: HashMap<P, Vec<KeyValue>> = local_parts

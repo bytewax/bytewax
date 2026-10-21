@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use chrono::TimeDelta;
+use opentelemetry::global;
 use pyo3::create_exception;
 use pyo3::exceptions::PyFileNotFoundError;
 use pyo3::exceptions::PyRuntimeError;
@@ -1713,6 +1714,13 @@ where
     ) -> ClockStream<S> {
         let scope = self.scope();
         let local_parts = bundle.local_parts();
+        // All three writers share one instrument for this recovery graph.
+        // Creating identical instruments from separate meters can expose
+        // duplicate series with the pinned OpenTelemetry SDK.
+        let histogram = global::meter("dataflow")
+            .f64_histogram("partd_write_duration_seconds")
+            .with_description("partitioned state write duration in seconds")
+            .init();
 
         let mut new_ex_part = bundle.new_builder();
 
@@ -1721,6 +1729,7 @@ where
             .into_stream_once_at(&scope, resume_epoch.0)
             .partd_write(
                 String::from("recovery_ex_writer"),
+                histogram.clone(),
                 local_parts.clone(),
                 BuildHasherDefault::<SeaHasher>::default(),
                 move |part_key| {
@@ -1736,6 +1745,7 @@ where
 
         let write_snap_clock = self.ser_snap().partd_write(
             String::from("recovery_snap_writer"),
+            histogram.clone(),
             local_parts.clone(),
             BuildHasherDefault::<SeaHasher>::default(),
             move |part_key| {
@@ -1753,6 +1763,7 @@ where
             .frontier(resume_from)
             .partd_write(
                 String::from("recovery_front_writer"),
+                histogram,
                 local_parts.clone(),
                 BuildHasherDefault::<SeaHasher>::default(),
                 move |part_key| {
