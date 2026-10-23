@@ -9,6 +9,10 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Fixes conflicting Prometheus recovery-write histogram samples by sharing
+  one instrument across the recovery writers. Existing metric names,
+  labels, and histogram buckets are preserved.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
