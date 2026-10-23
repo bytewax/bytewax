@@ -3,15 +3,19 @@
 import copy
 import typing
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import partial
+from operator import itemgetter
 from typing import (
     Any,
     Callable,
+    Deque,
     Dict,
     Generic,
     Iterable,
+    Iterator,
     List,
     Literal,
     Optional,
@@ -610,6 +614,10 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
 
     def intersects(self, timestamp: datetime) -> List[int]:
         since_origin = timestamp - self.align_to
+        if self.length == self.offset:
+            # Windows do not overlap: `(x - length) // offset + 1`
+            # is `x // offset` if they are the same.
+            return [since_origin // self.offset]
         return list(
             range(
                 (since_origin - self.length) // self.offset + 1,
@@ -624,11 +632,11 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
 
     @override
     def open_for(self, timestamp: datetime) -> List[int]:
-        in_windows = []
-        for window_id in self.intersects(timestamp):
-            meta = self.state.opened.get(window_id) or self._metadata_for(window_id)
-            self.state.opened.setdefault(window_id, meta)
-            in_windows.append(window_id)
+        in_windows = self.intersects(timestamp)
+        opened = self.state.opened
+        for window_id in in_windows:
+            if window_id not in opened:
+                opened[window_id] = self._metadata_for(window_id)
 
         return in_windows
 
@@ -1043,6 +1051,150 @@ _Meta: TypeAlias = Tuple[int, Literal["M"], WindowMetadata]
 _WindowEvent: TypeAlias = Union[_Late[V], _Emit[W], _Meta]
 
 
+class _WindowQueueBlock(Generic[V]):
+    """Retain each entry once, in arrival order, without per-entry indexes.
+
+    A cached minimum skips scans while no entry can be due. Monotone
+    arrivals can be drained directly from the head. Disordered arrivals
+    use a stable partition; the containing queue sorts all due entries.
+    """
+
+    __slots__ = ("entries", "_ordered", "minimum", "maximum")
+
+    def __init__(self, entries: List[_WindowQueueEntry[V]]):
+        self.entries: Deque[_WindowQueueEntry[V]] = deque()
+        self._ordered = True
+        self.minimum = UTC_MAX
+        self.maximum = UTC_MIN
+        self.extend(entries)
+
+    def extend(self, entries: List[_WindowQueueEntry[V]]) -> None:
+        if not entries:
+            return
+        if self._ordered:
+            previous = self.entries[-1][1] if self.entries else UTC_MIN
+            for _, timestamp in entries:
+                if timestamp < previous:
+                    self._ordered = False
+                    break
+                previous = timestamp
+        if self._ordered:
+            if not self.entries:
+                self.minimum = entries[0][1]
+            self.maximum = entries[-1][1]
+        else:
+            self.minimum = min(self.minimum, min(entries, key=itemgetter(1))[1])
+            self.maximum = max(self.maximum, max(entries, key=itemgetter(1))[1])
+        self.entries.extend(entries)
+
+    def pop_due(self, watermark: datetime) -> List[_WindowQueueEntry[V]]:
+        if not self.entries or self.minimum > watermark:
+            return []
+        if self.maximum <= watermark:
+            due = list(self.entries)
+            self.entries.clear()
+            self.minimum = UTC_MAX
+            self.maximum = UTC_MIN
+            self._ordered = True
+            return due
+        due = []
+        if self._ordered:
+            while self.entries and self.entries[0][1] <= watermark:
+                due.append(self.entries.popleft())
+            self.minimum = self.entries[0][1] if self.entries else UTC_MAX
+        else:
+            pending: Deque[_WindowQueueEntry[V]] = deque()
+            minimum = UTC_MAX
+            previous = UTC_MIN
+            ordered = True
+            for entry in self.entries:
+                timestamp = entry[1]
+                if timestamp <= watermark:
+                    due.append(entry)
+                else:
+                    pending.append(entry)
+                    if timestamp < minimum:
+                        minimum = timestamp
+                    if timestamp < previous:
+                        ordered = False
+                    previous = timestamp
+            self.entries = pending
+            self.minimum = minimum
+            self._ordered = ordered
+        return due
+
+
+class _OrderedWindowQueue(Generic[V]):
+    """Index blocks, keeping one arrival-ordered entry per buffered event.
+
+    Block bounds skip scans of future entries and drain fully due blocks
+    together. Sorted blocks can also remove a prefix without scanning the
+    remainder. Only partially due, disordered blocks need a full scan.
+    Stable sorting of due entries preserves timestamp ties across blocks.
+    Adjacent survivors are coalesced to bound block overhead after drains.
+    """
+
+    __slots__ = ("_blocks", "_minimum")
+    _BLOCK_SIZE = 1024
+
+    def __init__(self, entries: List[_WindowQueueEntry[V]]):
+        self._blocks: Deque[_WindowQueueBlock[V]] = deque()
+        self._minimum = UTC_MAX
+        self.extend(entries)
+
+    def __bool__(self) -> bool:
+        return bool(self._blocks)
+
+    def __iter__(self) -> Iterator[_WindowQueueEntry[V]]:
+        for block in self._blocks:
+            yield from block.entries
+
+    def first_timestamp(self) -> datetime:
+        return self._blocks[0].entries[0][1]
+
+    def extend(self, entries: List[_WindowQueueEntry[V]]) -> None:
+        if not entries:
+            return
+        offset = 0
+        if self._blocks and len(self._blocks[-1].entries) < self._BLOCK_SIZE:
+            tail = self._blocks[-1]
+            offset = min(len(entries), self._BLOCK_SIZE - len(tail.entries))
+            tail.extend(entries[:offset])
+            self._minimum = min(self._minimum, tail.minimum)
+        while offset < len(entries):
+            block = _WindowQueueBlock(entries[offset : offset + self._BLOCK_SIZE])
+            self._blocks.append(block)
+            self._minimum = min(self._minimum, block.minimum)
+            offset += self._BLOCK_SIZE
+
+    def pop_due(self, watermark: datetime) -> List[_WindowQueueEntry[V]]:
+        if self._minimum > watermark:
+            return []
+        due = []
+        pending: Deque[_WindowQueueBlock[V]] = deque()
+        minimum = UTC_MAX
+        for block in self._blocks:
+            if block.minimum <= watermark:
+                due.extend(block.pop_due(watermark))
+            if block.entries:
+                if (
+                    pending
+                    and len(pending[-1].entries) + len(block.entries)
+                    <= self._BLOCK_SIZE
+                ):
+                    # Keep arrival order while preventing one mostly empty
+                    # block per far-future survivor after repeated drains.
+                    pending[-1].extend(list(block.entries))
+                else:
+                    pending.append(block)
+                if block.minimum < minimum:
+                    minimum = block.minimum
+        self._blocks = pending
+        self._minimum = minimum
+        due.sort(key=itemgetter(1))
+        return due
+
+
 @dataclass
 class _WindowLogic(
     StatefulBatchLogic[
@@ -1060,21 +1212,23 @@ class _WindowLogic(
     queue: List[_WindowQueueEntry[V]] = field(default_factory=list)
 
     _last_watermark: datetime = UTC_MIN
+    _ordered_queue: Optional[_OrderedWindowQueue[V]] = field(default=None, init=False)
 
     def _handle_inserts(
         self, due_entries: List[_WindowQueueEntry[V]]
     ) -> Iterable[_WindowEvent[V, W]]:
-        for entry in due_entries:
-            value, timestamp = entry
-            for window_id in self.windower.open_for(timestamp):
-                if window_id in self.logics:
-                    logic = self.logics[window_id]
+        open_for = self.windower.open_for
+        logics = self.logics
+        for value, timestamp in due_entries:
+            for window_id in open_for(timestamp):
+                if window_id in logics:
+                    logic = logics[window_id]
                 else:
                     logic = self.builder(None)
-                    self.logics[window_id] = logic
+                    logics[window_id] = logic
 
-                ws = logic.on_value(value)
-                yield from ((window_id, "E", w) for w in ws)
+                for w in logic.on_value(value):
+                    yield (window_id, "E", w)
 
     def _handle_merged(self) -> Iterable[_WindowEvent[V, W]]:
         for orig_window_id, targ_window_id in self.windower.merged():
@@ -1094,11 +1248,21 @@ class _WindowLogic(
 
     def _flush_queue(self, watermark: datetime) -> Iterable[_WindowEvent[V, W]]:
         if self.ordered:
-            # Remove due entries from the queue.
-            due_entries, self.queue = partition(
-                self.queue, lambda entry: entry[1] <= watermark
-            )
-            due_entries.sort(key=lambda entry: entry[1])
+            if self._ordered_queue is not None:
+                self._ordered_queue.extend(self.queue)
+                self.queue = []
+                due_entries = self._ordered_queue.pop_due(watermark)
+                if not self._ordered_queue:
+                    self._ordered_queue = None
+            else:
+                due_entries, self.queue = partition(
+                    self.queue, lambda entry: entry[1] <= watermark
+                )
+                due_entries.sort(key=lambda entry: entry[1])
+                # Small or fully drained batches keep the cheap list path.
+                if len(self.queue) >= _OrderedWindowQueue._BLOCK_SIZE:
+                    self._ordered_queue = _OrderedWindowQueue(self.queue)
+                    self.queue = []
         else:
             due_entries = self.queue
             self.queue = []
@@ -1109,7 +1273,10 @@ class _WindowLogic(
 
     def _is_empty(self) -> bool:
         return (
-            len(self.logics) <= 0 and len(self.queue) <= 0 and self.windower.is_empty()
+            len(self.logics) <= 0
+            and len(self.queue) <= 0
+            and self._ordered_queue is None
+            and self.windower.is_empty()
         )
 
     @override
@@ -1161,10 +1328,14 @@ class _WindowLogic(
         # the buffer.
         queue_notify_at = None
         if self.ordered:
-            try:
-                _, queue_notify_at = self.queue[0]
-            except IndexError:
-                pass
+            if self._ordered_queue is not None:
+                # Preserve the first arrival, rather than the minimum timestamp.
+                queue_notify_at = self._ordered_queue.first_timestamp()
+            else:
+                try:
+                    _, queue_notify_at = self.queue[0]
+                except IndexError:
+                    pass
 
         if window_notify_at is None:
             notify_at = queue_notify_at
@@ -1181,12 +1352,17 @@ class _WindowLogic(
 
     @override
     def snapshot(self) -> _WindowSnapshot[V, SC, SW, S]:
+        if self._ordered_queue is None:
+            queue = list(self.queue)
+        else:
+            queue = list(self._ordered_queue)
+            queue.extend(self.queue)
         return _WindowSnapshot(
             self.clock.snapshot(),
             self.windower.snapshot(),
             {window_id: logic.snapshot() for window_id, logic in self.logics.items()},
             # No need to deepcopy since entries are frozen.
-            list(self.queue),
+            queue,
         )
 
 
@@ -1289,6 +1465,16 @@ def window(
     :returns: Window result streams.
 
     """
+    # Only the built-in counter and exact built-in sliding windower can
+    # combine updates without changing observable user callbacks.
+    logic_type = (
+        _CountWindowOperatorLogic
+        if isinstance(builder, _CountWindowBuilder)
+        and type(windower) is SlidingWindower
+        and windower.length > windower.offset
+        and not ordered
+        else _WindowLogic
+    )
 
     def shim_builder(
         resume_state: Optional[_WindowSnapshot],
@@ -1300,7 +1486,7 @@ def window(
                 window_id: builder(logic_state)
                 for window_id, logic_state in resume_state.logic_states.items()
             }
-            return _WindowLogic(
+            return logic_type(
                 clock_logic,
                 windower_logic,
                 builder,
@@ -1311,7 +1497,7 @@ def window(
         else:
             clock_logic = clock.build(None)
             windower_logic = windower.build(None)
-            return _WindowLogic(
+            return logic_type(
                 clock_logic,
                 windower_logic,
                 builder,
@@ -1688,11 +1874,68 @@ def count_window(
         keyed,
         clock,
         windower,
-        lambda: 0,
-        lambda s, _: s + 1,
-        lambda s, t: s + t,
+        int,
+        _count_add,
+        _count_merge,
         ordered=False,
     )
+
+
+def _count_add(state: int, value: Any) -> int:
+    return state + 1
+
+
+def _count_merge(left: int, right: int) -> int:
+    return left + right
+
+
+class _CountWindowBuilder:
+    def __call__(self, resume_state: Optional[int]) -> "_FoldWindowLogic[Any, int]":
+        return _FoldWindowLogic(
+            _count_add, _count_merge, 0 if resume_state is None else resume_state
+        )
+
+
+class _CountWindowOperatorLogic(_WindowLogic[V, int, SC, _SlidingWindowerState, int]):
+    def _handle_inserts(
+        self, due_entries: List[_WindowQueueEntry[V]]
+    ) -> Iterable[_WindowEvent[V, int]]:
+        if len(due_entries) <= 1:
+            return super()._handle_inserts(due_entries)
+        windower = cast(_SlidingWindowerLogic, self.windower)
+        # Equal first/last window IDs identify a time slice even when length
+        # is not divisible by offset. Dict insertion order preserves the
+        # first opening order of windows for disordered arrivals as well.
+        slices: Dict[Tuple[int, int], int] = {}
+        align_to, length, offset = windower.align_to, windower.length, windower.offset
+        for _, timestamp in due_entries:
+            since_origin = timestamp - align_to
+            bounds = (
+                (since_origin - length) // offset + 1,
+                since_origin // offset,
+            )
+            slices[bounds] = slices.get(bounds, 0) + 1
+        # The exact built-in windower/counter selected by `window` lets us
+        # reuse these bounds. Calling `open_for` would calculate them again,
+        # allocate a list and walk it before we can update the counters. That
+        # repeated work is especially costly when every slice has one item.
+        opened = windower.state.opened
+        logics = cast(Dict[int, _FoldWindowLogic[V, int]], self.logics)
+        builder = cast(
+            Callable[[Optional[int]], _FoldWindowLogic[V, int]], self.builder
+        )
+        for (first, last), count in slices.items():
+            for window_id in range(first, last + 1):
+                if window_id not in opened:
+                    opened[window_id] = windower._metadata_for(window_id)
+                logic = logics.get(window_id)
+                if logic is None:
+                    logic = builder(None)
+                    logics[window_id] = logic
+                logic.state += count
+        # Only the ordinary per-window integers survive the batch. Snapshots
+        # and the operator graph remain compatible with the scalar counter.
+        return _EMPTY
 
 
 @dataclass
@@ -1849,6 +2092,12 @@ def fold_window(
         state = resume_state if resume_state is not None else builder()
         return _FoldWindowLogic(folder, merger, state)
 
+    if builder is int and folder is _count_add and merger is _count_merge:
+        # These identities imply S is int; the type checker cannot infer it.
+        count_builder = cast(
+            Callable[[Optional[S]], WindowLogic[V, S, S]], _CountWindowBuilder()
+        )
+        return window("window", up, clock, windower, count_builder, ordered)
     return window("window", up, clock, windower, shim_builder, ordered)
 
 

@@ -9,6 +9,11 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Reduces repeated scans and allocations in ordered window buffering,
+  reuses count updates across overlapping sliding windows, and reduces
+  Python dispatch overhead in stateful map operations. Public operator
+  signatures and recovery snapshot formats are unchanged.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
