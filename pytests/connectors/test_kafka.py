@@ -50,13 +50,15 @@ producer_config = {**config, "enable.idempotence": "true"}
 ZERO_TD = timedelta(seconds=0)
 
 
-@fixture
-def tmp_topic(request):
-    client = AdminClient(config)
+def tmp_topic_name(request) -> str:
     # Parametrized test names contain `[...]`, which is not valid in a
     # Kafka topic name.
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", request.node.name)
-    topic_name = f"pytest_{safe_name}_{uuid.uuid4()}"
+    return f"pytest_{safe_name}_{uuid.uuid4()}"
+
+
+def create_topic(topic_name: str) -> None:
+    client = AdminClient(config)
     for fut in client.create_topics(
         # 3 partitions.
         [NewTopic(topic_name, 3)],
@@ -84,10 +86,21 @@ def tmp_topic(request):
     else:
         msg = f"topic {topic_name!r} partitions never got a leader"
         raise RuntimeError(msg)
-    yield topic_name
+
+
+def delete_topic(topic_name: str) -> None:
     if os.environ.get("TEST_KAFKA_SKIP_TOPIC_DELETE"):
         return
+    client = AdminClient(config)
     wait(client.delete_topics([topic_name], operation_timeout=5.0).values())
+
+
+@fixture
+def tmp_topic(request):
+    topic_name = tmp_topic_name(request)
+    create_topic(topic_name)
+    yield topic_name
+    delete_topic(topic_name)
 
 
 tmp_topic1 = tmp_topic
@@ -175,7 +188,7 @@ def test_input_raises_on_topic_not_exist():
         causes.append(str(ex))
         ex = ex.__cause__
     expect = (
-        "error listing partitions for Kafka topic `'missing-topic'`: "
+        "error listing partitions for Kafka topic 'missing-topic': "
         "Broker: Unknown topic or partition"
     )
     assert any(expect in c for c in causes), causes
@@ -244,6 +257,48 @@ def test_output(tmp_topic):
 
     expected = list(map(as_k_v, inp))
     assert sorted(consume_all(tmp_topic, len(expected))) == sorted(expected)
+
+
+def test_output_waits_when_local_queue_is_full(tmp_topic):
+    # A local queue much smaller than the batch fills up while
+    # writing; the sink must wait for room instead of failing.
+    inp = [
+        KafkaSinkMessage(f"k{i}".encode(), f"v{i}".encode(), topic=tmp_topic)
+        for i in range(500)
+    ]
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(inp, batch_size=500))
+    sink_config = {**config, "queue.buffering.max.messages": "10"}
+    op.output("out", s, KafkaSink([KAFKA_BROKER], tmp_topic, add_config=sink_config))
+
+    run_main(flow)
+
+    expected = list(map(as_k_v, inp))
+    assert sorted(consume_all(tmp_topic, len(expected))) == sorted(expected)
+
+
+def test_output_raises_when_delivery_fails(request):
+    # The broker doesn't auto-create topics, so nothing can be
+    # delivered to a topic that doesn't exist.
+    missing = tmp_topic_name(request)
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource([KafkaSinkMessage(b"k", b"v")]))
+    sink_config = {**config, "message.timeout.ms": "3000"}
+    op.output("out", s, KafkaSink([KAFKA_BROKER], missing, add_config=sink_config))
+
+    with raises(BytewaxRuntimeError) as exc_info:
+        run_main(flow)
+
+    msg = f"failed to deliver a message to Kafka topic {missing!r}"
+    assert any(msg in str(ex) for ex in _causes(exc_info.value))
+
+
+def _causes(ex: Optional[BaseException]) -> List[BaseException]:
+    out = []
+    while ex is not None:
+        out.append(ex)
+        ex = ex.__cause__
+    return out
 
 
 PARTITIONS = 3
@@ -438,6 +493,35 @@ def test_input_resume_after_failure_loses_nothing(tmp_topic, recovery_config):
         assert offsets == list(range(offsets[0], 10)), f"partition {part}"
     seen = {(r[1], r[2]) for r in first_run + second_run}
     assert seen == {(p, o) for p in range(PARTITIONS) for o in range(10)}
+
+
+def test_output_resends_after_delivery_failure(request, tmp_topic, recovery_config):
+    # At-least-once: messages Kafka didn't accept must not count as
+    # written. The dataflow fails, and resuming re-sends them.
+    produced = produce_per_partition(tmp_topic, 0, 5)
+    out_topic = tmp_topic_name(request)
+
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp",
+        flow,
+        KafkaSource([KAFKA_BROKER], [tmp_topic], tail=False, add_config=config),
+    )
+    s = op.map("to_sink", s, lambda m: KafkaSinkMessage(m.key, m.value))
+    sink_config = {**config, "message.timeout.ms": "3000"}
+    op.output("out", s, KafkaSink([KAFKA_BROKER], out_topic, add_config=sink_config))
+
+    # The output topic doesn't exist yet, so nothing can be delivered.
+    with raises(BytewaxRuntimeError):
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+    create_topic(out_topic)
+    try:
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+        expected = {kv for kvs in produced.values() for kv in kvs}
+        assert set(consume_all(out_topic, len(expected))) == expected
+    finally:
+        delete_topic(out_topic)
 
 
 def test_input_resume_with_different_worker_counts(tmp_path, tmp_topic):
