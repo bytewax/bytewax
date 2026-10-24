@@ -9,6 +9,14 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Items passed between operators are one pointer and are no longer
+  wrapped in a reference-counted box unless they are cloned, so an
+  operator that does not clone an item no longer allocates for it. One
+  worker passing 100 items per batch through a filter that drops them
+  went from 11.7M to 14.1M items per second, and two workers
+  redistributing 1000 items per batch went from 10.2M to 17.4M (medians
+  of 5 interleaved runs).
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a

@@ -4,12 +4,16 @@ use crate::try_unwrap;
 
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyTypeError;
+use pyo3::ffi;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyBytes;
 use serde::ser::Error;
 use std::fmt;
+use std::mem::ManuallyDrop;
+use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
@@ -25,22 +29,146 @@ static PICKLE_MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
 /// <https://github.com/Ixrec/rust-orphan-rules> for why we need a
 /// newtype and what they are.
 ///
-/// The [`Py`] is wrapped in an [`Arc`] so [`Clone`] does not need
-/// the GIL. Since PyO3 0.22, incrementing a Python refcount requires
-/// the GIL (the `py-clone` feature panics without it). Timely clones
-/// every item on worker threads whenever a stream is read by more
-/// than one operator, so taking the GIL there made workers contend
-/// on it and multi-worker dataflows slowed down. Cloning the [`Arc`]
-/// instead defers the Python incref until the item is unwrapped back
-/// into a [`PyObject`], which happens with the GIL already held.
-/// Dropping the last [`Arc`] without the GIL is fine: PyO3 queues the
-/// decref in its reference pool.
-#[derive(Clone)]
-pub(crate) struct TdPyAny(Arc<PyObject>);
+/// Cloning must not need the GIL. Since PyO3 0.22, incrementing a
+/// Python refcount requires the GIL (the `py-clone` feature panics
+/// without it). Timely clones every item on worker threads whenever
+/// a stream is read by more than one operator, so taking the GIL
+/// there made workers contend on it and multi-worker dataflows
+/// slowed down. So a clone moves the [`Py`] into an [`Arc`] shared by
+/// both copies, which defers the Python incref until an item is
+/// unwrapped back into a [`PyObject`], and that happens with the GIL
+/// already held. Dropping the last [`Arc`] without the GIL is fine:
+/// PyO3 queues the decref in its reference pool.
+///
+/// Most items are never cloned, so an item holds its reference to the
+/// object directly until its first clone. Wrapping every item in an
+/// [`Arc`] made each operator allocate and free one per item.
+///
+/// The item is one pointer, in one of two forms told apart by its low
+/// bit, which is clear in the address of a Python object and set here
+/// in the address of an [`Arc`]:
+///
+/// - the owned reference to the object, as given by [`Py::into_ptr`];
+/// - an [`Arc`]`<`[`PyObject`]`>` count, as given by [`Arc::into_raw`].
+///
+/// The pointer is atomic only so that the first clone can move an
+/// item from the first form to the second through `&self`. Nothing
+/// else changes it.
+pub(crate) struct TdPyAny {
+    repr: AtomicPtr<ffi::PyObject>,
+}
+
+// `TdPyAny` is `Send` and `Sync` because its only field is an
+// `AtomicPtr`. That is sound for the same reason as the manual impls
+// on `Py<T>`, and needs one rule more: the Python refcount of the
+// object only changes with the GIL held. A clone only changes the
+// count of the `Arc`, and a drop without the GIL queues the decref in
+// PyO3's reference pool, which runs on the next GIL acquisition.
+
+/// Set in the address of an [`Arc`] in [`TdPyAny::repr`].
+const SHARED: usize = 1;
+
+fn is_shared(repr: *mut ffi::PyObject) -> bool {
+    repr.addr() & SHARED != 0
+}
+
+fn tag_shared(arc: *const PyObject) -> *mut ffi::PyObject {
+    arc.cast::<ffi::PyObject>()
+        .cast_mut()
+        .map_addr(|addr| addr | SHARED)
+}
+
+fn untag_shared(repr: *mut ffi::PyObject) -> *const PyObject {
+    repr.map_addr(|addr| addr & !SHARED)
+        .cast::<PyObject>()
+        .cast_const()
+}
+
+/// Take back the reference an item holds.
+///
+/// # Safety
+///
+/// `ptr` is a reference to a Python object that the caller owns. The
+/// GIL is not needed to hold it, and dropping the result without the
+/// GIL queues the decref.
+unsafe fn owned_from_raw(ptr: *mut ffi::PyObject) -> PyObject {
+    // The token only serves the null check, which `ptr` passes.
+    Py::from_owned_ptr(Python::assume_gil_acquired(), ptr)
+}
 
 impl TdPyAny {
-    pub(crate) fn bind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyAny> {
-        self.0.bind(py)
+    /// Bind the object. This holds a new reference, so the item can
+    /// still be cloned or moved while the result is in use.
+    pub(crate) fn bind<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
+        let repr = self.repr.load(Ordering::Acquire);
+        // Safety: the item owns its reference, or a count of the
+        // `Arc` that does, for as long as `self` lives.
+        unsafe {
+            if is_shared(repr) {
+                (*untag_shared(repr)).bind(py).clone()
+            } else {
+                Bound::from_borrowed_ptr(py, repr)
+            }
+        }
+    }
+}
+
+impl Clone for TdPyAny {
+    fn clone(&self) -> Self {
+        let repr = self.repr.load(Ordering::Acquire);
+        if is_shared(repr) {
+            // Safety: `self` holds a count, so the `Arc` is alive.
+            unsafe { Arc::increment_strong_count(untag_shared(repr)) };
+            return Self {
+                repr: AtomicPtr::new(repr),
+            };
+        }
+
+        // The first clone. Move the reference into an `Arc` with a
+        // count for each of the two items.
+        //
+        // Safety: `repr` is the reference `self` owns, and `self` is
+        // borrowed, so it is still owned while this runs.
+        let arc = Arc::new(unsafe { owned_from_raw(repr) });
+        let for_self = Arc::into_raw(arc.clone());
+        match self.repr.compare_exchange(
+            repr,
+            tag_shared(for_self),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => Self {
+                repr: AtomicPtr::new(tag_shared(Arc::into_raw(arc))),
+            },
+            Err(_) => {
+                // Another thread cloned `self` at the same time and
+                // owns the reference now. Give up this `Arc` without
+                // dropping the reference in it, and clone again.
+                //
+                // Safety: `for_self` is the count taken above, which
+                // `self` did not take over, so the `Arc` is unique
+                // after it is dropped.
+                unsafe { drop(Arc::from_raw(for_self)) };
+                if let Ok(obj) = Arc::try_unwrap(arc) {
+                    std::mem::forget(obj);
+                }
+                self.clone()
+            }
+        }
+    }
+}
+
+impl Drop for TdPyAny {
+    fn drop(&mut self) {
+        let repr = *self.repr.get_mut();
+        // Safety: the item owns what `repr` points to.
+        unsafe {
+            if is_shared(repr) {
+                drop(Arc::from_raw(untag_shared(repr)));
+            } else {
+                drop(owned_from_raw(repr));
+            }
+        }
     }
 }
 
@@ -48,19 +176,32 @@ impl TdPyAny {
 /// still alive.
 impl From<TdPyAny> for PyObject {
     fn from(x: TdPyAny) -> Self {
-        Arc::try_unwrap(x.0).unwrap_or_else(|x| Python::with_gil(|py| x.clone_ref(py)))
+        let x = ManuallyDrop::new(x);
+        let repr = x.repr.load(Ordering::Acquire);
+        // Safety: the item owned what `repr` points to, and `x` will
+        // not drop it.
+        unsafe {
+            if is_shared(repr) {
+                Arc::try_unwrap(Arc::from_raw(untag_shared(repr)))
+                    .unwrap_or_else(|arc| Python::with_gil(|py| arc.clone_ref(py)))
+            } else {
+                owned_from_raw(repr)
+            }
+        }
     }
 }
 
 impl From<PyObject> for TdPyAny {
     fn from(x: PyObject) -> Self {
-        Self(Arc::new(x))
+        Self {
+            repr: AtomicPtr::new(x.into_ptr()),
+        }
     }
 }
 
 impl From<Bound<'_, PyAny>> for TdPyAny {
     fn from(x: Bound<'_, PyAny>) -> Self {
-        Self(Arc::new(x.unbind()))
+        Self::from(x.unbind())
     }
 }
 
@@ -209,4 +350,149 @@ impl TdPyCallable {
 // The function returns one of the possible subclasses instances.
 pub(crate) trait PyConfigClass<S> {
     fn downcast(&self, py: Python) -> PyResult<S>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::types::PyList;
+
+    fn new_obj(py: Python) -> PyObject {
+        PyList::empty(py).into_any().unbind()
+    }
+
+    #[test]
+    fn td_py_any_is_a_pointer() {
+        assert_eq!(std::mem::size_of::<TdPyAny>(), std::mem::size_of::<usize>());
+    }
+
+    #[test]
+    fn unwrapping_an_unshared_item_keeps_its_reference() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let obj = new_obj(py);
+            let base = obj.get_refcnt(py);
+
+            let item = TdPyAny::from(obj.clone_ref(py));
+            assert_eq!(obj.get_refcnt(py), base + 1);
+            let back = PyObject::from(item);
+            assert_eq!(obj.get_refcnt(py), base + 1);
+            assert!(back.is(&obj));
+
+            drop(back);
+            assert_eq!(obj.get_refcnt(py), base);
+        });
+    }
+
+    #[test]
+    fn clones_do_not_touch_the_refcount_until_unwrapped() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let obj = new_obj(py);
+            let base = obj.get_refcnt(py);
+
+            let item = TdPyAny::from(obj.clone_ref(py));
+            let copy = item.clone();
+            let third = copy.clone();
+            // All three share the single reference taken above.
+            assert_eq!(obj.get_refcnt(py), base + 1);
+            assert!(item.bind(py).is(&obj));
+            assert!(third.bind(py).is(&obj));
+
+            drop(item);
+            drop(third);
+            assert_eq!(obj.get_refcnt(py), base + 1);
+
+            // The last item moves the reference out without a new one.
+            let back = PyObject::from(copy);
+            assert_eq!(obj.get_refcnt(py), base + 1);
+            drop(back);
+            assert_eq!(obj.get_refcnt(py), base);
+        });
+    }
+
+    #[test]
+    fn unwrapping_a_shared_item_takes_its_own_reference() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let obj = new_obj(py);
+            let base = obj.get_refcnt(py);
+
+            let item = TdPyAny::from(obj.clone_ref(py));
+            let copy = item.clone();
+            let back = PyObject::from(item);
+            assert_eq!(obj.get_refcnt(py), base + 2);
+            drop(copy);
+            drop(back);
+            assert_eq!(obj.get_refcnt(py), base);
+        });
+    }
+
+    #[test]
+    fn clones_race_without_the_gil() {
+        pyo3::prepare_freethreaded_python();
+        let (obj, base) = Python::with_gil(|py| {
+            let obj = new_obj(py);
+            let base = obj.get_refcnt(py);
+            (obj, base)
+        });
+
+        for _ in 0..200 {
+            let item = Arc::new(Python::with_gil(|py| TdPyAny::from(obj.clone_ref(py))));
+            // Hold back the threads so they clone at about the same
+            // time. They take no GIL, as on a worker thread.
+            let barrier = Arc::new(std::sync::Barrier::new(4));
+            let threads: Vec<_> = (0..4)
+                .map(|_| {
+                    let item = item.clone();
+                    let barrier = barrier.clone();
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        let copies: Vec<_> = (0..16).map(|_| (*item).clone()).collect();
+                        // The main thread still holds the item, so
+                        // these drops are never the last one.
+                        drop(copies);
+                    })
+                })
+                .collect();
+            for thread in threads {
+                thread.join().unwrap();
+            }
+            Python::with_gil(|py| {
+                let item = Arc::try_unwrap(item).ok().unwrap();
+                assert!(item.bind(py).is(&obj));
+                // The last copy is dropped here, under the GIL.
+                drop(item);
+            });
+            Python::with_gil(|py| assert_eq!(obj.get_refcnt(py), base));
+        }
+    }
+
+    #[test]
+    fn last_copies_dropped_without_the_gil_release_their_references() {
+        pyo3::prepare_freethreaded_python();
+        let (obj, base) = Python::with_gil(|py| {
+            let obj = new_obj(py);
+            let base = obj.get_refcnt(py);
+            (obj, base)
+        });
+
+        // An unshared item, dropped on a thread without the GIL.
+        let unshared = Python::with_gil(|py| TdPyAny::from(obj.clone_ref(py)));
+        // A shared item. The main thread drops one copy, and the
+        // thread drops the last one, which is the last Arc.
+        let shared = Python::with_gil(|py| TdPyAny::from(obj.clone_ref(py)));
+        let last = shared.clone();
+        drop(shared);
+        std::thread::spawn(move || {
+            drop(unshared);
+            drop(last);
+        })
+        .join()
+        .unwrap();
+
+        // The drops on the thread are queued decrefs, run on the next
+        // GIL acquisition, which is this one.
+        Python::with_gil(|py| assert_eq!(obj.get_refcnt(py), base));
+    }
 }
