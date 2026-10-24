@@ -129,3 +129,24 @@ def test_check_non_stream_vararg():
     expect = "must be a `Stream`"
     with raises(TypeError, match=re.escape(expect)):
         op.merge("map", 1, 2, 3)  # type: ignore
+
+
+def test_core_operator_dispatch_ignores_qualname():
+    out = []
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource([1, 2, 3]))
+    op.output("out", s, TestingSink(out))
+
+    # The runtime matches core operators by class name, so renaming
+    # the qualified name of the input step's class must not change it.
+    # monkeypatch cannot undo this: `__qualname__` is not in the
+    # class `__dict__`, so restore it by hand.
+    input_cls = type(flow.substeps[0])
+    assert input_cls.__name__ == "input"
+    original_qualname = input_cls.__qualname__
+    input_cls.__qualname__ = "Renamed"
+    try:
+        run_main(flow)
+    finally:
+        input_cls.__qualname__ = original_qualname
+    assert out == [1, 2, 3]
