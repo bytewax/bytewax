@@ -13,6 +13,11 @@ notes on GitHub when we make a new release.__
   from Python code, e.g. when sanity-checking an environment or
   reporting a bug. It is read from the package metadata, so importing
   the package stays cheap and does not load the compiled extension.
+  `bytewax` is now a regular package instead of a namespace package.
+  Add-ons that install modules into it, such as `bytewax.duckdb`, are
+  still found, also from another `sys.path` entry than bytewax; only a
+  path added to `sys.path` after `import bytewax` is no longer searched
+  for them.
 
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
