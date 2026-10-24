@@ -7,6 +7,9 @@
 //! Each tracing backend has to implement the `TracerBuilder` trait, which
 //! requires a `build` function that is used to build the telemetry layer.
 
+use std::sync::Mutex;
+use std::sync::PoisonError;
+
 use opentelemetry::sdk::trace::Tracer;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
@@ -94,10 +97,22 @@ const ALREADY_SET_UP: &str = "tracing is already set up in this process; keep th
                               object returned by the first `setup_tracing` call \
                               instead of calling it again";
 
+/// Held from the "already set up" check until the subscriber is
+/// installed, so two concurrent calls cannot both pass the check.
+static SETUP_LOCK: Mutex<()> = Mutex::new(());
+
 async fn setup(
     log_level: LevelFilter,
     tracer: Option<Box<dyn TracerBuilder + Send>>,
 ) -> PyResult<()> {
+    let _setup_lock = SETUP_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    // Check before building the tracer: building an OTLP or Jaeger
+    // tracer installs a new global tracer provider, which shuts down
+    // the previous one, so the first tracer would stop exporting.
+    if tracing::dispatcher::has_been_set() {
+        return Err(tracked_err::<PyRuntimeError>(ALREADY_SET_UP));
+    }
+
     let logs = tracing_subscriber::fmt::Layer::default()
         .compact()
         // Show source file
