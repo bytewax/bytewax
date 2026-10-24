@@ -1250,12 +1250,16 @@ where
     /// A delay can be specified so the epoch reported as committed is
     /// actually a certain amount behind the frontier epoch of the
     /// input.
+    ///
+    /// Commits are only issued for epochs where `should_commit`
+    /// returns `true`; other epochs still pass through the clock.
     fn partd_commit<P, L>(
         &self,
         name: String,
         local_parts: Vec<P>,
         builder: impl FnMut(&P) -> L + 'static,
         delay: S::Timestamp,
+        should_commit: impl Fn(&S::Timestamp) -> bool + 'static,
     ) -> ClockStream<S>
     where
         P: ExchangeData + Ord + Eq + Debug,
@@ -1273,6 +1277,7 @@ where
         local_parts: Vec<P>,
         mut builder: impl FnMut(&P) -> L + 'static,
         delay: S::Timestamp,
+        should_commit: impl Fn(&S::Timestamp) -> bool + 'static,
     ) -> ClockStream<S>
     where
         P: ExchangeData + Ord + Eq + Debug,
@@ -1316,12 +1321,14 @@ where
                             // Call commit before updating the partitions
                             // in order to mirror the semantics of the
                             // write operator.
-                            if let Some(delayed) = epoch.checked_sub(&delay) {
-                                for (part_key, part) in parts.iter_mut() {
-                                    tracing::trace_span!("partition", part_key = ?part_key)
-                                        .in_scope(|| {
-                                            part.commit(&delayed);
-                                        });
+                            if should_commit(epoch) {
+                                if let Some(delayed) = epoch.checked_sub(&delay) {
+                                    for (part_key, part) in parts.iter_mut() {
+                                        tracing::trace_span!("partition", part_key = ?part_key)
+                                            .in_scope(|| {
+                                                part.commit(&delayed);
+                                            });
+                                    }
                                 }
                             }
 

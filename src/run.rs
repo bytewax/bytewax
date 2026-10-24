@@ -7,11 +7,14 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 use std::thread;
 use std::time::Duration;
 
@@ -26,10 +29,80 @@ use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::EpochInterval;
 use crate::metrics::initialize_metrics;
+use crate::recovery::ExecutionNumber;
 use crate::recovery::RecoveryConfig;
 use crate::unwrap_any;
 use crate::webserver::run_webserver;
 use crate::worker::worker_main;
+
+/// Set by `request_graceful_drain`, and cleared when the last execution
+/// in the process ends. A request made while no execution runs is kept
+/// for the next one.
+///
+/// Inputs treat this as EOF, so the execution ends at a consistent
+/// point that the next execution resumes from exactly. Stateful
+/// operators see the same EOF but pause rather than finalize; see
+/// the EOF handling in `operators.rs`.
+pub(crate) static DRAIN: AtomicBool = AtomicBool::new(false);
+
+/// Number of executions in progress in this process, of any kind.
+static EXECUTING: AtomicUsize = AtomicUsize::new(0);
+
+/// Number of executions in progress that cannot be drained: those
+/// without a recovery config, and multi-process clusters.
+///
+/// A drain would discard the open windows and folds of an execution
+/// without recovery. The processes of a multi-process cluster would not
+/// agree on the end of input, so a drain in one process would finish
+/// the others early. A request is refused while one of these runs, and
+/// a drain pending in the process keeps one from starting.
+static UNDRAINABLE: AtomicUsize = AtomicUsize::new(0);
+
+/// Serializes the checks and updates of the drain state above, so a
+/// request and an execution starting or ending cannot interleave
+/// between a check and the update it guards.
+static DRAIN_STATE: Mutex<()> = Mutex::new(());
+
+/// Counts an execution as in progress until it is dropped.
+struct ExecutionGuard {
+    drainable: bool,
+}
+
+impl ExecutionGuard {
+    /// Start an execution.
+    ///
+    /// `drainable` is whether it has a recovery config and runs in a
+    /// single process.
+    fn begin(drainable: bool) -> PyResult<Self> {
+        let _state = DRAIN_STATE.lock().unwrap_or_else(PoisonError::into_inner);
+        // A pending drain would stop an execution that cannot be drained
+        // partway, so one cannot start while the drain is pending.
+        if !drainable && DRAIN.load(Ordering::Acquire) {
+            let msg = "a graceful drain is pending in this process, so an execution that cannot be drained cannot start: without a recovery config a drain would discard its open windows and folds, and a multi-process cluster cannot be drained; the pending drain applies to the next single-process execution with a recovery config";
+            return Err(tracked_err::<PyRuntimeError>(msg));
+        }
+        EXECUTING.fetch_add(1, Ordering::AcqRel);
+        if !drainable {
+            UNDRAINABLE.fetch_add(1, Ordering::AcqRel);
+        }
+        Ok(Self { drainable })
+    }
+}
+
+impl Drop for ExecutionGuard {
+    fn drop(&mut self) {
+        let _state = DRAIN_STATE.lock().unwrap_or_else(PoisonError::into_inner);
+        if !self.drainable {
+            UNDRAINABLE.fetch_sub(1, Ordering::AcqRel);
+        }
+        // The last execution to end clears the request, so a request made
+        // during it does not reach the next execution. A request made
+        // while none runs is kept for the next execution.
+        if EXECUTING.fetch_sub(1, Ordering::AcqRel) == 1 {
+            DRAIN.store(false, Ordering::Release);
+        }
+    }
+}
 
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
@@ -122,9 +195,11 @@ pub(crate) fn run_main(
     let epoch_interval = epoch_interval.unwrap_or_default();
     tracing::info!("Using epoch interval of {:?}", epoch_interval);
 
+    let _execution = ExecutionGuard::begin(recovery_config.is_some())?;
+    let recovering = recovery_config.is_some();
     let res = py.allow_threads(move || {
         std::panic::catch_unwind(|| {
-            timely::execute::execute_directly::<(), _>(move |worker| {
+            timely::execute::execute_directly::<Option<ExecutionNumber>, _>(move |worker| {
                 unwrap_any!(worker_main(
                     worker,
                     // Since there are no other threads, directly
@@ -145,7 +220,7 @@ pub(crate) fn run_main(
         })
     });
 
-    res.map_err(|panic_err| {
+    let closed = res.map_err(|panic_err| {
         // The worker panicked.
         // Print an empty line to separate rust panic message from the rest.
         eprintln!();
@@ -173,7 +248,11 @@ pub(crate) fn run_main(
             // it would just be `Any { .. }`
             tracked_err::<PyRuntimeError>("unknown error")
         }
-    })
+    })?;
+    if let Some(ex) = closed.filter(|_| recovering) {
+        tracing::info!("Execution {ex} closed cleanly");
+    }
+    Ok(())
 }
 
 /// Execute a dataflow in the current process as part of a cluster.
@@ -254,6 +333,9 @@ pub(crate) fn cluster_main(
     let epoch_interval = epoch_interval.unwrap_or_default();
     tracing::info!("Using epoch interval of {:?}", epoch_interval);
 
+    let multi_process = addresses.as_ref().is_some_and(|addrs| !addrs.is_empty());
+    let _execution = ExecutionGuard::begin(recovery_config.is_some() && !multi_process)?;
+    let recovering = recovery_config.is_some();
     py.allow_threads(move || {
         let addresses = addresses.unwrap_or_default();
         let (builders, other) = if addresses.is_empty() {
@@ -303,7 +385,7 @@ pub(crate) fn cluster_main(
             });
         }));
 
-        let guards = timely::execute::execute_from::<_, (), _>(
+        let guards = timely::execute::execute_from::<_, Option<ExecutionNumber>, _>(
             builders,
             other,
             timely::WorkerConfig::default(),
@@ -340,15 +422,77 @@ pub(crate) fn cluster_main(
                 should_shutdown.store(true, Ordering::Relaxed);
             })?;
         }
+        let mut closed = Vec::new();
         for maybe_worker_panic in guards.join() {
-            maybe_worker_panic.map_err(|_| {
+            closed.push(maybe_worker_panic.map_err(|_| {
                 rx.try_recv()
                     .expect("unable to receive panic error from channel")
-            })?;
+            })?);
+        }
+        // Log once per process, and only if every local worker completed.
+        let closed: Option<Vec<ExecutionNumber>> = closed.into_iter().collect();
+        if let Some(ex) = closed.and_then(|exs| exs.first().copied()) {
+            if recovering {
+                tracing::info!("Execution {ex} closed cleanly");
+            }
         }
 
         Ok(())
     })
+}
+
+/// Ask the execution in progress to drain and exit cleanly.
+///
+/// A drain needs a single-process execution with a recovery config.
+/// Without a recovery config it would discard open windows and folds,
+/// so this raises `RuntimeError` while such an execution runs in this
+/// process. A multi-process cluster is not drained at all, so this
+/// raises while one runs too. A request made while no execution runs is
+/// kept for the next execution in this process, which then refuses to
+/// start unless it can be drained. The last execution to end clears it.
+///
+/// Inputs stop reading new data and treat the request as EOF, so each
+/// partition snapshots its exact position and the execution closes
+/// through the normal EOF path. A following execution on the same
+/// recovery store then resumes with no replayed items.
+///
+/// Stateful operators pause rather than finish. Their logic is kept
+/// and snapshotted, so an open window or fold is not emitted early,
+/// and the next execution continues it. Only a true end of input runs
+/// their final output.
+///
+/// To drain on SIGTERM, install a handler before the execution starts.
+/// SIGTERM keeps its default action otherwise.
+///
+/// % Skip this doctest because it installs a signal handler.
+///
+/// ```python
+/// import signal
+/// from bytewax.run import request_graceful_drain
+///
+///
+/// def _drain_on_sigterm(signum, frame):
+///     # A second SIGTERM ends the process the usual way.
+///     signal.signal(signal.SIGTERM, signal.SIG_DFL)
+///     request_graceful_drain()
+///
+///
+/// signal.signal(signal.SIGTERM, _drain_on_sigterm)
+/// ```
+///
+/// A multi-process cluster is resumed by recovery after a crash or a
+/// kill, as before. In a container, the process must receive the
+/// signal: run Python in exec form, not under `sh -c`, or under an init
+/// such as `tini`.
+#[pyfunction]
+pub(crate) fn request_graceful_drain() -> PyResult<()> {
+    let _state = DRAIN_STATE.lock().unwrap_or_else(PoisonError::into_inner);
+    if UNDRAINABLE.load(Ordering::Acquire) > 0 {
+        let msg = "graceful drain needs a single-process execution with a recovery config: an execution in this process has no recovery config or runs on multiple processes, and cannot be drained; without recovery a drain would discard its open windows and folds, and processes of a multi-process cluster would not agree on the end of input";
+        return Err(tracked_err::<PyRuntimeError>(msg));
+    }
+    DRAIN.store(true, Ordering::Release);
+    Ok(())
 }
 
 #[pyfunction]
@@ -394,5 +538,6 @@ pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_main, m)?)?;
     m.add_function(wrap_pyfunction!(cluster_main, m)?)?;
     m.add_function(wrap_pyfunction!(cli_main, m)?)?;
+    m.add_function(wrap_pyfunction!(request_graceful_drain, m)?)?;
     Ok(())
 }

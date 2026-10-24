@@ -33,6 +33,7 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+use crate::run::DRAIN;
 
 /// Bytewax worker.
 ///
@@ -64,8 +65,11 @@ where
 
     /// Run a specific dataflow until it is complete.
     ///
+    /// Returns whether the dataflow completed. A run that an abort or
+    /// an interrupt stops first returns `false`.
+    ///
     /// [`ProbeHandle`]s are how we ID a dataflow.
-    fn run<T>(&mut self, probe: ProbeHandle<T>)
+    fn run<T>(&mut self, probe: ProbeHandle<T>) -> bool
     where
         T: Timestamp,
     {
@@ -75,11 +79,17 @@ where
             || (self.interrupt_callback)()
             || probe.done())
         {
+            // Wake the input partitions that are asleep so they see a
+            // drain request now, not when their awake time comes round.
+            if DRAIN.load(atomic::Ordering::Acquire) {
+                wake_inputs();
+            }
             tracing::debug_span!("step").in_scope(|| {
                 self.worker.step_or_park(Some(cooldown));
             });
         }
         tracing::info!("Timely dataflow stop");
+        probe.done()
     }
 
     /// Terminate all dataflows in this worker.
@@ -96,6 +106,9 @@ where
 }
 
 /// Public, main entry point for a worker thread.
+///
+/// Returns the execution number if the dataflow completed, and `None`
+/// if an abort or an interrupt stopped it first.
 #[instrument(name = "worker_main", skip_all, fields(worker = worker.index()))]
 pub(crate) fn worker_main<A>(
     worker: &mut TimelyWorker<A>,
@@ -103,15 +116,25 @@ pub(crate) fn worker_main<A>(
     flow: Dataflow,
     epoch_interval: EpochInterval,
     recovery_config: Option<Py<RecoveryConfig>>,
-) -> PyResult<()>
+) -> PyResult<Option<ExecutionNumber>>
 where
     A: Allocate,
 {
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
+    clear_input_activators();
+
+    // Without recovery there is nothing to snapshot, so every epoch is
+    // used. The snapshot interval also decides whether the first epoch
+    // of each execution is pre-aged; see `EpochInterval::first_epoch_started`.
+    let snapshot_interval = recovery_config
+        .as_ref()
+        .and_then(|config| Python::with_gil(|py| config.borrow(py).snapshot_interval));
+    let snapshot_epochs = epoch_interval.snapshot_epochs(snapshot_interval);
+    let pre_age_first_epoch = snapshot_interval.is_some();
 
     let recovery = recovery_config
-        .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))
+        .map(|config| Python::with_gil(|py| config.borrow(py).build()))
         .transpose()?;
 
     let resume_from = recovery
@@ -142,6 +165,8 @@ where
             worker.worker,
             flow,
             epoch_interval,
+            snapshot_epochs,
+            pre_age_first_epoch,
             resume_from,
             recovery,
             &worker.abort,
@@ -149,13 +174,12 @@ where
         .reraise("error building production dataflow")
     })?;
 
-    tracing::info_span!("production_dataflow").in_scope(|| {
-        worker.run(probe);
-    });
+    let completed = tracing::info_span!("production_dataflow").in_scope(|| worker.run(probe));
 
     worker.shutdown();
+    clear_input_activators();
     tracing::info!("Worker stop");
-    Ok(())
+    Ok(completed.then_some(resume_from.0))
 }
 
 /// Compile a dataflow which loads the progress data from the previous
@@ -252,11 +276,14 @@ where
 }
 
 /// Turn a Bytewax dataflow into a Timely dataflow.
+#[allow(clippy::too_many_arguments)]
 fn build_production_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
     flow: Dataflow,
     epoch_interval: EpochInterval,
+    snapshot_epochs: SnapshotEpochs,
+    pre_age_first_epoch: bool,
     resume_from: ResumeFrom,
     recovery: Option<(RecoveryBundle, BackupInterval)>,
     abort: &Arc<AtomicBool>,
@@ -346,6 +373,8 @@ where
                                     scope,
                                     step_id,
                                     epoch_interval,
+                                    snapshot_epochs,
+                                    pre_age_first_epoch,
                                     &probe,
                                     abort,
                                     resume_epoch,
@@ -366,6 +395,7 @@ where
                                     scope,
                                     step_id,
                                     epoch_interval,
+                                    pre_age_first_epoch,
                                     &probe,
                                     abort,
                                     resume_epoch,
@@ -417,7 +447,7 @@ where
 
                         if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
                             let (clock, snap) = up
-                                .partitioned_output(py, step_id, sink, &loads)
+                                .partitioned_output(py, step_id, sink, snapshot_epochs, &loads)
                                 .reraise("error building FixedPartitionedSink")?;
 
                             outputs.push(clock.clone());
@@ -451,7 +481,7 @@ where
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `stateful_batch` missing port")?;
 
-                        let (down, snap) = up.stateful_batch(py, step_id, builder, resume_epoch, &loads)?;
+                        let (down, snap) = up.stateful_batch(py, step_id, builder, resume_epoch, snapshot_epochs, &loads)?;
 
                         snaps.push(snap);
 
@@ -482,14 +512,21 @@ where
             return Err(tracked_err::<PyValueError>(msg));
         }
 
-        // Attach the probe to the relevant final output.
+        // Probe every final output, including dynamic sinks which
+        // produce no snapshots. Inputs wait on this probe before
+        // starting a new epoch, and the dataflow only finishes once
+        // all outputs are done.
+        scope.concatenate(outputs).probe_with(&mut probe);
+
+        // With recovery enabled, also probe the snapshot writes so
+        // inputs wait for recovery data to be written each epoch. A
+        // dataflow with no snapshotting steps has an empty snapshot
+        // stream, which must not end the dataflow early.
         if let Some((bundle, backup_interval)) = recovery {
             scope
                 .concatenate(snaps)
-                .write_recovery(resume_from, bundle, epoch_interval, backup_interval)
+                .write_recovery(resume_from, bundle, epoch_interval, backup_interval, snapshot_epochs)
                 .probe_with(&mut probe);
-        } else {
-            scope.concatenate(outputs).probe_with(&mut probe);
         }
 
         Ok(probe)
