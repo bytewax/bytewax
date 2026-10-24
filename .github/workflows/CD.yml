@@ -97,16 +97,18 @@ jobs:
     needs: [ release ]
     timeout-minutes: 25
     steps:
+    - uses: astral-sh/setup-uv@v8.1.0
     - name: Wait for the release to be installable from PyPI
-      # `Dockerfile.release` runs `pip install bytewax==<version>`, so
-      # retry the same download with pip until PyPI serves the release.
+      # `Dockerfile.release` runs `uv pip install bytewax==<version>`, so
+      # retry the same install with uv until PyPI serves the release.
+      # `--no-cache` makes every attempt read the index again.
       env:
         BYTEWAX_VERSION: ${{ needs.release.outputs.bytewax-version }}
       run: |
+        uv venv --quiet "$RUNNER_TEMP/pypi-check"
         for attempt in $(seq 1 80); do
-          if python3 -m pip download --quiet --no-deps --no-cache-dir \
-              --only-binary=:all: --dest "$RUNNER_TEMP/pypi-check" \
-              "bytewax==${BYTEWAX_VERSION}"; then
+          if uv pip install --quiet --no-cache --no-deps --only-binary :all: \
+              --python "$RUNNER_TEMP/pypi-check" "bytewax==${BYTEWAX_VERSION}"; then
             echo "bytewax ${BYTEWAX_VERSION} is installable from PyPI (attempt ${attempt})."
             exit 0
           fi

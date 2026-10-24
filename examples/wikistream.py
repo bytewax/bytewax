@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 import bytewax.operators as op
 import bytewax.operators.windowing as win
 
-# pip install aiohttp-sse-client
+# uv pip install aiohttp-sse-client
 from aiohttp_sse_client.client import EventSource
 from bytewax.connectors.stdio import StdOutSink
 from bytewax.dataflow import Dataflow
