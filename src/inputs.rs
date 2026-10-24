@@ -27,11 +27,13 @@ use timely::dataflow::Scope;
 use timely::dataflow::Stream;
 use timely::progress::Timestamp;
 
+use crate::debug_span_if_traced;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
 use crate::timely::*;
+use crate::trace_span_if_traced;
 use crate::unwrap_any;
 use crate::with_timer;
 
@@ -321,7 +323,7 @@ impl FixedPartitionedSource {
             let mut primaries_inbuf = InBuffer::new();
 
             move |input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = op_name).in_scope(|| {
                     let now = Utc::now();
 
                     primaries_input.for_each(|cap, incoming| {
@@ -437,7 +439,7 @@ impl FixedPartitionedSource {
                     let mut downstream_handle = downstream_output.activate();
                     let mut snaps_handle = snaps_output.activate();
                     for (part_key, part_state) in parts.iter_mut() {
-                        tracing::trace_span!("partition", part_key = ?part_key).in_scope(|| {
+                        trace_span_if_traced!("partition", part_key = ?part_key).in_scope(|| {
                             assert!(
                                 *part_state.downstream_cap.time() == *part_state.snap_cap.time()
                             );
@@ -763,7 +765,7 @@ impl DynamicSource {
             });
 
             move |_input_frontiers| {
-                tracing::debug_span!("operator", operator = op_name).in_scope(|| {
+                debug_span_if_traced!("operator", operator = op_name).in_scope(|| {
                     let now = Utc::now();
 
                     let mut eof = false;

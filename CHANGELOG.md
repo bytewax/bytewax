@@ -9,6 +9,12 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Operators only read the clock for duration metrics when a meter
+  provider is installed, and only build tracing spans when a tracing
+  subscriber is set. One worker passing one item per batch through a
+  filter went from 968K to 1.12M items per second (medians of 5
+  interleaved runs). Other cases measured within run-to-run noise.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a

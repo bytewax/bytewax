@@ -26,6 +26,7 @@ use tracing::instrument;
 use crate::dataflow::Dataflow;
 use crate::dataflow::Operator;
 use crate::dataflow::StreamId;
+use crate::debug_span_if_traced;
 use crate::errors::tracked_err;
 use crate::errors::PythonException;
 use crate::inputs::*;
@@ -75,7 +76,7 @@ where
             || (self.interrupt_callback)()
             || probe.done())
         {
-            tracing::debug_span!("step").in_scope(|| {
+            debug_span_if_traced!("step").in_scope(|| {
                 self.worker.step_or_park(Some(cooldown));
             });
         }
