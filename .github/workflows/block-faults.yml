@@ -1,0 +1,38 @@
+name: Block-device fault gates
+
+# Puts a recovery store on a block device that fails on command (nbd +
+# device-mapper) and checks that every storage fault ends in a
+# deterministic failure or a correct resume. See
+# scripts/blockfault/README.md.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+  workflow_dispatch:
+
+jobs:
+  block-faults:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Load kernel modules
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            "linux-modules-extra-$(uname -r)" "linux-headers-$(uname -r)" build-essential
+          sudo modprobe nbd nbds_max=16
+          sudo modprobe dm_flakey
+          sudo modprobe dm_log_writes
+          # Ubuntu kernels do not ship dm-dust; build it for this one.
+          sudo ./scripts/blockfault/build-dm-dust.sh
+      - name: Run the gates
+        shell: bash
+        env:
+          # A gate whose device-mapper target is missing fails the job
+          # instead of skipping.
+          BLOCKFAULT_REQUIRE: dust,flakey,log-writes
+        run: ./scripts/blockfault/run.sh
