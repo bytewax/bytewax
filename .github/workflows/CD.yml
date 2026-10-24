@@ -27,21 +27,28 @@ jobs:
     steps:
       - name: Get Version and Tags
         id: get-info
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           BYTEWAX_VERSION=${GITHUB_REF:11}
           echo "bytewax-version=${BYTEWAX_VERSION}" >> "$GITHUB_OUTPUT"
           REPOSITORY=bytewax/bytewax
           IMAGE_TAG="${REPOSITORY}:${GITHUB_REF:11}"
           echo "version-image-tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "latest-image-tag=${REPOSITORY}:latest" >> "$GITHUB_OUTPUT"
+          # A pre-release (e.g. a release candidate) must not move the
+          # `latest` image tags.
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "latest-image-tag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest-image-tag=${REPOSITORY}:latest" >> "$GITHUB_OUTPUT"
+          fi
       - name: Report Info
         run: |
           [ -n "${{steps.get-info.outputs.bytewax-version}}" ]
           echo "::notice title=Bytewax Version::${{ steps.get-info.outputs.bytewax-version }}"
           [ -n "${{steps.get-info.outputs.version-image-tag}}" ]
           echo "::notice title=Base Tag::${{ steps.get-info.outputs.version-image-tag }}"
-          [ -n "${{steps.get-info.outputs.latest-image-tag}}" ]
-          echo "::notice title=Latest Tag::${{ steps.get-info.outputs.latest-image-tag }}"
+          echo "::notice title=Latest Tag::${{ steps.get-info.outputs.latest-image-tag || 'none (pre-release)' }}"
       - name: Download wheels from build job
         uses: actions/download-artifact@v7
         with:
@@ -142,12 +149,12 @@ jobs:
         platforms: linux/amd64, linux/arm64
         tags: |
           ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
-          ${{ needs.release.outputs.latest-image-tag }}-python${{ matrix.python-version }}
+          ${{ needs.release.outputs.latest-image-tag && format('{0}-python{1}', needs.release.outputs.latest-image-tag, matrix.python-version) || '' }}
         build-args: |
           BYTEWAX_VERSION=${{ needs.release.outputs.bytewax-version }}
           PYTHON_VERSION=${{ matrix.python-version }}
         file: Dockerfile.release
     - name: Tag latest
-      if: ${{ matrix.python-version == '3.9' }}
+      if: ${{ matrix.python-version == '3.9' && needs.release.outputs.latest-image-tag != '' }}
       run: |
         docker buildx imagetools create -t ${{ needs.release.outputs.latest-image-tag }} ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
