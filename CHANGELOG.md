@@ -97,6 +97,11 @@ notes on GitHub when we make a new release.__
   `collect_window(..., ordered=False)` even though it works at
   runtime.
 
+- The `db_dir` attribute of {py:obj}`~bytewax.recovery.RecoveryConfig`
+  is a `str` again, as in v0.21.1. The PyO3 0.25 upgrade had made it a
+  `pathlib.Path`, which broke code such as `config.db_dir + "/x"`. The
+  constructor still accepts a `str` or a `pathlib.Path`.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the

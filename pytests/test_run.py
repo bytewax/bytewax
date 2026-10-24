@@ -353,7 +353,7 @@ def test_main_with_recovery_and_addresses(
     assert kwargs["epoch_interval"] == timedelta(seconds=1)
     config = kwargs["recovery_config"]
     assert isinstance(config, RecoveryConfig)
-    assert config.db_dir == recovery_dir
+    assert config.db_dir == str(recovery_dir)
     assert config.backup_interval == timedelta(seconds=2)
     assert kwargs["process_id"] == 1
     assert kwargs["addresses"] == ["host-a:2101", "host-b:2101"]
