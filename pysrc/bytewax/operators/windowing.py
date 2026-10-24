@@ -610,6 +610,10 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
 
     def intersects(self, timestamp: datetime) -> List[int]:
         since_origin = timestamp - self.align_to
+        if self.length == self.offset:
+            # Windows do not overlap: `(x - length) // offset + 1`
+            # is `x // offset` if they are the same.
+            return [since_origin // self.offset]
         return list(
             range(
                 (since_origin - self.length) // self.offset + 1,
@@ -624,11 +628,11 @@ class _SlidingWindowerLogic(WindowerLogic[_SlidingWindowerState]):
 
     @override
     def open_for(self, timestamp: datetime) -> List[int]:
-        in_windows = []
-        for window_id in self.intersects(timestamp):
-            meta = self.state.opened.get(window_id) or self._metadata_for(window_id)
-            self.state.opened.setdefault(window_id, meta)
-            in_windows.append(window_id)
+        in_windows = self.intersects(timestamp)
+        opened = self.state.opened
+        for window_id in in_windows:
+            if window_id not in opened:
+                opened[window_id] = self._metadata_for(window_id)
 
         return in_windows
 
@@ -1064,17 +1068,18 @@ class _WindowLogic(
     def _handle_inserts(
         self, due_entries: List[_WindowQueueEntry[V]]
     ) -> Iterable[_WindowEvent[V, W]]:
-        for entry in due_entries:
-            value, timestamp = entry
-            for window_id in self.windower.open_for(timestamp):
-                if window_id in self.logics:
-                    logic = self.logics[window_id]
+        open_for = self.windower.open_for
+        logics = self.logics
+        for value, timestamp in due_entries:
+            for window_id in open_for(timestamp):
+                if window_id in logics:
+                    logic = logics[window_id]
                 else:
                     logic = self.builder(None)
-                    self.logics[window_id] = logic
+                    logics[window_id] = logic
 
-                ws = logic.on_value(value)
-                yield from ((window_id, "E", w) for w in ws)
+                for w in logic.on_value(value):
+                    yield (window_id, "E", w)
 
     def _handle_merged(self) -> Iterable[_WindowEvent[V, W]]:
         for orig_window_id, targ_window_id in self.windower.merged():

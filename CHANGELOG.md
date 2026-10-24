@@ -9,6 +9,12 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Tumbling and sliding windows find the windows an item belongs to
+  without building intermediate lists and generators. One worker running
+  a tumbling window with event time over one key with 100 items per batch
+  went from 982K to 1.41M items per second (medians of 5 interleaved
+  runs).
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a

@@ -508,3 +508,50 @@ def test_intersect_tumble_edge_zero_end():
     #                     [1--------)
     #                               [2--------)
     assert logic.intersects(datetime(2023, 3, 16, 9, 0, 10, tzinfo=timezone.utc)) == [1]
+
+
+def test_intersect_tumble_matches_the_general_formula():
+    align_to = datetime(2023, 3, 16, 9, 0, 0, tzinfo=timezone.utc)
+    length = timedelta(seconds=10)
+    logic = _SlidingWindowerLogic(
+        length=length,
+        offset=length,
+        align_to=align_to,
+        state=_SlidingWindowerState(),
+    )
+
+    # A prime step walks over every edge in time, both sides of align_to.
+    for micros in range(-35_000_000, 35_000_000, 999_983):
+        timestamp = align_to + timedelta(microseconds=micros)
+        since_origin = timestamp - align_to
+        general = list(
+            range((since_origin - length) // length + 1, since_origin // length + 1)
+        )
+        assert logic.intersects(timestamp) == general
+        assert len(general) == 1
+
+
+def test_open_for_opens_each_window_once_in_order():
+    logic = _SlidingWindowerLogic(
+        length=timedelta(seconds=10),
+        offset=timedelta(seconds=5),
+        align_to=datetime(2023, 3, 16, 9, 0, 0, tzinfo=timezone.utc),
+        state=_SlidingWindowerState(),
+    )
+
+    assert logic.open_for(datetime(2023, 3, 16, 9, 0, 13, tzinfo=timezone.utc)) == [
+        1,
+        2,
+    ]
+    assert list(logic.state.opened) == [1, 2]
+    window_2 = logic.state.opened[2]
+    assert window_2.open_time == datetime(2023, 3, 16, 9, 0, 10, tzinfo=timezone.utc)
+    assert window_2.close_time == datetime(2023, 3, 16, 9, 0, 20, tzinfo=timezone.utc)
+
+    # Window 2 is still open, not opened again.
+    assert logic.open_for(datetime(2023, 3, 16, 9, 0, 17, tzinfo=timezone.utc)) == [
+        2,
+        3,
+    ]
+    assert list(logic.state.opened) == [1, 2, 3]
+    assert logic.state.opened[2] is window_2
