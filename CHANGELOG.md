@@ -44,9 +44,11 @@ notes on GitHub when we make a new release.__
   still queued when the dataflow fails are dropped rather than waited
   on. When the producer's local queue is full, the sink waits for it
   to drain instead of crashing with `BufferError`; a single message
-  larger than the whole queue fails with a clear error. The docs now
-  state that this at-least-once guarantee requires running with
-  recovery. Reported in #522 by @shubhanshu02.
+  larger than the whole queue fails with a clear error. A non-callable
+  `on_delivery` in `add_config` is rejected with a `TypeError` when
+  the sink is built; it used to raise a `KafkaException` there. The
+  docs now state that this at-least-once guarantee requires running
+  with recovery. Reported in #522 by @shubhanshu02.
 
 - Fixes `bytewax.connectors.kafka.serde` failing to import with
   `confluent-kafka>=2.7` unless the `confluent-kafka[schemaregistry]`
