@@ -52,6 +52,93 @@ jobs:
         shell: bash
         run: just test-doc
 
+  # The Python tests in build-wheels run against the Kafka version
+  # pinned in scripts/ci-kafka.sh on every platform. This runs the
+  # Kafka connector tests against other broker versions still in use.
+  # Linux only for now; the script also runs on macOS and Windows, so
+  # those can be added to `os`.
+  kafka-compat:
+    name: kafka-compat (${{ matrix.kafka.version }} ${{ matrix.kafka.mode }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        kafka:
+          # The oldest broker we test against. Kafka 2.x has no Scala
+          # 2.13 builds before 2.4 and doesn't run on Java 17.
+          - { version: "2.2.0", mode: zookeeper, scala: "2.12", java: "11" }
+          # 3.9 is the last release line that supports ZooKeeper.
+          - { version: "3.9.2", mode: zookeeper, scala: "2.13", java: "17" }
+          - { version: "3.9.2", mode: kraft, scala: "2.13", java: "17" }
+          # Newer than the version pinned in scripts/ci-kafka.sh.
+          - { version: "4.4.0", mode: kraft, scala: "2.13", java: "17" }
+    env:
+      KAFKA_VERSION: ${{ matrix.kafka.version }}
+      KAFKA_MODE: ${{ matrix.kafka.mode }}
+      SCALA_VERSION: ${{ matrix.kafka.scala }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.kafka.java }}
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.11.11"
+          python-version: "3.12"
+          activate-environment: true
+          venv-path: venv
+      # Prep venv builds bytewax from source.
+      - uses: dsherret/rust-toolchain-file@v1
+      - name: Prep venv
+        shell: bash
+        run: uv pip sync --strict requirements/dev.txt
+      # Releases that left the Apache CDN download slowly from
+      # archive.apache.org, so keep them cached, also when the tests
+      # fail. The script replaces a cached download of another version.
+      - name: Restore Apache Kafka
+        id: kafka-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            .kafka
+            .zookeeper
+          key: kafka-compat-${{ matrix.kafka.version }}-${{ matrix.kafka.scala }}-${{ runner.os }}
+      - name: Start Kafka
+        shell: bash
+        run: ./scripts/ci-kafka.sh start
+      - name: Run Kafka tests
+        timeout-minutes: 20
+        shell: bash
+        env:
+          TEST_KAFKA_BROKER: localhost:9092
+        run: pytest --benchmark-skip pytests/connectors/
+      - name: Dump Kafka logs on failure
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          echo '=== broker.log (tail 300) ==='
+          tail -300 .kafka-logs/broker.log || true
+          echo '=== zk.log (tail 100) ==='
+          tail -100 .kafka-logs/zk.log || true
+      - name: Stop Kafka
+        if: ${{ always() }}
+        shell: bash
+        run: ./scripts/ci-kafka.sh stop
+      - name: Save Apache Kafka
+        if: ${{ always() && steps.kafka-cache.outputs.cache-hit != 'true' }}
+        # Nothing to save if the download itself failed.
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            .kafka
+            .zookeeper
+          key: kafka-compat-${{ matrix.kafka.version }}-${{ matrix.kafka.scala }}-${{ runner.os }}
+
   build-wheels:
     uses: ./.github/workflows/build-wheels.yml
     secrets: inherit
