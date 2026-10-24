@@ -101,16 +101,33 @@ class _FakeConsumer:
 
     instances: List["_FakeConsumer"] = []
     batches: List[List[_FakeMsg]] = []
+    # Returned by `get_watermark_offsets` as (low, high).
+    watermarks: Tuple[int, int] = (0, 1000)
+    # Raised by `get_watermark_offsets` when set.
+    watermark_error: Optional[Exception] = None
+
+    # When set, `close` invokes the registered stats callback with
+    # this JSON payload first, like librdkafka draining queued
+    # callbacks during shutdown.
+    stats_on_close: Optional[str] = None
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.assigned: List[TopicPartition] = []
         self.closed = False
+        self.stats_delivered = False
+        self.watermark_queries: List[TopicPartition] = []
         self._batches = list(type(self).batches)
         type(self).instances.append(self)
 
     def assign(self, parts):
         self.assigned = parts
+
+    def get_watermark_offsets(self, partition, timeout=None, cached=False):
+        self.watermark_queries.append(partition)
+        if type(self).watermark_error is not None:
+            raise type(self).watermark_error
+        return type(self).watermarks
 
     def consume(self, num_messages, timeout):
         if self._batches:
@@ -118,6 +135,9 @@ class _FakeConsumer:
         return []
 
     def close(self):
+        if type(self).stats_on_close is not None and "stats_cb" in self.config:
+            self.config["stats_cb"](type(self).stats_on_close)
+            self.stats_delivered = True
         self.closed = True
 
 
@@ -125,6 +145,8 @@ class _FakeConsumer:
 def fake_consumer(monkeypatch):
     _FakeConsumer.instances = []
     _FakeConsumer.batches = []
+    _FakeConsumer.watermarks = (0, 1000)
+    _FakeConsumer.watermark_error = None
     monkeypatch.setattr(kafka_mod, "Consumer", _FakeConsumer)
     return _FakeConsumer
 
@@ -374,6 +396,92 @@ def test_build_part_starting_offset_without_resume_state(fake_consumer):
     (consumer,) = fake_consumer.instances
     assert consumer.assigned == [TopicPartition(TOPIC, 0, 7)]
     assert part.snapshot() == 7
+
+
+def test_build_part_without_resume_state_skips_watermark_check(fake_consumer):
+    fake_consumer.watermarks = (30, 40)
+    src = KafkaSource(["b:9092"], [TOPIC], starting_offset=7)
+
+    src.build_part("step", f"0-{TOPIC}", None)
+
+    (consumer,) = fake_consumer.instances
+    assert consumer.watermark_queries == []
+
+
+def test_build_part_resume_checks_watermarks_of_resumed_partition(fake_consumer):
+    src = KafkaSource(["b:9092"], [TOPIC])
+
+    src.build_part("step", f"2-{TOPIC}", 5)
+
+    (consumer,) = fake_consumer.instances
+    assert consumer.watermark_queries == [TopicPartition(TOPIC, 2)]
+
+
+def test_build_part_resume_below_log_start_raises(fake_consumer):
+    fake_consumer.watermarks = (30, 40)
+    src = KafkaSource(["b:9092"], [TOPIC])
+
+    expect = f"resume offset 20 for {TOPIC}:0 is below the broker's log start 30"
+    with raises(RuntimeError, match=re.escape(expect)):
+        src.build_part("step", f"0-{TOPIC}", 20)
+
+    (consumer,) = fake_consumer.instances
+    assert consumer.assigned == []
+    assert consumer.closed
+
+
+def test_build_part_resume_past_log_end_raises(fake_consumer):
+    fake_consumer.watermarks = (0, 10)
+    src = KafkaSource(["b:9092"], [TOPIC])
+
+    expect = f"resume offset 11 for {TOPIC}:0 is past the broker's log end 10"
+    with raises(RuntimeError, match=re.escape(expect)):
+        src.build_part("step", f"0-{TOPIC}", 11)
+
+    (consumer,) = fake_consumer.instances
+    assert consumer.assigned == []
+    assert consumer.closed
+
+
+def test_build_part_resume_at_log_bounds_is_accepted(fake_consumer):
+    fake_consumer.watermarks = (30, 40)
+    src = KafkaSource(["b:9092"], [TOPIC])
+
+    for resume in (30, 40):
+        part = src.build_part("step", f"0-{TOPIC}", resume)
+        assert part.snapshot() == resume
+
+    assert [c.assigned for c in fake_consumer.instances] == [
+        [TopicPartition(TOPIC, 0, 30)],
+        [TopicPartition(TOPIC, 0, 40)],
+    ]
+
+
+def test_build_part_negative_resume_state_is_not_checked(fake_consumer):
+    # A snapshot taken before any message was read holds the
+    # `starting_offset` sentinel, which is not a log offset.
+    fake_consumer.watermarks = (30, 40)
+    src = KafkaSource(["b:9092"], [TOPIC])
+
+    part = src.build_part("step", f"0-{TOPIC}", OFFSET_BEGINNING)
+
+    (consumer,) = fake_consumer.instances
+    assert consumer.watermark_queries == []
+    assert consumer.assigned == [TopicPartition(TOPIC, 0, OFFSET_BEGINNING)]
+    assert part.snapshot() == OFFSET_BEGINNING
+
+
+def test_build_part_watermark_timeout_raises(fake_consumer):
+    fake_consumer.watermark_error = KafkaException(
+        ConfluentKafkaError(ConfluentKafkaError._TIMED_OUT)
+    )
+    src = KafkaSource(["b:9092"], [TOPIC])
+
+    with raises(RuntimeError, match="could not fetch log offsets"):
+        src.build_part("step", f"0-{TOPIC}", 5)
+
+    (consumer,) = fake_consumer.instances
+    assert consumer.closed
 
 
 def test_next_batch_converts_messages_and_tracks_offset(fake_consumer):
@@ -780,3 +888,35 @@ def test_plain_avro_deserialize_value_operator_errors():
     (err,) = errs
     assert err.err.code() == ConfluentKafkaError._VALUE_DESERIALIZATION
     assert err.msg == bad
+
+
+def test_failed_check_error_survives_queued_stats(fake_consumer):
+    """librdkafka drains queued callbacks during close(); a stats
+    callback firing there must not replace the resume-offset error
+    with an AttributeError."""
+    _FakeConsumer.watermarks = (30, 40)
+    _FakeConsumer.stats_on_close = json.dumps(
+        {"topics": {"t": {"partitions": {"0": {"ls_offset": 35}}}}}
+    )
+    try:
+        source = KafkaSource(["broker:9092"], ["t"], tail=False)
+        with raises(RuntimeError) as exc_info:
+            source.build_part("step", "0-t", 5)
+        assert "below the broker's log start" in str(exc_info.value)
+        # Precondition: the callback really ran during close().
+        assert _FakeConsumer.instances[-1].stats_delivered
+    finally:
+        _FakeConsumer.stats_on_close = None
+
+
+def test_snapshot_is_plain_int(fake_consumer):
+    # Snapshots are bare offsets, as upstream writes them, so a
+    # snapshot taken by this version can be resumed by an older one.
+    _FakeConsumer.batches = [[_FakeMsg(41)]]
+    source = KafkaSource(["broker:9092"], ["t"], tail=False)
+    part = source.build_part("step", "0-t", None)
+    assert part.snapshot() == OFFSET_BEGINNING
+    part.next_batch()
+    assert isinstance(part.snapshot(), int)
+    assert part.snapshot() == 42
+    part.close()

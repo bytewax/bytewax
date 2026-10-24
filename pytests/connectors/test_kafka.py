@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import bytewax.operators as op
+import confluent_kafka
 from bytewax.connectors.kafka import (
     KafkaSink,
     KafkaSinkMessage,
@@ -48,6 +49,9 @@ config = {"bootstrap.servers": KAFKA_BROKER}
 # settling. Tests assert on that order.
 producer_config = {**config, "enable.idempotence": "true"}
 ZERO_TD = timedelta(seconds=0)
+CONFLUENT_KAFKA_VERSION = tuple(
+    int(n) for n in re.findall(r"\d+", confluent_kafka.__version__)[:3]
+)
 
 
 @fixture
@@ -438,6 +442,84 @@ def test_input_resume_after_failure_loses_nothing(tmp_topic, recovery_config):
         assert offsets == list(range(offsets[0], 10)), f"partition {part}"
     seen = {(r[1], r[2]) for r in first_run + second_run}
     assert seen == {(p, o) for p in range(PARTITIONS) for o in range(10)}
+
+
+@mark.skipif(
+    CONFLUENT_KAFKA_VERSION < (2, 15, 1),
+    reason="AdminClient.delete_records needs confluent-kafka 2.15.1+; "
+    "older releases drop a reference they do not own, which corrupts "
+    "the heap and segfaults on CPython 3.14 "
+    "(https://github.com/confluentinc/confluent-kafka-python/issues/2275)",
+)
+def test_input_resume_below_log_start_raises(tmp_topic, recovery_config):
+    # A failed execution leaves a resume state inside the partition.
+    # Retention then purges the offsets below 30, simulated with
+    # delete_records. Resuming must fail
+    # deterministically instead of silently starting at the new log
+    # start and dropping the purged messages.
+    producer = Producer(producer_config)
+    for i in range(40):
+        producer.produce(tmp_topic, str(i).encode(), f"k{i}".encode(), partition=0)
+    producer.flush()
+    failing = [True]
+
+    def check(rec: ReadRecord) -> ReadRecord:
+        if failing[0] and rec[4] == b"20":
+            msg = "boom"
+            raise RuntimeError(msg)
+        return rec
+
+    out: List[ReadRecord] = []
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp",
+        flow,
+        KafkaSource(
+            [KAFKA_BROKER], [tmp_topic], tail=False, batch_size=2, add_config=config
+        ),
+    )
+    s = op.map("rec", s, as_record)
+    s = op.map("check", s, check)
+    op.output("out", s, TestingSink(out))
+
+    with raises(BytewaxRuntimeError):
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+    # Keep the client referenced: its futures only resolve while it lives.
+    admin = AdminClient(config)
+    deleted = admin.delete_records(
+        [TopicPartition(tmp_topic, 0, 30)], request_timeout=10.0
+    )
+    for fut in deleted.values():
+        fut.result()
+    # Precondition: the log start is now 30, above every snapshot the
+    # failed run could have written (at most offset 20). Read through
+    # the watermarks, since DeletedRecords carries no offset.
+    probe = Consumer({**config, "group.id": "BYTEWAX_PURGE_TEST"})
+    low, _ = probe.get_watermark_offsets(TopicPartition(tmp_topic, 0), timeout=10.0)
+    probe.close()
+    assert low == 30
+
+    failing[0] = False
+    out.clear()
+    with raises(RuntimeError) as exc_info:
+        run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+    causes: List[str] = []
+    ex: Optional[BaseException] = exc_info.value
+    while ex is not None:
+        causes.append(str(ex))
+        ex = ex.__cause__
+    # The resume offset is the last committed snapshot, which cannot
+    # be past the item that failed at offset 20.
+    expect = re.compile(
+        rf"resume offset (\d+) for {re.escape(tmp_topic)}:0 is below the "
+        rf"broker's log start 30: "
+    )
+    matches = [m for m in (expect.search(c) for c in causes) if m is not None]
+    assert matches, causes
+    assert int(matches[0].group(1)) <= 20
+    assert out == []
 
 
 def test_input_resume_with_different_worker_counts(tmp_path, tmp_topic):
