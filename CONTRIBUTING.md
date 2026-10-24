@@ -102,6 +102,10 @@ The Rust code base contains:
 
 - Recovery system machinery.
 
+The Rust code is safe Rust: `src/lib.rs` forbids `unsafe` code, so a
+change that uses it does not compile. PyO3 and the other dependencies
+keep their own `unsafe` internals behind safe APIs.
+
 Commit the changes once you are happy with them. Be sure to [sign your
 commit](https://docs.github.com/en/organizations/managing-organization-settings/managing-the-commit-signoff-policy-for-your-organization#about-commit-signoffs)
 if using the command line interface.
