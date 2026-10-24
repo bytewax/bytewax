@@ -16,9 +16,6 @@ from bytewax.operators.windowing import (
 from bytewax.testing import TestingSink, TestingSource, run_main
 from pytest import mark
 
-# TODO: Test snapshotting logic so we're sure a recovery roundtrip
-# would work.
-
 
 @dataclass(frozen=True)
 class _UserEvent:
