@@ -47,9 +47,9 @@ notes on GitHub when we make a new release.__
   tracing config is invalid (e.g. a malformed OTLP endpoint URL).
   Tracing can only be set up once per process.
 
-- This is the last release that supports Python 3.8 and 3.9, which
-  are end-of-life upstream. The next release will require Python 3.10
-  or newer.
+- This is the last release that supports Python 3.8, 3.9 and 3.10,
+  which are end-of-life upstream. The next release will require Python
+  3.11 or newer.
 
 - Adds support for Python 3.13 and 3.14, with wheels for Linux, macOS
   and Windows (#564). The Rust core now uses PyO3 0.25 instead of
