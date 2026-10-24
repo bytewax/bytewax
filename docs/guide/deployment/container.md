@@ -44,10 +44,12 @@ Create a `Dockerfile` with the following content:
 
 # Start from a debian slim with python support
 FROM python:3.11-slim-bullseye
+# Get uv to install packages with
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /bin/uv
 # Set up a workdir where we can put our dataflow
 WORKDIR /bytewax
 # Install bytewax and the dependencies you need here
-RUN pip install bytewax==|version|
+RUN uv pip install --system bytewax==|version|
 # Copy the dataflow in the workdir
 COPY dataflow.py dataflow.py
 # And run it.
@@ -77,8 +79,8 @@ Bytewax:
 ```{code-block} diff
 :substitutions:
 
-- RUN pip install bytewax==|version|
-+ RUN pip install bytewax[kafka]==|version|
+- RUN uv pip install --system bytewax==|version|
++ RUN uv pip install --system "bytewax[kafka]==|version|"
 ```
 
 Rebuild the image with:
@@ -284,7 +286,8 @@ dependencies in a `RUN` step:
 # Dockerfile
 FROM bytewax/bytewax
 
-RUN /venv/bin/pip install aiohttp-sse-client
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /bin/uv
+RUN uv pip install --python /venv/bin/python aiohttp-sse-client
 ```
 
 Build the image:

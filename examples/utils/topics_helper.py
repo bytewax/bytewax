@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from random import random
 from time import sleep
 
-# pip install pandas confluent-kafka fake-web-events
+# uv pip install pandas confluent-kafka fake-web-events
 import pandas as pd
 from confluent_kafka import Producer
 from confluent_kafka.admin import AdminClient, NewTopic
