@@ -111,7 +111,7 @@ where
     tracing::info!("Worker start");
 
     let recovery = recovery_config
-        .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))
+        .map(|config| Python::with_gil(|py| config.borrow(py).build()))
         .transpose()?;
 
     let resume_from = recovery

@@ -9,6 +9,21 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Added an exclusive lock per recovery partition. One execution at a
+  time may use a recovery store. Each partition is locked by the
+  execution that opens it, for as long as that execution runs. A second
+  execution fails with a `RuntimeError` after a few seconds, without
+  writing any recovery data, and orchestrators can retry it once the
+  first has exited. The lock is a sidecar file beside each partition,
+  `part-N.sqlite3.lock`. The OS releases it when the process exits,
+  even when the process is killed. Earlier bytewax versions don't take
+  the lock, so an execution of an earlier version is not kept out.
+
+  Recovery directories must be on storage attached to a single host,
+  such as a Kubernetes ReadWriteOnce block volume, not a network share
+  mounted on several hosts. Locks on such a share may only exclude
+  processes on the same client.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
