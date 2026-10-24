@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
+use pyo3::ffi;
 use pyo3::prelude::*;
 use timely::communication::Allocate;
 use timely::dataflow::operators::generic::operator::empty;
@@ -33,6 +34,55 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+
+/// Keeps a Python thread state alive for the thread that holds it.
+///
+/// A thread that Python did not start gets a fresh thread state from
+/// every outermost [`Python::with_gil`] and loses it again when that
+/// returns. Creating and deleting a thread state takes locks shared by
+/// all threads in the interpreter, which a worker thread pays on every
+/// operator activation. A thread state that is kept makes each
+/// [`Python::with_gil`] only take and release the GIL.
+///
+/// The GIL itself is not held between uses.
+pub(crate) struct PyThreadStateKeeper {
+    gil: ffi::PyGILState_STATE,
+    saved: *mut ffi::PyThreadState,
+}
+
+impl PyThreadStateKeeper {
+    pub(crate) fn new() -> Self {
+        // Safety: Python is initialized, because the dataflow was
+        // built from Python objects. `PyGILState_Ensure` gives this
+        // thread a state if it has none and takes the GIL for it.
+        let gil = unsafe { ffi::PyGILState_Ensure() };
+        // If the GIL was already held here, the caller holds it, so
+        // keep it. Otherwise `PyEval_SaveThread` releases the GIL
+        // without deleting the state, and the count of
+        // `PyGILState_Ensure` calls on it stays above zero until
+        // `drop`.
+        let saved = if gil == ffi::PyGILState_STATE::PyGILState_LOCKED {
+            std::ptr::null_mut()
+        } else {
+            // Safety: this thread holds the GIL, as `Ensure` took it.
+            unsafe { ffi::PyEval_SaveThread() }
+        };
+        Self { gil, saved }
+    }
+}
+
+impl Drop for PyThreadStateKeeper {
+    fn drop(&mut self) {
+        // Safety: this undoes `new` on the same thread. Releasing the
+        // last count deletes the thread state and the GIL with it.
+        unsafe {
+            if !self.saved.is_null() {
+                ffi::PyEval_RestoreThread(self.saved);
+            }
+            ffi::PyGILState_Release(self.gil);
+        }
+    }
+}
 
 /// Bytewax worker.
 ///
@@ -494,4 +544,21 @@ where
 
         Ok(probe)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeper_keeps_a_gil_that_was_held() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|_py| {
+            let keeper = PyThreadStateKeeper::new();
+            let held_while_kept = unsafe { ffi::PyGILState_Check() };
+            drop(keeper);
+            assert_eq!(held_while_kept, 1);
+            assert_eq!(unsafe { ffi::PyGILState_Check() }, 1);
+        });
+    }
 }

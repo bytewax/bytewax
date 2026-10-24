@@ -30,6 +30,7 @@ use crate::recovery::RecoveryConfig;
 use crate::unwrap_any;
 use crate::webserver::run_webserver;
 use crate::worker::worker_main;
+use crate::worker::PyThreadStateKeeper;
 
 /// Start the tokio runtime for the webserver.
 /// Keep a reference to the runtime for as long as you need it running.
@@ -308,6 +309,10 @@ pub(crate) fn cluster_main(
             other,
             timely::WorkerConfig::default(),
             move |worker| {
+                // Worker threads are not Python threads. Keep a Python
+                // thread state for this one, so that taking the GIL
+                // does not create and delete one each time.
+                let _py_thread = PyThreadStateKeeper::new();
                 let flow = Python::with_gil(|py| flow.clone_ref(py));
                 let recovery_config =
                     Python::with_gil(|py| recovery_config.as_ref().map(|rc| rc.clone_ref(py)));

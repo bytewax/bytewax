@@ -133,7 +133,11 @@ impl serde::de::Visitor<'_> for PickleVisitor {
         E: serde::de::Error,
     {
         let x: Result<TdPyAny, PyErr> = Python::with_gil(|py| {
-            let pickle = py.import("pickle")?;
+            let pickle = PICKLE_MODULE
+                .get_or_try_init(py, || -> PyResult<Py<PyModule>> {
+                    Ok(py.import("pickle")?.unbind())
+                })?
+                .bind(py);
             let x = pickle
                 .call_method1(intern!(py, "loads"), (bytes,))?
                 .unbind()
