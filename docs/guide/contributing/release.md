@@ -139,9 +139,10 @@ repo](https://github.com/bytewax/bytewax/releases).
    Merge duplicate entries for the same person (they may have used
    several emails) and use their GitHub `@handle` where you can.
 
-5. Wait until the CI run above for the `main` branch completes. The
-   next CD step needs the wheel packages that are built during CI. It
-   looks like this usually takes ~20 min.
+5. Wait until the CI run above for the `main` branch completes, so you
+   know the tests passed on the commit being released. CI usually takes
+   ~20 min. CD does not use the wheels from CI: it builds them again
+   from the tag.
 
 6. *Press "Publish release"!*
 
@@ -150,6 +151,15 @@ repo](https://github.com/bytewax/bytewax/releases).
 
    Check that the CD run completed on [our CD actions
    page](https://github.com/bytewax/bytewax/actions/workflows/CD.yml).
+
+   If the CD run fails after it has published some files, re-run only
+   the failed jobs with "Re-run failed jobs" on the run's page. Do not
+   use "Re-run all jobs": that rebuilds the wheels, and a rebuilt wheel
+   differs from the published one because the wheel archive records
+   when it was built. `uv publish --check-url` skips a file only if
+   PyPI already has the identical file, so it fails on every rebuilt
+   wheel that is already published, and the failed release job also
+   stops the PyPI check and the Docker jobs.
 
 ## 3. Double check PyPI
 
