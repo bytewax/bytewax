@@ -77,6 +77,15 @@ notes on GitHub when we make a new release.__
   `collect_window(..., ordered=False)` even though it works at
   runtime.
 
+- Fixes old recovery snapshots never being garbage collected when the
+  epoch interval is under a millisecond and `backup_interval` is set,
+  so the recovery store grew without bound. The ratio between the
+  backup interval and the epoch interval was computed in whole
+  milliseconds; a sub-millisecond epoch made it infinite. Epoch
+  intervals with a fractional number of milliseconds, such as 1.5 ms,
+  also got the wrong garbage collection delay. The ratio is now
+  computed in microseconds.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
