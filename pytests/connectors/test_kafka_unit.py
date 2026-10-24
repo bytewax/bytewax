@@ -334,6 +334,7 @@ def test_build_part_consumer_config(fake_consumer):
         "enable.auto.commit": "false",
         "bootstrap.servers": "b1:9092,b2:9092",
         "enable.partition.eof": "True",
+        "fetch.queue.backoff.ms": 10,
         # User config overrides the defaults.
         "statistics.interval.ms": "5000",
         "client.id": "test",

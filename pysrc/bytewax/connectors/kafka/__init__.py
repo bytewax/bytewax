@@ -441,6 +441,11 @@ class KafkaSource(
             "bootstrap.servers": ",".join(self._brokers),
             "enable.partition.eof": str(not self._tail),
             "statistics.interval.ms": 1000,
+            # Once the local queue is full, librdkafka postpones the
+            # next fetch by this much, 1000 ms by default. A consumer
+            # that drains the queue faster than that waits for
+            # messages that were already available on the broker.
+            "fetch.queue.backoff.ms": 10,
         }
         config.update(self._add_config)
         return _KafkaSourcePartition(
