@@ -1,3 +1,7 @@
+// Bytewax's own Rust code is safe Rust. `unsafe` code does not compile
+// here; adding some means changing this line, in review.
+#![forbid(unsafe_code)]
+
 use pyo3::prelude::*;
 
 pub(crate) mod dataflow;
