@@ -97,6 +97,12 @@ notes on GitHub when we make a new release.__
   `collect_window(..., ordered=False)` even though it works at
   runtime.
 
+- Cloning a dataflow item no longer takes the GIL, so workers that
+  read the same stream no longer queue on the GIL when many workers
+  run. The cost is one heap allocation per item: simple flows are up
+  to ~28% slower than v0.21.1 with one worker, and up to ~18% slower
+  with eight.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
