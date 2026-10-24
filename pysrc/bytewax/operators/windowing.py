@@ -1919,7 +1919,7 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: Literal["complete"],
     ordered: bool = ...,
-) -> WindowOut[V, Tuple[V]]: ...
+) -> WindowOut[Tuple[int, V], Tuple[V]]: ...
 
 
 @overload
@@ -1934,7 +1934,7 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: Literal["complete"],
     ordered: bool = ...,
-) -> WindowOut[Union[U, V], Tuple[U, V]]: ...
+) -> WindowOut[Tuple[int, Union[U, V]], Tuple[U, V]]: ...
 
 
 @overload
@@ -1950,7 +1950,7 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: Literal["complete"],
     ordered: bool = ...,
-) -> WindowOut[Union[U, V, W], Tuple[U, V, W]]: ...
+) -> WindowOut[Tuple[int, Union[U, V, W]], Tuple[U, V, W]]: ...
 
 
 @overload
@@ -1967,7 +1967,7 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: Literal["complete"],
     ordered: bool = ...,
-) -> WindowOut[Union[U, V, W, X], Tuple[U, V, W, X]]: ...
+) -> WindowOut[Tuple[int, Union[U, V, W, X]], Tuple[U, V, W, X]]: ...
 
 
 @overload
@@ -1981,7 +1981,7 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
     ordered: bool = ...,
-) -> WindowOut[V, Tuple[Optional[V]]]: ...
+) -> WindowOut[Tuple[int, V], Tuple[Optional[V]]]: ...
 
 
 @overload
@@ -1996,7 +1996,7 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
     ordered: bool = ...,
-) -> WindowOut[Union[U, V], Tuple[Optional[U], Optional[V]]]: ...
+) -> WindowOut[Tuple[int, Union[U, V]], Tuple[Optional[U], Optional[V]]]: ...
 
 
 @overload
@@ -2012,7 +2012,9 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
     ordered: bool = ...,
-) -> WindowOut[Union[U, V, W], Tuple[Optional[U], Optional[V], Optional[W]]]: ...
+) -> WindowOut[
+    Tuple[int, Union[U, V, W]], Tuple[Optional[U], Optional[V], Optional[W]]
+]: ...
 
 
 @overload
@@ -2030,7 +2032,8 @@ def join_window(
     emit_mode: JoinEmitMode = ...,
     ordered: bool = ...,
 ) -> WindowOut[
-    Union[U, V, W, X], Tuple[Optional[U], Optional[V], Optional[W], Optional[X]]
+    Tuple[int, Union[U, V, W, X]],
+    Tuple[Optional[U], Optional[V], Optional[W], Optional[X]],
 ]: ...
 
 
@@ -2043,7 +2046,7 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
     ordered: bool = ...,
-) -> WindowOut[V, Tuple[Optional[V], ...]]: ...
+) -> WindowOut[Tuple[int, V], Tuple[Optional[V], ...]]: ...
 
 
 @overload
@@ -2055,7 +2058,7 @@ def join_window(
     insert_mode: JoinInsertMode = ...,
     emit_mode: JoinEmitMode = ...,
     ordered: bool = ...,
-) -> WindowOut[Any, Tuple]: ...
+) -> WindowOut[Tuple[int, Any], Tuple]: ...
 
 
 @operator
@@ -2067,7 +2070,7 @@ def join_window(
     insert_mode: JoinInsertMode = "last",
     emit_mode: JoinEmitMode = "final",
     ordered: bool = True,
-) -> WindowOut[Any, Tuple]:
+) -> WindowOut[Tuple[int, Any], Tuple]:
     """Gather together the value for a key on multiple streams.
 
     See <project:#xref-joins> for more information.
@@ -2096,7 +2099,10 @@ def join_window(
     :returns: Window result streams. Downstream contains tuples with
         the value from each stream in the order of the argument list.
         See {py:obj}`~bytewax.operators.JoinEmitMode` for when tuples
-        are emitted.
+        are emitted. Late values (sub-keyed by window ID, as for all
+        windowing operators) are `(side, value)` 2-tuples, where
+        `side` is the index of the stream the value came from in the
+        argument list.
 
     """
     if insert_mode not in typing.get_args(JoinInsertMode):
@@ -2118,7 +2124,7 @@ def join_window(
     if isinstance(clock, EventClock):
         value_ts_getter = clock.ts_getter
 
-        def shim_getter(i_v: Tuple[str, Any]) -> datetime:
+        def shim_getter(i_v: Tuple[int, Any]) -> datetime:
             _, v = i_v
             return value_ts_getter(v)
 
