@@ -215,6 +215,7 @@ where
         py: Python,
         step_id: StepId,
         sink: FixedPartitionedSink,
+        snapshot_epochs: SnapshotEpochs,
         loads: &Stream<S, Snapshot>,
     ) -> PyResult<(ClockStream<S>, Stream<S, Snapshot>)>;
 }
@@ -228,6 +229,7 @@ where
         py: Python,
         step_id: StepId,
         sink: FixedPartitionedSink,
+        snapshot_epochs: SnapshotEpochs,
         loads: &Stream<S, Snapshot>,
     ) -> PyResult<(ClockStream<S>, Stream<S, Snapshot>)> {
         let this_worker = self.scope().w_index();
@@ -312,6 +314,10 @@ where
                     });
                     loads_input.buffer_notify(&mut loads_inbuf, &mut ncater);
 
+                    // The close callback can't see the frontiers, so
+                    // capture EOF here to always snapshot the final
+                    // epochs.
+                    let eof = input_frontiers.is_eof();
                     ncater.for_each(
                         input_frontiers,
                         |caps, (parts, awoken)| {
@@ -357,34 +363,43 @@ where
 
                             clock_output.activate().session(clock_cap).give(());
 
-                            // Always snapshot before building. If we have
-                            // an incoming load, it means we have recovery
-                            // state already at the end of the epoch, so
-                            // it would be wasted to snap it again. Also
-                            // this handles the "don't snapshot a
-                            // just-made-`None`-state partition" problem.
+                            // Only snapshot at snapshot boundaries and
+                            // at EOF. In other epochs the awoken
+                            // partitions stay in `awoken` so the next
+                            // snapshot covers them.
+                            if eof || snapshot_epochs.is_boundary(*epoch) {
+                                // Always snapshot before building. If we have
+                                // an incoming load, it means we have recovery
+                                // state already at the end of the epoch, so
+                                // it would be wasted to snap it again. Also
+                                // this handles the "don't snapshot a
+                                // just-made-`None`-state partition" problem.
 
-                            let mut handle = snaps_output.activate();
-                            let mut session = handle.session(snaps_cap);
-                            // Make sure to only snapshot partitions
-                            // that had data, otherwise we'll snapshot
-                            // as loads are happening.
-                            while let Some(part_key) = awoken.pop_first() {
-                                let part = parts.get(&part_key).unwrap();
-                                let state = with_timer!(
-                                    snapshot_histogram,
-                                    labels,
-                                    unwrap_any!(Python::with_gil(|py| part
-                                        .snapshot(py)
-                                        .reraise("error snapshotting StatefulSink")))
-                                );
-                                let snap =
-                                    Snapshot(step_id.clone(), part_key, StateChange::Upsert(state));
-                                session.give(snap);
+                                let mut handle = snaps_output.activate();
+                                let mut session = handle.session(snaps_cap);
+                                // Make sure to only snapshot partitions
+                                // that had data, otherwise we'll snapshot
+                                // as loads are happening.
+                                while let Some(part_key) = awoken.pop_first() {
+                                    let part = parts.get(&part_key).unwrap();
+                                    let state = with_timer!(
+                                        snapshot_histogram,
+                                        labels,
+                                        unwrap_any!(Python::with_gil(|py| part
+                                            .snapshot(py)
+                                            .reraise("error snapshotting StatefulSink")))
+                                    );
+                                    let snap = Snapshot(
+                                        step_id.clone(),
+                                        part_key,
+                                        StateChange::Upsert(state),
+                                    );
+                                    session.give(snap);
+                                }
+
+                                // We must reset `awoken` after each snapshot.
+                                assert!(awoken.is_empty());
                             }
-
-                            // We must reset `awake` on each epoch.
-                            assert!(awoken.is_empty());
 
                             if let Some(loads) = loads_inbuf.remove(epoch) {
                                 // If this worker was assigned to be
@@ -415,6 +430,22 @@ where
                             }
                         },
                     );
+
+                    // The notificator only runs the close logic for
+                    // epochs it was told about, so the stream's final
+                    // epoch is never closed if it saw no data. Queue
+                    // the current frontier so that the EOF (or drain,
+                    // or abort) activation closes it, and the
+                    // partitions awoken since the last snapshot are
+                    // snapshotted at that closed epoch, as the input
+                    // and stateful operators do. Without a snapshot
+                    // interval every epoch with data is snapshotted,
+                    // so there is nothing left to close.
+                    if snapshot_epochs.0 > 1 {
+                        if let Some(frontier) = input_frontiers.simplify() {
+                            ncater.notify_at(frontier);
+                        }
+                    }
                 });
             }
         });

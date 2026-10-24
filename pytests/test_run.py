@@ -217,6 +217,7 @@ def test_prepare_import_absolute_path(tmp_path, clean_syspath):
 
 def test_parse_timedelta():
     assert _parse_timedelta("90") == timedelta(seconds=90)
+    assert _parse_timedelta("2.5") == timedelta(seconds=2.5)
 
 
 def test_arg_parser_help_mentions_env_vars():
@@ -226,6 +227,7 @@ def test_arg_parser_help_mentions_env_vars():
     assert "[env: BYTEWAX_RECOVERY_DIRECTORY]" in help_text
     assert "[env: BYTEWAX_SNAPSHOT_INTERVAL]" in help_text
     assert "[env: BYTEWAX_RECOVERY_BACKUP_INTERVAL]" in help_text
+    assert "[env: BYTEWAX_RECOVERY_SNAPSHOT_INTERVAL]" in help_text
 
 
 @fixture
@@ -250,6 +252,7 @@ def test_parse_args_defaults(monkeypatch, no_bytewax_env):
     assert args.recovery_directory is None
     assert args.snapshot_interval is None
     assert args.backup_interval is None
+    assert args.recovery_snapshot_interval is None
 
 
 def test_parse_args_from_env(monkeypatch, no_bytewax_env, tmp_path):
@@ -292,6 +295,43 @@ def test_parse_args_recovery_requires_intervals(monkeypatch, no_bytewax_env, cap
         _parse(monkeypatch, "mod:flow", "-r", "/tmp/recovery", "-s", "10")
 
     assert "must be set" in capsys.readouterr().err
+
+
+def test_parse_args_recovery_snapshot_interval(monkeypatch, no_bytewax_env, tmp_path):
+    args = _parse(
+        monkeypatch,
+        "mod:flow",
+        "-r",
+        str(tmp_path),
+        "-s",
+        "10",
+        "-b",
+        "20",
+        "--recovery-snapshot-interval",
+        "2.5",
+    )
+
+    assert args.recovery_snapshot_interval == timedelta(seconds=2.5)
+    # `-s` keeps setting the epoch interval.
+    assert args.snapshot_interval == timedelta(seconds=10)
+
+
+def test_parse_args_recovery_snapshot_interval_from_env(monkeypatch, no_bytewax_env):
+    monkeypatch.setenv("BYTEWAX_RECOVERY_SNAPSHOT_INTERVAL", "1.5")
+
+    args = _parse(monkeypatch, "mod:flow")
+
+    assert args.recovery_snapshot_interval == timedelta(seconds=1.5)
+
+
+@mark.parametrize("value", ["soon", "inf"])
+def test_parse_args_recovery_snapshot_interval_rejects_invalid(
+    monkeypatch, no_bytewax_env, capsys, value
+):
+    with raises(SystemExit):
+        _parse(monkeypatch, "mod:flow", "--recovery-snapshot-interval", value)
+
+    assert "invalid _parse_timedelta value" in capsys.readouterr().err
 
 
 def _run_main_module(monkeypatch, *argv: str) -> Dict[str, Any]:
@@ -357,6 +397,31 @@ def test_main_with_recovery_and_addresses(
     assert config.backup_interval == timedelta(seconds=2)
     assert kwargs["process_id"] == 1
     assert kwargs["addresses"] == ["host-a:2101", "host-b:2101"]
+
+
+def test_main_recovery_snapshot_interval_reaches_recovery_config(
+    monkeypatch, no_bytewax_env, flow_module, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    kwargs = _run_main_module(
+        monkeypatch,
+        f"{flow_module}.py",
+        "-r",
+        str(tmp_path / "recovery"),
+        "-s",
+        "1",
+        "-b",
+        "2",
+        "--recovery-snapshot-interval",
+        "0.5",
+    )
+
+    # The epoch interval still comes from `-s`.
+    assert kwargs["epoch_interval"] == timedelta(seconds=1)
+    config = kwargs["recovery_config"]
+    assert config.snapshot_interval == timedelta(seconds=0.5)
+    assert config.backup_interval == timedelta(seconds=2)
+    assert "recovery_snapshot_interval" not in kwargs
 
 
 def test_cli_runs_dataflow(tmp_path):

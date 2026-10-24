@@ -38,11 +38,20 @@ class RecoveryConfig:
 
     :type backup_interval: typing.Optional[datetime.timedelta]
 
+    :arg snapshot_interval: Amount of system time between state
+        snapshots and resume points. Snapshots are only taken at the
+        end of epochs that are a multiple of this many epochs, plus at
+        EOF, so resuming replays input from the last snapshot. Rounded
+        up to a whole number of epochs. Defaults to `None`, which
+        snapshots every epoch.
+
+    :type snapshot_interval: typing.Optional[datetime.timedelta]
+
     """
 
     ...
 
-    def __init__(self, db_dir, backup_interval=None): ...
+    def __init__(self, db_dir, backup_interval=None, snapshot_interval=None): ...
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
@@ -51,6 +60,8 @@ class RecoveryConfig:
     def backup_interval(self): ...
     @property
     def db_dir(self): ...
+    @property
+    def snapshot_interval(self): ...
 
 class TracingConfig:
     """Base class for tracing/logging configuration.
