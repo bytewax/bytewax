@@ -91,6 +91,34 @@ to a "dead letter queue", a separate Kafka topic where they can be
 inspected and reprocessed later, while allowing the dataflow to
 continue processing data.
 
+(xref-kafka-delivery-failures)=
+### Delivery Failures
+
+{py:obj}`~bytewax.connectors.kafka.KafkaSink` waits until every
+message in a batch is delivered before moving on. If Kafka doesn't
+accept a message, the dataflow fails with a `RuntimeError` naming the
+topic and the Kafka error. For example, when the brokers stay
+unreachable for longer than the producer's `message.timeout.ms` (5
+minutes by default), or the topic doesn't exist and the brokers don't
+auto-create topics.
+
+At-least-once delivery requires running the dataflow with
+[recovery](#xref-recovery): after the failure, resuming the dataflow
+re-sends everything from the last snapshot, so some messages may be
+written twice. Without recovery a restart starts again from the
+`starting_offset` of
+{py:obj}`~bytewax.connectors.kafka.KafkaSource`, so messages can be
+lost or repeated (see [Kafka and Recovery](#xref-kafka-recovery)).
+
+If the producer's local queue fills up because the brokers can't keep
+up, the sink waits for it to drain instead of failing. A single
+message larger than the whole queue (`queue.buffering.max.kbytes`)
+fails the dataflow right away. To make the sink wait less, raise the
+producer's `queue.buffering.max.kbytes` and
+`queue.buffering.max.messages` in `add_config`; see the [`librdkafka`
+configuration
+reference](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md).
+
 ## Batch Sizes
 
 By default, Bytewax will consume a batch of up to 1000 messages at a
@@ -154,6 +182,7 @@ Note that not setting a topic for a
 {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage` when `KafkaSink`
 is not configured with a default topic will result in a runtime error.
 
+(xref-kafka-recovery)=
 ## Kafka and Recovery
 
 Typical deployments of Kafka utilize [consumer groups](
@@ -201,8 +230,13 @@ according to the `auto.commit.interval.ms` parameter. By default, this
 interval is set to 5000ms.
 
 It is important to note that this interval is not coordinated with any
-processing steps within Bytewax. As a result, some messages may not be
-processed if the dataflow crashes.
+processing steps within Bytewax. As a result, if the dataflow crashes,
+some messages may not be processed (their offsets were committed
+before their output was written) or may be processed twice. Only
+recovery gives at-least-once delivery from
+{py:obj}`~bytewax.connectors.kafka.KafkaSource` to
+{py:obj}`~bytewax.connectors.kafka.KafkaSink`; see [Delivery
+Failures](#xref-kafka-delivery-failures).
 
 ## Partitions
 

@@ -41,8 +41,9 @@ kop.output("kafka-out", processed, brokers=brokers, topic="out-topic")
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
-from typing import Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, Generic, Iterable, List, Optional, Tuple, TypeVar, Union
 
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
@@ -56,6 +57,8 @@ from confluent_kafka import (
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.admin import AdminClient
 from prometheus_client import Gauge
+
+_logger = logging.getLogger(__name__)
 
 K = TypeVar("K")
 """Type of key in Kafka message."""
@@ -181,8 +184,8 @@ def _list_parts(
             err = ex.args[0] if ex.args else None
             reason = err.str() if isinstance(err, ConfluentKafkaError) else str(ex)
             msg = (
-                f"could not fetch metadata for Kafka topic `{topic!r}` "
-                f"from brokers `{brokers!r}` within "
+                f"could not fetch metadata for Kafka topic {topic!r} "
+                f"from brokers {brokers!r} within "
                 f"{_LIST_TOPICS_TIMEOUT_S:g} seconds: {reason}"
             )
             raise RuntimeError(msg) from ex
@@ -192,17 +195,17 @@ def _list_parts(
         # set (handled below); this only guards against a response
         # that leaves it out entirely.
         if topic_metadata is None:
-            msg = f"Kafka topic `{topic!r}` was not found"
+            msg = f"Kafka topic {topic!r} was not found"
             raise RuntimeError(msg)
         if topic_metadata.error is not None:
             msg = (
-                f"error listing partitions for Kafka topic `{topic!r}`: "
+                f"error listing partitions for Kafka topic {topic!r}: "
                 f"{topic_metadata.error.str()}"
             )
             raise RuntimeError(msg)
         assert topic_metadata.partitions is not None
         if not topic_metadata.partitions:
-            msg = f"no partitions listed for Kafka topic `{topic!r}`"
+            msg = f"no partitions listed for Kafka topic {topic!r}"
             raise RuntimeError(msg)
         part_idxs = topic_metadata.partitions.keys()
         for i in part_idxs:
@@ -300,8 +303,7 @@ class _KafkaSourcePartition(
                 elif self._raise_on_errors:
                     # Discard all the messages in this batch too
                     err_msg = (
-                        f"error consuming from Kafka topic `{self._topic!r}`: "
-                        f"{error}"
+                        f"error consuming from Kafka topic {self._topic!r}: " f"{error}"
                     )
                     raise RuntimeError(err_msg)
 
@@ -503,34 +505,128 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
         )
 
 
+_QUEUE_FULL_POLL_S = 1.0
+"""How long to serve delivery reports before retrying a full queue."""
+
+_CLOSE_FLUSH_S = 5.0
+"""How long `close` serves purged messages' reports after a failure."""
+
+
 class _KafkaSinkPartition(
     StatelessSinkPartition[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
 ):
-    def __init__(self, producer, topic):
+    def __init__(self, producer, topic, user_on_delivery=None):
         self._producer = producer
         self._topic = topic
+        # An `on_delivery` from `add_config`; ours replaces it per
+        # message, so call it from ours.
+        self._user_on_delivery = user_on_delivery
+        self._delivery_err: Optional[Tuple[str, ConfluentKafkaError]] = None
+        self._failed = False
+
+    def _on_delivery(self, err: Optional[ConfluentKafkaError], msg) -> None:
+        # Called from `poll` and `flush` once librdkafka is done with a
+        # message: delivered, or given up on after
+        # `message.timeout.ms`. Keep the first failure.
+        if self._user_on_delivery is not None:
+            self._user_on_delivery(err, msg)
+        if err is not None and self._delivery_err is None:
+            self._delivery_err = (msg.topic(), err)
+
+    def _raise_on_delivery_err(self) -> None:
+        if self._delivery_err is not None:
+            topic, err = self._delivery_err
+            self._delivery_err = None
+            msg = f"failed to deliver a message to Kafka topic {topic!r}: {err.str()}"
+            raise RuntimeError(msg) from KafkaException(err)
+
+    def _produce(
+        self, msg: KafkaSinkMessage[Optional[bytes], Optional[bytes]], topic: str
+    ) -> None:
+        kwargs: Dict[str, Any] = {}
+        # Without a partition, the producer's partitioner picks one.
+        if msg.partition is not None:
+            kwargs["partition"] = msg.partition
+        while True:
+            try:
+                self._producer.produce(
+                    value=msg.value,
+                    key=msg.key,
+                    headers=msg.headers,
+                    topic=topic,
+                    timestamp=msg.timestamp,
+                    on_delivery=self._on_delivery,
+                    **kwargs,
+                )
+                return
+            except BufferError as ex:
+                if len(self._producer) == 0:
+                    # Messages stay counted until `poll`/`flush` serves
+                    # their delivery reports, so with nothing queued
+                    # waiting can't make room: this message alone is
+                    # bigger than the queue.
+                    err = (
+                        f"message for Kafka topic {topic!r} is larger than the "
+                        "producer's local queue (`queue.buffering.max.kbytes`)"
+                    )
+                    raise RuntimeError(err) from ex
+                # librdkafka's local queue is full. Wait for it to
+                # drain instead of failing the batch; stop if a
+                # queued message has failed meanwhile.
+                self._producer.poll(_QUEUE_FULL_POLL_S)
+                self._raise_on_delivery_err()
+            except KafkaException as ex:
+                # Raised before queueing, e.g. a message bigger than
+                # `message.max.bytes`.
+                kerr = ex.args[0] if ex.args else None
+                reason = (
+                    kerr.str() if isinstance(kerr, ConfluentKafkaError) else str(ex)
+                )
+                err = f"failed to produce a message to Kafka topic {topic!r}: {reason}"
+                raise RuntimeError(err) from ex
 
     def write_batch(
         self, items: List[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]
     ) -> None:
-        for msg in items:
-            topic = self._topic if msg.topic is None else msg.topic
-            if topic is None:
-                err = f"No topic to produce to for {msg}"
-                raise RuntimeError(err)
+        try:
+            for msg in items:
+                topic = self._topic if msg.topic is None else msg.topic
+                if topic is None:
+                    err = f"No topic to produce to for {msg}"
+                    raise RuntimeError(err)
 
-            self._producer.produce(
-                value=msg.value,
-                key=msg.key,
-                headers=msg.headers,
-                topic=topic,
-                timestamp=msg.timestamp,
-            )
-            self._producer.poll(0)
-        self._producer.flush()
+                self._produce(msg, topic)
+                self._producer.poll(0)
+            # Every item must be delivered before returning so the
+            # epoch isn't committed with lost output; a failure fails
+            # the dataflow and resuming re-sends it.
+            self._producer.flush()
+            self._raise_on_delivery_err()
+        except BaseException:
+            # Whatever failed (including an `on_delivery` from
+            # `add_config`), `close` must not wait on or report the
+            # messages still queued.
+            self._failed = True
+            raise
 
     def close(self) -> None:
-        self._producer.flush()
+        # Log errors instead of raising them: `close` also runs while
+        # unwinding from a failed `write_batch`, where a second
+        # exception aborts the process. `write_batch` already flushed
+        # and raised on failures.
+        try:
+            if self._failed:
+                # The dataflow is failing and resuming re-sends
+                # anything still queued, so don't wait up to
+                # `message.timeout.ms` for it. `purge` doesn't wait
+                # either; the bounded `flush` serves the purged
+                # messages' delivery reports.
+                self._producer.purge()
+                self._producer.flush(_CLOSE_FLUSH_S)
+            else:
+                self._producer.flush()
+        except Exception:
+            _logger.exception("error closing Kafka producer")
 
 
 class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]):
@@ -542,8 +638,17 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
 
     Workers are the unit of parallelism.
 
-    Can support at-least-once processing. Messages from the resume
-    epoch will be duplicated right after resume.
+    Can support at-least-once processing, but only when the dataflow
+    runs with recovery (see {py:obj}`~bytewax.recovery.RecoveryConfig`).
+    Messages from the resume epoch will be duplicated right after
+    resume. Without recovery, messages can be lost or repeated.
+
+    Each batch is fully delivered before the sink moves on. If Kafka
+    doesn't accept a message (e.g. librdkafka gives up after
+    `message.timeout.ms`), the dataflow fails with a `RuntimeError`;
+    with recovery, resuming re-sends it. If the producer's local queue
+    fills up, writing waits for it to drain; a single message larger
+    than the whole queue fails right away.
 
     """
 
@@ -581,6 +686,13 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
             "bootstrap.servers": ",".join(self._brokers),
         }
         config.update(self._add_config)
+        user_on_delivery = config.pop("on_delivery", None)
+        if user_on_delivery is not None and not callable(user_on_delivery):
+            msg = (
+                "`on_delivery` in `add_config` must be callable; "
+                f"got {user_on_delivery!r}"
+            )
+            raise TypeError(msg)
         producer = Producer(config)
 
-        return _KafkaSinkPartition(producer, self._topic)
+        return _KafkaSinkPartition(producer, self._topic, user_on_delivery)
