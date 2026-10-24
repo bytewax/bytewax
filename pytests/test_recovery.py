@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
+from bytewax.inputs import DynamicSource, StatelessSourcePartition
 from bytewax.recovery import (
     InconsistentPartitionsError,
     MissingPartitionsError,
@@ -16,6 +17,7 @@ from pytest import raises
 
 ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
+TEN_TD = timedelta(seconds=10)
 
 
 def test_abort_no_snapshots(recovery_config):
@@ -269,3 +271,60 @@ def test_inconsistent_parts(tmp_path):
     shutil.copy(tmp_path / "part-0.run0", tmp_path / "part-0.sqlite3")
     with raises(InconsistentPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+
+NUM_BATCHES = 50
+BATCH_SIZE = 10
+
+
+class _NumberedBatchPartition(StatelessSourcePartition[int]):
+    """Emit one batch of consecutive numbers per `next_batch` call."""
+
+    def __init__(self, batch_ids):
+        self._batch_ids = list(batch_ids)
+        self._next = 0
+
+    def next_batch(self):
+        if self._next >= len(self._batch_ids):
+            raise StopIteration()
+        batch_id = self._batch_ids[self._next]
+        self._next += 1
+        start = batch_id * BATCH_SIZE
+        return list(range(start, start + BATCH_SIZE))
+
+
+class _NumberedBatchSource(DynamicSource[int]):
+    def build(self, _step_id, worker_index, worker_count):
+        # Each worker reads a disjoint set of batches.
+        return _NumberedBatchPartition(range(worker_index, NUM_BATCHES, worker_count))
+
+
+def test_recovery_stateless_flow_reads_all_input(recovery_config):
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, _NumberedBatchSource())
+    s = op.map("id", s, lambda x: x)
+    op.output("out", s, TestingSink(out))
+
+    run_main(flow, epoch_interval=TEN_TD, recovery_config=recovery_config)
+    assert sorted(out) == list(range(NUM_BATCHES * BATCH_SIZE))
+
+
+def test_recovery_stateless_flow_reads_all_input_cluster(recovery_config):
+    out = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, _NumberedBatchSource())
+    s = op.map("id", s, lambda x: x)
+    op.output("out", s, TestingSink(out))
+
+    cluster_main(
+        flow,
+        [],
+        0,
+        epoch_interval=TEN_TD,
+        recovery_config=recovery_config,
+        worker_count_per_proc=2,
+    )
+    assert sorted(out) == list(range(NUM_BATCHES * BATCH_SIZE))
