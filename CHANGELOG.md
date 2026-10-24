@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 For help with updating to new Bytewax versions, please see the
-[migration guide](https://bytewax.io/docs/reference/migration).
+[migration guide](https://github.com/bytewax/bytewax/blob/main/docs/guide/reference/migration.md).
 
 ## Latest
 

@@ -64,8 +64,8 @@ class CoinbasePartition(StatefulSourcePartition):
     yields messages as they arrive. It subscribes to the level2_batch channel for
     the given product_id.
 
-    For more information on StatefulSourcePartition, see the documentation:
-    https://docs.bytewax.io/stable/api/bytewax/bytewax.inputs.html#bytewax.inputs.StatefulSourcePartition
+    For more information on StatefulSourcePartition, see its documentation
+    in the bytewax.inputs module.
 
     Args:
         StatefulSourcePartition : The base class for a partition.
@@ -112,8 +112,8 @@ class CoinbaseSource(FixedPartitionedSource):
     Note that the methods associated with this class are required parts
     of the FixedPartitionedSource class.
 
-    For more information on FixedPartitionedSource, see the documentation:
-    https://docs.bytewax.io/stable/api/bytewax/bytewax.inputs.html#bytewax.inputs.FixedPartitionedSourceß
+    For more information on FixedPartitionedSource, see its documentation
+    in the bytewax.inputs module.
 
     Args:
         FixedPartitionedSource: The base class for a source.
