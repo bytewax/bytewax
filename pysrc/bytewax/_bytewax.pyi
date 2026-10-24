@@ -25,8 +25,18 @@ class BytewaxTracer:
 class RecoveryConfig:
     """Configuration settings for recovery.
 
+    One execution at a time may use a recovery store. Each partition is
+    locked for as long as the execution that opened it runs. A second
+    execution fails with a `RuntimeError` after a few seconds, without
+    writing any recovery data. Wait for the first execution to exit,
+    then retry.
+
     :arg db_dir: Local filesystem directory to search for recovery
-        database partitions.
+        database partitions. It must be attached to a single host, such
+        as a Kubernetes ReadWriteOnce block volume. A network share
+        mounted on several hosts is not supported: SQLite WAL does not
+        work across hosts, and locks on such a share may only exclude
+        processes on the same client.
 
     :type db_dir: pathlib.Path
 
@@ -38,11 +48,20 @@ class RecoveryConfig:
 
     :type backup_interval: typing.Optional[datetime.timedelta]
 
+    :arg snapshot_interval: Amount of system time between state
+        snapshots and resume points. Snapshots are only taken at the
+        end of epochs that are a multiple of this many epochs, plus at
+        EOF, so resuming replays input from the last snapshot. Rounded
+        up to a whole number of epochs. Defaults to `None`, which
+        snapshots every epoch.
+
+    :type snapshot_interval: typing.Optional[datetime.timedelta]
+
     """
 
     ...
 
-    def __init__(self, db_dir, backup_interval=None): ...
+    def __init__(self, db_dir, backup_interval=None, snapshot_interval=None): ...
     def __new__(cls, *args, **kwargs):
         """Create and return a new object.  See help(type) for accurate signature."""
         ...
@@ -51,6 +70,8 @@ class RecoveryConfig:
     def backup_interval(self): ...
     @property
     def db_dir(self): ...
+    @property
+    def snapshot_interval(self): ...
 
 class TracingConfig:
     """Base class for tracing/logging configuration.
@@ -147,6 +168,24 @@ def cluster_main(
     """
     ...
 
+def execution_state():
+    """The recovery, completion and lock state of this thread's execution.
+
+    Returns whether the execution that a partition belongs to has a
+    recovery config, whether it completed, and whether this process
+    holds one of its recovery partition locks.
+
+    `KafkaEosSink` reads this in its partitions' `close`, which runs on
+    the worker thread. A partition closed with `completed` true knows
+    that the recovery writes of its execution are durable. A process
+    without a lock cannot keep a successor out, so it must not publish
+    at close. A partition closed after its run has ended sees the run's
+    locks only while the run is still alive, and all are `False` once
+    it has returned.
+
+    """
+    ...
+
 def init_db_dir(db_dir, count):
     """Create and init a set of empty recovery partitions.
 
@@ -157,6 +196,52 @@ def init_db_dir(db_dir, count):
     :arg count: Number of partitions to create.
 
     :type count: int
+
+    """
+    ...
+
+def request_graceful_drain():
+    """Ask the execution in progress to drain and exit cleanly.
+
+    A drain needs a single-process execution with a recovery config.
+    Without a recovery config it would discard open windows and folds,
+    so this raises `RuntimeError` while such an execution runs in this
+    process. A multi-process cluster is not drained at all, so this
+    raises while one runs too. A request made while no execution runs is
+    kept for the next execution in this process, which then refuses to
+    start unless it can be drained. The last execution to end clears it.
+
+    Inputs stop reading new data and treat the request as EOF, so each
+    partition snapshots its exact position and the execution closes
+    through the normal EOF path. A following execution on the same
+    recovery store then resumes with no replayed items.
+
+    Stateful operators pause rather than finish. Their logic is kept
+    and snapshotted, so an open window or fold is not emitted early,
+    and the next execution continues it. Only a true end of input runs
+    their final output.
+
+    To drain on SIGTERM, install a handler before the execution starts.
+    SIGTERM keeps its default action otherwise.
+
+    % Skip this doctest because it installs a signal handler.
+
+    ```python
+    import signal
+    from bytewax.run import request_graceful_drain
+
+    def _drain_on_sigterm(signum, frame):
+        # A second SIGTERM ends the process the usual way.
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        request_graceful_drain()
+
+    signal.signal(signal.SIGTERM, _drain_on_sigterm)
+    ```
+
+    A multi-process cluster is resumed by recovery after a crash or a
+    kill, as before. In a container, the process must receive the
+    signal: run Python in exec form, not under `sh -c`, or under an init
+    such as `tini`.
 
     """
     ...

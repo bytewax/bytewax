@@ -28,5 +28,6 @@ fn mod_bytewax(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     recovery::register(py, m)?;
     run::register(py, m)?;
     tracing::register(py, m)?;
+    worker::register(py, m)?;
     Ok(())
 }

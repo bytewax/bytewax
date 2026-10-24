@@ -9,6 +9,158 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- Added `snapshot_interval` to {py:obj}`~bytewax.recovery.RecoveryConfig`.
+  State snapshots and resume points are now taken every
+  `snapshot_interval` (rounded up to whole epochs) instead of every
+  epoch, so the recovery writes stop sitting on the input backpressure
+  path. Resuming replays input from the last snapshot boundary, so
+  more input may be re-emitted after a crash. The default (`None`)
+  keeps the existing behavior: a snapshot every epoch.
+
+  The CLI's `-s/--snapshot-interval` historically sets the epoch
+  interval, and that is unchanged. The per-boundary snapshot cadence is
+  set with `--recovery-snapshot-interval SECONDS` (or
+  `BYTEWAX_RECOVERY_SNAPSHOT_INTERVAL`; only used with
+  `-r/--recovery-directory`), or with
+  `RecoveryConfig(snapshot_interval=...)`. The `-s`, `-b` and
+  `--recovery-snapshot-interval` flags accept fractional seconds.
+
+- Fixes a stateful output losing its last window when a stream ends
+  between snapshot boundaries. With `snapshot_interval`, an output
+  partition whose final epoch closed without a boundary was never
+  snapshotted, so a graceful drain, the end of the input, or an abort
+  dropped that window's writes, and the next execution did not replay
+  them. The output operator now snapshots its awoken partitions when
+  its input closes, as the input and stateful operators already do.
+  This gap came from the `snapshot_interval` change earlier in this
+  unreleased series, so no released version was affected.
+
+- Added an exclusive lock per recovery partition. One execution at a
+  time may use a recovery store. Each partition is locked by the
+  execution that opens it, for as long as that execution runs. A second
+  execution fails with a `RuntimeError` after a few seconds, without
+  writing any recovery data, and orchestrators can retry it once the
+  first has exited. The lock is a sidecar file beside each partition,
+  `part-N.sqlite3.lock`. The OS releases it when the process exits,
+  even when the process is killed. Earlier bytewax versions don't take
+  the lock, so an execution of an earlier version is not kept out.
+
+  Recovery directories must be on storage attached to a single host,
+  such as a Kubernetes ReadWriteOnce block volume, not a network share
+  mounted on several hosts. Locks on such a share may only exclude
+  processes on the same client.
+
+  The locks of an execution are held until every worker of the execution
+  in the process has returned, so a worker that finishes early does not
+  let a successor start while a sibling still runs. Each execution keeps
+  its own locks, so a second execution on the same directory cannot
+  release the locks of the first.
+
+- Added graceful drain. The new
+  {py:obj}`~bytewax.run.request_graceful_drain` function drains a
+  dataflow with a recovery config to a consistent snapshot and exits
+  cleanly with status 0. A following execution on the same recovery
+  store resumes with zero replayed items. Inputs stop reading and treat
+  the request as EOF. An execution that closes cleanly logs
+  `Execution N closed cleanly` at `INFO`, once per process. Killed,
+  aborted, or crashed executions do not log it.
+
+  A drain pauses stateful logic instead of finishing it. Windows stay
+  open, and folds and collects keep their state, so a drain does not
+  emit their partial results and the next execution continues where the
+  first stopped. Only a true end of input runs their final output. If
+  the inputs reach their natural end while a drain is pending, that
+  final output is also deferred to the next execution.
+
+  A drain needs a single-process execution with a recovery config.
+  Without a recovery config, a drain would discard open windows and
+  folds with no store to keep them. A multi-process cluster is not
+  drained at all, since its processes would not agree on the end of
+  input. So `request_graceful_drain` raises `RuntimeError` while such an
+  execution runs in the process, and no such execution can start while
+  a drain is pending. Executions that run concurrently in one process
+  drain together, as long as they are all single-process executions
+  with recovery. A multi-process cluster is resumed by recovery after a
+  crash or kill, as before.
+
+  A request made while no execution runs is kept, and drains the next
+  execution in the process as soon as it starts. A request made during
+  an execution does not carry over once the last one ends.
+
+  SIGTERM keeps its default action, so the process ends by signal, as
+  in 0.21. To drain on SIGTERM instead, install a handler before the
+  execution starts:
+
+```python
+import signal
+from bytewax.run import request_graceful_drain
+
+
+def _drain_on_sigterm(signum, frame):
+    # A second SIGTERM ends the process the usual way.
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    request_graceful_drain()
+
+
+signal.signal(signal.SIGTERM, _drain_on_sigterm)
+```
+
+- An execution that ends normally logs `Execution N closed cleanly` at
+  `INFO`, once per process. A drained or finished execution logs it; a
+  killed, aborted, or crashed one does not.
+
+- Added {py:obj}`~bytewax.connectors.kafka.eos.KafkaEosSink`, an
+  exactly-once Kafka output that needs no broker transactions. With a
+  recovery config, each result reaches the topic once across crashes,
+  graceful drains and resumes, in multi-process clusters too. Each
+  partition of the topic is written by one sink partition, placed by the
+  CRC-32 of the item's routing key, which matches librdkafka's
+  `consistent` partitioner. Each message carries `eos-window`, `eos-seq`
+  and `eos-store` headers, so a consumer can deduplicate by partition,
+  window and sequence.
+
+  A window is produced only after the snapshot that closes it is
+  durable, so publication trails one snapshot behind. A finite run
+  publishes its last window at its clean end, if the process holds a
+  recovery partition lock, and a failure there fails the run. An
+  unfinished execution leaves its pending windows to the next execution
+  on the same recovery store. Deliveries are confirmed asynchronously,
+  and a delivery failure fails the execution at the next snapshot.
+
+  A restored store checks the topic against its own windows, by offset.
+  The topic must hold a prefix of them, and every record it holds must
+  carry the headers of its place. A store refuses a topic it did not
+  write, a topic whose partition count has changed, and a compacted
+  topic. Retention may remove the head of the topic without any window
+  being produced twice.
+
+  The sink needs a recovery config, and the recovery lock lets only one
+  execution use a store at a time. `enable.idempotence`,
+  `enable.gapless.guarantee` and `message.timeout.ms` are fixed at
+  `true`, `true` and `0`, and the constructor refuses a different value.
+  `resume_grace` optionally waits once per execution before a restored
+  store reads the topic, so that records a killed execution already
+  handed to the network can land. A process with no recovery partition
+  lock publishes nothing at close and logs a warning, so run with at
+  least as many recovery partitions as processes.
+
+- Fixes the epoch clock falling one batch behind input progress when
+  an execution starts or resumes, for dataflows with a
+  `snapshot_interval`. The first batch after a start or resume now
+  closes its epoch. Epoch numbering stays aligned with input progress
+  across executions, so a resume never replays more than the
+  configured snapshot window. Dataflows without a `snapshot_interval`
+  start their first epoch as before.
+
+  *Behavior change*: with a `snapshot_interval` no longer than the
+  epoch interval, so that every epoch is a snapshot epoch, each
+  execution now writes a snapshot after its first input batch (a
+  zero-length first epoch), so a crash shortly after a start or resume
+  no longer replays the entire history. Previously no resume point
+  existed until a full `epoch_interval` had elapsed. With a longer
+  snapshot interval, the first snapshot is taken at the first snapshot
+  boundary.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
@@ -38,6 +190,30 @@ notes on GitHub when we make a new release.__
   garbage collection, and the source's cleanup (e.g. closing a
   websocket) didn't run. A loop passed in with `loop=` is still left
   open. Reported in #536 by @Chittaranjans.
+
+- Fixes input partitions that are alone on a worker falling behind
+  in multi-worker dataflows, e.g. Kafka partitions spread unevenly
+  over workers. A partition that finished its epoch first waited for
+  the rest of the dataflow, and that wait counted as time spent in
+  its next epoch; once the others caught up, it got only one
+  `next_batch` before its next epoch was due. This affected
+  {py:obj}`~bytewax.inputs.FixedPartitionedSource` and
+  {py:obj}`~bytewax.inputs.DynamicSource`. Reported and first fixed
+  in #556 by @nrdhm.
+
+- Fixes input partitions busy-waking on every activation while they
+  wait for the rest of the dataflow to finish the previous epoch.
+  Such a partition now backs off to the standard 1 ms cooldown only
+  once the wait outlives a 500 µs grace, which removes the constant
+  CPU load while it waits. Re-checks within the grace stay immediate,
+  covering the few worker steps the downstream operators need to
+  process a closed epoch, so zero and short epoch intervals keep
+  their throughput at any pipeline depth. Until a partition closes
+  its first epoch, as at the start of an execution, it keeps
+  re-checking every step, so the inputs of a dataflow still start
+  together. While a graceful drain is pending, a waiting partition
+  never sleeps past the cooldown, even when its next awake time is
+  further away, so the drain reaches it once the wait ends.
 
 - Fixes {py:obj}`~bytewax.tracing.setup_tracing` hanging forever
   instead of raising a `RuntimeError` when tracing can't be set up:
@@ -76,6 +252,23 @@ notes on GitHub when we make a new release.__
   the `ordered` argument, so type checkers rejected
   `collect_window(..., ordered=False)` even though it works at
   runtime.
+
+- Fixes a bug where a dataflow with recovery enabled but no
+  state-snapshotting steps, such as a
+  {py:obj}`~bytewax.inputs.DynamicSource` input with stateless
+  operators and a dynamic sink, stopped after its first few batches
+  and silently dropped the rest of its input. The internal probe now
+  also tracks the dataflow outputs, so backpressure also waits for
+  dynamic sinks to finish each epoch.
+
+- Fixes old recovery snapshots never being garbage collected when the
+  epoch interval is under a millisecond and `backup_interval` is set,
+  so the recovery store grew without bound. The ratio between the
+  backup interval and the epoch interval was computed in whole
+  milliseconds; a sub-millisecond epoch made it infinite. Epoch
+  intervals with a fractional number of milliseconds, such as 1.5 ms,
+  also got the wrong garbage collection delay. The ratio is now
+  computed in microseconds.
 
 ## v0.21.1
 

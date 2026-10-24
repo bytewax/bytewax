@@ -1,11 +1,13 @@
 //! Definition of a Bytewax worker.
 
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::Weak;
 use std::time::Duration;
 
 use pyo3::exceptions::PyTypeError;
@@ -33,6 +35,8 @@ use crate::operators::*;
 use crate::outputs::*;
 use crate::pyo3_extensions::TdPyAny;
 use crate::recovery::*;
+use crate::run::DRAIN;
+use crate::unwrap_any;
 
 /// Bytewax worker.
 ///
@@ -64,8 +68,11 @@ where
 
     /// Run a specific dataflow until it is complete.
     ///
+    /// Returns whether the dataflow completed. A run that an abort or
+    /// an interrupt stops first returns `false`.
+    ///
     /// [`ProbeHandle`]s are how we ID a dataflow.
-    fn run<T>(&mut self, probe: ProbeHandle<T>)
+    fn run<T>(&mut self, probe: ProbeHandle<T>) -> bool
     where
         T: Timestamp,
     {
@@ -75,11 +82,17 @@ where
             || (self.interrupt_callback)()
             || probe.done())
         {
+            // Wake the input partitions that are asleep so they see a
+            // drain request now, not when their awake time comes round.
+            if DRAIN.load(atomic::Ordering::Acquire) {
+                wake_inputs();
+            }
             tracing::debug_span!("step").in_scope(|| {
                 self.worker.step_or_park(Some(cooldown));
             });
         }
         tracing::info!("Timely dataflow stop");
+        probe.done()
     }
 
     /// Terminate all dataflows in this worker.
@@ -95,7 +108,96 @@ where
     }
 }
 
+thread_local! {
+    /// Whether this thread's execution has a recovery config.
+    static RECOVERING: Cell<bool> = const { Cell::new(false) };
+    /// The recovery locks of this thread's execution. A weak reference:
+    /// the run owns the locks, and a thread must not keep them past it.
+    /// A partition that is dropped after the run still finds them while
+    /// the run is alive, which is when its close needs them.
+    static LOCKS: RefCell<Weak<ExecutionLocks>> = const { RefCell::new(Weak::new()) };
+    /// Whether this thread's execution completed: its dataflow finished
+    /// with no abort and no interrupt. Set before the worker shuts down.
+    static COMPLETED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether this thread is running an execution with a recovery config.
+///
+/// A partition that opts in closes once the run has ended, when the
+/// execution's outcome is known. Otherwise it closes as it is dropped.
+pub(crate) fn closes_after_run() -> bool {
+    RECOVERING.with(Cell::get)
+}
+
+/// Marks an execution on this worker thread, from start to return.
+struct WorkerExecution;
+
+impl WorkerExecution {
+    /// `locks` is the execution's recovery locks, or `None` without a
+    /// recovery config.
+    fn begin(locks: Option<&Arc<ExecutionLocks>>) -> Self {
+        RECOVERING.with(|flag| flag.set(locks.is_some()));
+        LOCKS.with(|slot| *slot.borrow_mut() = locks.map_or_else(Weak::new, Arc::downgrade));
+        COMPLETED.with(|flag| flag.set(false));
+        Self
+    }
+
+    /// Record the run's outcome, then close the output partitions that
+    /// the run has dropped. The probe is done when `completed` is true,
+    /// so every recovery write of the execution is durable by then.
+    /// The recovery partitions are still locked here.
+    ///
+    /// A close error fails the run, since a completed run must not
+    /// report success with output undelivered.
+    fn finish_run(&self, completed: bool) {
+        COMPLETED.with(|flag| flag.set(completed));
+        unwrap_any!(release_dropped_partitions());
+    }
+}
+
+impl Drop for WorkerExecution {
+    /// Partitions that shutdown dropped close here, and so do those an
+    /// unwinding worker dropped. A run that unwound did not complete.
+    /// Errors from these closes are logged while unwinding, since a
+    /// panic during unwinding would abort the process.
+    fn drop(&mut self) {
+        let released = release_dropped_partitions();
+        COMPLETED.with(|flag| flag.set(false));
+        RECOVERING.with(|flag| flag.set(false));
+        if std::thread::panicking() {
+            if let Err(err) = released {
+                tracing::error!("error closing a StatefulSinkPartition while unwinding: {err}");
+            }
+        } else {
+            unwrap_any!(released);
+        }
+    }
+}
+
+/// The recovery, completion and lock state of this thread's execution.
+///
+/// Returns whether the execution that a partition belongs to has a
+/// recovery config, whether it completed, and whether this process
+/// holds one of its recovery partition locks.
+///
+/// `KafkaEosSink` reads this in its partitions' `close`, which runs on
+/// the worker thread. A partition closed with `completed` true knows
+/// that the recovery writes of its execution are durable. A process
+/// without a lock cannot keep a successor out, so it must not publish
+/// at close. A partition closed after its run has ended sees the run's
+/// locks only while the run is still alive, and all are `False` once
+/// it has returned.
+#[pyfunction]
+pub(crate) fn execution_state() -> (bool, bool, bool) {
+    let locks = LOCKS.with(|slot| slot.borrow().upgrade());
+    let holds = locks.as_ref().is_some_and(|locks| locks.holds_lock());
+    (locks.is_some(), COMPLETED.with(Cell::get), holds)
+}
+
 /// Public, main entry point for a worker thread.
+///
+/// Returns the execution number if the dataflow completed, and `None`
+/// if an abort or an interrupt stopped it first.
 #[instrument(name = "worker_main", skip_all, fields(worker = worker.index()))]
 pub(crate) fn worker_main<A>(
     worker: &mut TimelyWorker<A>,
@@ -103,15 +205,27 @@ pub(crate) fn worker_main<A>(
     flow: Dataflow,
     epoch_interval: EpochInterval,
     recovery_config: Option<Py<RecoveryConfig>>,
-) -> PyResult<()>
+    locks: Arc<ExecutionLocks>,
+) -> PyResult<Option<ExecutionNumber>>
 where
     A: Allocate,
 {
     let mut worker = Worker::new(worker, interrupt_callback);
     tracing::info!("Worker start");
+    clear_input_activators();
+    let execution = WorkerExecution::begin(recovery_config.is_some().then_some(&locks));
+
+    // Without recovery there is nothing to snapshot, so every epoch is
+    // used. The snapshot interval also decides whether the first epoch
+    // of each execution is pre-aged; see `EpochInterval::first_epoch_started`.
+    let snapshot_interval = recovery_config
+        .as_ref()
+        .and_then(|config| Python::with_gil(|py| config.borrow(py).snapshot_interval));
+    let snapshot_epochs = epoch_interval.snapshot_epochs(snapshot_interval);
+    let pre_age_first_epoch = snapshot_interval.is_some();
 
     let recovery = recovery_config
-        .map(|config| Python::with_gil(|py| config.borrow(py).build(py)))
+        .map(|config| Python::with_gil(|py| config.borrow(py).build(&locks)))
         .transpose()?;
 
     let resume_from = recovery
@@ -142,6 +256,8 @@ where
             worker.worker,
             flow,
             epoch_interval,
+            snapshot_epochs,
+            pre_age_first_epoch,
             resume_from,
             recovery,
             &worker.abort,
@@ -149,13 +265,13 @@ where
         .reraise("error building production dataflow")
     })?;
 
-    tracing::info_span!("production_dataflow").in_scope(|| {
-        worker.run(probe);
-    });
+    let completed = tracing::info_span!("production_dataflow").in_scope(|| worker.run(probe));
+    execution.finish_run(completed);
 
     worker.shutdown();
+    clear_input_activators();
     tracing::info!("Worker stop");
-    Ok(())
+    Ok(completed.then_some(resume_from.0))
 }
 
 /// Compile a dataflow which loads the progress data from the previous
@@ -252,11 +368,14 @@ where
 }
 
 /// Turn a Bytewax dataflow into a Timely dataflow.
+#[allow(clippy::too_many_arguments)]
 fn build_production_dataflow<A>(
     py: Python,
     worker: &mut TimelyWorker<A>,
     flow: Dataflow,
     epoch_interval: EpochInterval,
+    snapshot_epochs: SnapshotEpochs,
+    pre_age_first_epoch: bool,
     resume_from: ResumeFrom,
     recovery: Option<(RecoveryBundle, BackupInterval)>,
     abort: &Arc<AtomicBool>,
@@ -346,6 +465,8 @@ where
                                     scope,
                                     step_id,
                                     epoch_interval,
+                                    snapshot_epochs,
+                                    pre_age_first_epoch,
                                     &probe,
                                     abort,
                                     resume_epoch,
@@ -366,6 +487,7 @@ where
                                     scope,
                                     step_id,
                                     epoch_interval,
+                                    pre_age_first_epoch,
                                     &probe,
                                     abort,
                                     resume_epoch,
@@ -417,7 +539,7 @@ where
 
                         if let Ok(sink) = sink.extract::<FixedPartitionedSink>(py) {
                             let (clock, snap) = up
-                                .partitioned_output(py, step_id, sink, &loads)
+                                .partitioned_output(py, step_id, sink, snapshot_epochs, &loads)
                                 .reraise("error building FixedPartitionedSink")?;
 
                             outputs.push(clock.clone());
@@ -451,7 +573,7 @@ where
                             .get_upstream(py, &step, "up")
                             .reraise("core operator `stateful_batch` missing port")?;
 
-                        let (down, snap) = up.stateful_batch(py, step_id, builder, resume_epoch, &loads)?;
+                        let (down, snap) = up.stateful_batch(py, step_id, builder, resume_epoch, snapshot_epochs, &loads)?;
 
                         snaps.push(snap);
 
@@ -482,16 +604,28 @@ where
             return Err(tracked_err::<PyValueError>(msg));
         }
 
-        // Attach the probe to the relevant final output.
+        // Probe every final output, including dynamic sinks which
+        // produce no snapshots. Inputs wait on this probe before
+        // starting a new epoch, and the dataflow only finishes once
+        // all outputs are done.
+        scope.concatenate(outputs).probe_with(&mut probe);
+
+        // With recovery enabled, also probe the snapshot writes so
+        // inputs wait for recovery data to be written each epoch. A
+        // dataflow with no snapshotting steps has an empty snapshot
+        // stream, which must not end the dataflow early.
         if let Some((bundle, backup_interval)) = recovery {
             scope
                 .concatenate(snaps)
-                .write_recovery(resume_from, bundle, epoch_interval, backup_interval)
+                .write_recovery(resume_from, bundle, epoch_interval, backup_interval, snapshot_epochs)
                 .probe_with(&mut probe);
-        } else {
-            scope.concatenate(outputs).probe_with(&mut probe);
         }
 
         Ok(probe)
     })
+}
+
+pub(crate) fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(execution_state, m)?)?;
+    Ok(())
 }
