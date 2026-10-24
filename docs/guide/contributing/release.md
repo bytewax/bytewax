@@ -172,3 +172,30 @@ our [live production docs](https://docs.bytewax.io) and ensure that
 the new release docs are being shown for the `stable` version.
 
 I think we're done! Update this if we're not!
+
+## Release Candidates
+
+A release candidate such as 0.22.0rc1 follows the same steps, with
+these differences:
+
+- In the final PR, set the version in `Cargo.toml` to the Cargo
+  pre-release form, e.g. `0.22.0-rc.1`. maturin builds the wheels with
+  the Python version `0.22.0rc1`.
+
+- Name the tag after the Python version, `v0.22.0rc1`. CD takes the
+  version for the Docker images from the tag, and
+  `Dockerfile.release` installs that version of `bytewax` from PyPI.
+
+- Label the CHANGELOG notes `## v0.22.0rc1`. For the final release,
+  add the final version's heading above any notes added after the
+  candidate, and copy the notes under both headings into the GitHub
+  release.
+
+- Check "Set as a pre-release" on the GitHub release. CD then pushes
+  only the version tags of the Docker images, not the `latest` tags.
+  PyPI treats `0.22.0rc1` as a pre-release, so `uv pip install
+  bytewax` keeps installing the last final release; testers install
+  the candidate with `uv pip install bytewax==0.22.0rc1`.
+
+- On ReadTheDocs, check that `stable` still shows the last final
+  release.
