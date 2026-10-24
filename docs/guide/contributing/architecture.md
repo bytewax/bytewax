@@ -88,11 +88,23 @@ and then yield control back to the runtime. needs to do a few things:
 3. Define the coroutine logic callback. This should call into the
    Python logic from the dataflow definition of the operator via PyO3.
 
-The two main core operators are
+The core operators are {py:obj}`~bytewax.operators.branch`,
+{py:obj}`~bytewax.operators.flat_map_batch`,
+{py:obj}`~bytewax.operators.input`,
+{py:obj}`~bytewax.operators.inspect_debug`,
+{py:obj}`~bytewax.operators.merge`,
+{py:obj}`~bytewax.operators.output`,
+{py:obj}`~bytewax.operators.redistribute`, and
+{py:obj}`~bytewax.operators.stateful_batch`; they are marked with
+`@operator(_core=True)` in <gh-path:/pysrc/bytewax/operators/__init__.py>.
+The Timely code for `input` and `output` lives in
+<gh-path:/src/inputs.rs> and <gh-path:/src/outputs.rs>.
+
+The two main core operators that run user logic are
 {py:obj}`~bytewax.operators.flat_map_batch` and
-{py:obj}`~bytewax.operators.stateful_flat_map`.
+{py:obj}`~bytewax.operators.stateful_batch`.
 {py:obj}`~bytewax.operators.flat_map_batch` uses a simple callback as
-the API. {py:obj}`~bytewax.operators.stateful_flat_map` uses an ABC
+the API. {py:obj}`~bytewax.operators.stateful_batch` uses an ABC
 {py:obj}`~bytewax.operators.StatefulBatchLogic`. Both are called via
 PyO3. Because it's currently not possible to extend a Python class
 written in Rust via PyO3 via a pure-Python class,

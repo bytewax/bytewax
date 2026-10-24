@@ -2,7 +2,7 @@
 # Installing
 
 Bytewax currently supports the following versions of Python: 3.8, 3.9,
-3.10 and 3.11.
+3.10, 3.11, 3.12, 3.13 and 3.14.
 
 ## Installing with pip
 
@@ -60,8 +60,9 @@ stream = op.map("string", stream, lambda x: x + 1)
 ```
 
 Bytewax provides a command line tool for managing dataflows, you
-can install this by downloading the binaries from the
-[website](https://www.bytewax.io/waxctl) or via homebrew.
+can install this by downloading the binaries from its [GitHub
+releases](https://github.com/bytewax/waxctl-downloads/releases) or
+via homebrew.
 
 ```console
 $ brew tap bytewax/tap
