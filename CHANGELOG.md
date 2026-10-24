@@ -19,6 +19,16 @@ notes on GitHub when we make a new release.__
   path added to `sys.path` after `import bytewax` is no longer searched
   for them.
 
+- Security: the keys of eight eMudhra intermediate CAs were
+  compromised in October 2026. The release Docker images now upgrade
+  Debian's `ca-certificates` package (to `20250419~deb12u2` or later),
+  which no longer trusts them; images built on base images that are no
+  longer updated, such as the one for Python 3.9, still trusted them.
+  The lock files for tests and builds pin `certifi` 2026.10.23, which
+  drops the `emSign ECC Root CA - G3` root they chain to. Bytewax
+  bundles no CA certificates itself: in your own environments, update
+  `certifi` to 2026.10.19 or later and your system's `ca-certificates`.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
