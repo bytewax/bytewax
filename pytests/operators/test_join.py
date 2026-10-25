@@ -1,9 +1,14 @@
-from typing import List, Optional, Tuple
+from collections import defaultdict
+from datetime import timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import bytewax.operators as op
-from bytewax.dataflow import Dataflow
+from bytewax.dataflow import Dataflow, Stream
 from bytewax.operators import JoinEmitMode, JoinInsertMode, _JoinState
+from bytewax.recovery import RecoveryConfig, init_db_dir
 from bytewax.testing import TestingSink, TestingSource, run_main
+from pytest import mark, raises
 
 
 def test_join_state_astuples() -> None:
@@ -133,3 +138,137 @@ def test_join_product_final() -> None:
         (2, 3),
         (2, 4),
     ]
+
+
+# `(side, key, value)`. Key `a` gets two left values before its first
+# right value, key `b` two right values after its first left value,
+# and key `c` only ever a right value.
+_MULTI_KEY_INP = [
+    ("L", "a", 1),
+    ("L", "a", 3),
+    ("R", "a", 10),
+    ("L", "b", 2),
+    ("R", "b", 20),
+    ("R", "b", 30),
+    ("L", "a", 4),
+    ("R", "c", 40),
+]
+
+_MULTI_KEY_EXPECTED: Dict[Tuple[str, str], Dict[str, List[Tuple]]] = {
+    # Emit once every side has a value, then start over.
+    ("first", "complete"): {"a": [(1, 10)], "b": [(2, 20)]},
+    ("last", "complete"): {"a": [(3, 10)], "b": [(2, 20)]},
+    ("product", "complete"): {"a": [(1, 10), (3, 10)], "b": [(2, 20)]},
+    # Emit what was seen at EOF, with `None` for a side never seen.
+    ("first", "final"): {"a": [(1, 10)], "b": [(2, 20)], "c": [(None, 40)]},
+    ("last", "final"): {"a": [(4, 10)], "b": [(2, 30)], "c": [(None, 40)]},
+    ("product", "final"): {
+        "a": [(1, 10), (3, 10), (4, 10)],
+        "b": [(2, 20), (2, 30)],
+        "c": [(None, 40)],
+    },
+    # Emit what was seen so far after every value.
+    ("first", "running"): {
+        "a": [(1, None), (1, None), (1, 10), (1, 10)],
+        "b": [(2, None), (2, 20), (2, 20)],
+        "c": [(None, 40)],
+    },
+    ("last", "running"): {
+        "a": [(1, None), (3, None), (3, 10), (4, 10)],
+        "b": [(2, None), (2, 20), (2, 30)],
+        "c": [(None, 40)],
+    },
+    ("product", "running"): {
+        "a": [
+            (1, None),
+            (1, None),
+            (3, None),
+            (1, 10),
+            (3, 10),
+            (1, 10),
+            (3, 10),
+            (4, 10),
+        ],
+        "b": [(2, None), (2, 20), (2, 20), (2, 30)],
+        "c": [(None, 40)],
+    },
+}
+
+
+def _build_multi_key_join(
+    inp: List[Any],
+    out: List[Tuple[str, Tuple]],
+    insert_mode: JoinInsertMode,
+    emit_mode: JoinEmitMode,
+) -> Dataflow:
+    flow = Dataflow("test_df")
+    s: Stream[Tuple[str, str, int]] = op.input("inp", flow, TestingSource(inp))
+    keyed = op.key_on("key", s, lambda x: x[1])
+    b = op.branch("side", keyed, lambda kv: kv[1][0] == "L")
+    lefts = op.map_value("left", b.trues, lambda x: x[2])
+    rights = op.map_value("right", b.falses, lambda x: x[2])
+    joined = op.join(
+        "join", lefts, rights, insert_mode=insert_mode, emit_mode=emit_mode
+    )
+    op.output("out", joined, TestingSink(out))
+    return flow
+
+
+def _group_by_key(out: List[Tuple[str, Tuple]]) -> Dict[str, List[Tuple]]:
+    # Rows for different keys may interleave in any order.
+    groups: Dict[str, List[Tuple]] = defaultdict(list)
+    for k, row in out:
+        groups[k].append(row)
+    return dict(groups)
+
+
+_MODES = list(_MULTI_KEY_EXPECTED)
+
+
+@mark.parametrize("insert_mode,emit_mode", _MODES)
+def test_join_multiple_keys(
+    insert_mode: JoinInsertMode, emit_mode: JoinEmitMode
+) -> None:
+    out: List[Tuple[str, Tuple]] = []
+    flow = _build_multi_key_join(_MULTI_KEY_INP, out, insert_mode, emit_mode)
+
+    run_main(flow)
+    assert _group_by_key(out) == _MULTI_KEY_EXPECTED[(insert_mode, emit_mode)]
+
+
+@mark.parametrize("insert_mode,emit_mode", _MODES)
+def test_join_multiple_keys_resume_after_abort(
+    tmp_path: Path, insert_mode: JoinInsertMode, emit_mode: JoinEmitMode
+) -> None:
+    expected = _MULTI_KEY_EXPECTED[(insert_mode, emit_mode)]
+    for i in range(1, len(_MULTI_KEY_INP)):
+        inp = _MULTI_KEY_INP[:i] + [TestingSource.ABORT()] + _MULTI_KEY_INP[i:]
+        out: List[Tuple[str, Tuple]] = []
+        flow = _build_multi_key_join(inp, out, insert_mode, emit_mode)
+        db_dir = tmp_path / f"abort_{i}"
+        db_dir.mkdir()
+        init_db_dir(db_dir, 1)
+        recovery_config = RecoveryConfig(str(db_dir))
+
+        # Snapshot after every item so the resume continues right
+        # after the abort.
+        run_main(flow, epoch_interval=timedelta(0), recovery_config=recovery_config)
+        run_main(flow, epoch_interval=timedelta(0), recovery_config=recovery_config)
+
+        assert _group_by_key(out) == expected, f"abort before item {i}"
+
+
+def test_join_rejects_unknown_insert_mode() -> None:
+    flow = Dataflow("test_df")
+    s = op.key_on("key", op.input("inp", flow, TestingSource([1])), str)
+
+    with raises(ValueError, match="unknown join insert mode 'bogus'"):
+        op.join("join", s, s, insert_mode="bogus")  # type: ignore[call-overload]
+
+
+def test_join_rejects_unknown_emit_mode() -> None:
+    flow = Dataflow("test_df")
+    s = op.key_on("key", op.input("inp", flow, TestingSource([1])), str)
+
+    with raises(ValueError, match="unknown join emit mode 'bogus'"):
+        op.join("join", s, s, emit_mode="bogus")  # type: ignore[call-overload]
