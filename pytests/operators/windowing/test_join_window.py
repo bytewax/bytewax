@@ -194,7 +194,11 @@ def test_join_window_late_items_have_side() -> None:
         # Late: the watermark is at 10.
         _Event(align_to, 2),
     ]
-    inp_r = [_Event(align_to + timedelta(seconds=10), 3)]
+    inp_r = [
+        _Event(align_to + timedelta(seconds=10), 3),
+        # Late: the watermark is at 10.
+        _Event(align_to, 4),
+    ]
     late: List[Tuple[int, int]] = []
 
     flow = Dataflow("test_df")
@@ -216,4 +220,4 @@ def test_join_window_late_items_have_side() -> None:
 
     run_main(flow)
     # Late items are labeled with the index of their side.
-    assert late == [(0, 2)]
+    assert sorted(late) == [(0, 2), (1, 4)]
