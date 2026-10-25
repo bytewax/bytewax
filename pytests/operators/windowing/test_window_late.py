@@ -73,9 +73,7 @@ def _drop_side(id_side_value: Tuple[int, Tuple[int, int]]) -> Tuple[int, int]:
 def _join(s: Stream[Tuple[str, int]], windower: Windower[Any]) -> WindowOut:
     b = op.branch("side", s, lambda kv: kv[1] % 2 == 0)
     wo = win.join_window("w", _clock(), windower, b.trues, b.falses)
-    # Late values of a join are `(side, value)`, although the
-    # `join_window` type hints say they are bare values.
-    late = op.map_value("drop_side", wo.late, _drop_side)  # type: ignore[arg-type]
+    late = op.map_value("drop_side", wo.late, _drop_side)
     return WindowOut(wo.down, late, wo.meta)
 
 
