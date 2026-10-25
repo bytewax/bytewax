@@ -66,13 +66,13 @@ The purpose of this dataset is to simulate a situation in which the `FAIL HERE` 
 
 Before we begin, let's import the necessary modules and set up the environment for building the dataflow.
 
-Complete installation - we recommend using a virtual environment to manage your Python dependencies. You can install Bytewax using pip:
+Complete installation - we recommend using a virtual environment to manage your Python dependencies. You can install Bytewax using [uv](https://docs.astral.sh/uv/):
 
 ```{code-block} console
 :substitutions:
-$ python -m venv venv
-$ ./venv/bin/activate
-(venv) $ pip install bytewax==|version|
+$ uv venv venv
+$ source venv/bin/activate
+(venv) $ uv pip install bytewax==|version|
 ```
 
 Now, let's import the required modules and set up the environment for building the dataflow.

@@ -84,9 +84,9 @@ tracer = setup_tracing(
 Create a virtual environment and install the needed dependencies:
 
 ```console
-$ python3 -m venv .venv
+$ uv venv .venv
 $ source .venv/bin/activate # Or activate.fish on fish shell
-(.venv) $ pip install bytewax sseclient-py urllib3 aiohttp_sse_client
+(.venv) $ uv pip install bytewax sseclient-py urllib3 aiohttp_sse_client
 ```
 
 Now you can run it with:
