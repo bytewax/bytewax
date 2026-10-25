@@ -106,11 +106,27 @@ notes on GitHub when we make a new release.__
 - Building Bytewax from source now uses Rust 1.86.0 (pinned in
   `rust-toolchain.toml`) instead of 1.74.1.
 
+- Fixes the type hints of the `late` stream of
+  {py:obj}`~bytewax.operators.windowing.join_window`: late values
+  (sub-keyed by window ID) are `(side, value)` 2-tuples, where `side`
+  is the index of the stream the value came from, not bare values.
+  The docstring now says so. Code annotated with the old type needs
+  updating; it did not match what the stream carries at runtime.
+
 - Fixes the type hints of
   {py:obj}`~bytewax.operators.windowing.collect_window` not accepting
   the `ordered` argument, so type checkers rejected
   `collect_window(..., ordered=False)` even though it works at
   runtime.
+
+- {py:obj}`~bytewax.operators.windowing.collect_window` now raises
+  its intended `TypeError` explaining that only `list`, `set`, and
+  `dict` are supported when `into` is another type. A formatting bug
+  replaced that message with "unsupported format string passed to
+  type.__format__". The `into` docs now list the supported types,
+  the `up` docs no longer call it a "stream of items to count", and
+  the `:returns:` docs no longer say the values are always in
+  timestamp order, which isn't true with `ordered=False`.
 
 ## v0.21.1
 
