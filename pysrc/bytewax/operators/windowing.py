@@ -1379,8 +1379,8 @@ def _collect_get_callbacks(
         return (dict, dict_folder, _collect_dict_merger)
     else:
         msg = (
-            f"`collect_window` doesn't support `{t:!}`; "
-            "only `list`, `set`, and `dict`; use `fold` operator directly"
+            f"`collect_window` doesn't support `{t.__name__}`; "
+            "only `list`, `set`, and `dict`; use `fold_window` directly"
         )
         raise TypeError(msg)
 
@@ -1551,13 +1551,15 @@ def collect_window(
 
     :arg step_id: Unique ID.
 
-    :arg up: Stream of items to count.
+    :arg up: Keyed stream.
 
     :arg clock: Time definition.
 
     :arg windower: Window definition.
 
-    :arg into: Type to collect into. Defaults to {py:obj}`list`.
+    :arg into: Type to collect into: {py:obj}`list`, {py:obj}`set`,
+        or {py:obj}`dict`. To collect into a {py:obj}`dict`, values
+        must be `(key, value)` 2-tuples. Defaults to {py:obj}`list`.
 
     :arg ordered: Whether values in the resulting containers are in
         timestamp order. There is a performance and latency penalty to
@@ -1565,8 +1567,8 @@ def collect_window(
         Defaults to `True`.
 
     :returns: Window result streams. Downstream contains the collected
-        containers with values in timestamp order at the end of each
-        window.
+        containers at the end of each window, with values in the order
+        set by `ordered`.
 
     """
     shim_builder, shim_folder, shim_merger = _collect_get_callbacks(step_id, into)

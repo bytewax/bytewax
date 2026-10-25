@@ -97,6 +97,15 @@ notes on GitHub when we make a new release.__
   `collect_window(..., ordered=False)` even though it works at
   runtime.
 
+- {py:obj}`~bytewax.operators.windowing.collect_window` now raises
+  its intended `TypeError` explaining that only `list`, `set`, and
+  `dict` are supported when `into` is another type. A formatting bug
+  replaced that message with "unsupported format string passed to
+  type.__format__". The `into` docs now list the supported types,
+  the `up` docs no longer call it a "stream of items to count", and
+  the `:returns:` docs no longer say the values are always in
+  timestamp order, which isn't true with `ordered=False`.
+
 ## v0.21.1
 
 - `join_window` operator now supports using stream-order via the
