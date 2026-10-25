@@ -10,7 +10,7 @@ Only what is defined independent of arrival order is compared. Values
 from different streams, like the sides of a join, have no defined
 order between them, so `join` with complete or running emits is left
 out, `join_window` only gets values that aren't late, and windows
-with `ordered=False` are compared as sets of values.
+with `ordered=False` are compared by their sorted values.
 
 """
 
