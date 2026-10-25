@@ -101,10 +101,10 @@ notes on GitHub when we make a new release.__
   its intended `TypeError` explaining that only `list`, `set`, and
   `dict` are supported when `into` is another type. A formatting bug
   replaced that message with "unsupported format string passed to
-  type.__format__". The `into` docs now list the supported types;
-  `up` was described as a "stream of items to count"; and the result
-  was said to always be in timestamp order, which isn't true with
-  `ordered=False`.
+  type.__format__". The `into` docs now list the supported types,
+  the `up` docs no longer call it a "stream of items to count", and
+  the `:returns:` docs no longer say the values are always in
+  timestamp order, which isn't true with `ordered=False`.
 
 ## v0.21.1
 
