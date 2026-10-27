@@ -90,9 +90,13 @@ test-py tests=pytests: _assert-venv
 test-benchmark:
     pytest --codspeed pytests/
 
+# `-a` tests every page read, including the API pages that autodoc2
+# generates during the build; without it, a clean checkout skips
+# their doctests.
+#
 # Test all code in the documentation; runs in CI
 test-doc: _assert-venv
-    cd docs/fixtures/ && sphinx-build -b doctest -E .. ../_build/
+    cd docs/fixtures/ && sphinx-build -b doctest -a -E .. ../_build/
 
 # Run all the checks that will be run in CI locally
 ci-pre: lint test-py test-rs test-doc test-benchmark
