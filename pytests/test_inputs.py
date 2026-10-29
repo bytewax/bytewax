@@ -5,9 +5,11 @@ import os
 import queue
 import re
 import sys
+import time
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import bytewax.operators as op
 from bytewax.dataflow import Dataflow
@@ -24,7 +26,13 @@ from bytewax.inputs import (
     batch_getter,
     batch_getter_ex,
 )
-from bytewax.testing import TestingSink, run_main
+from bytewax.testing import (
+    TestingSink,
+    TestingSource,
+    _IterSourcePartition,
+    cluster_main,
+    run_main,
+)
 from pytest import raises, skip
 from typing_extensions import override
 
@@ -572,3 +580,380 @@ def test_batch_async_does_not_leak_fds():
         gc.collect()
 
     assert after - before < 20
+
+
+class _SleepyPartition(StatefulSourcePartition[str, None]):
+    def __init__(self, key: str, delay: float, until: float) -> None:
+        self._key = key
+        self._delay = delay
+        self._until = until
+
+    @override
+    def next_batch(self) -> List[str]:
+        if time.monotonic() >= self._until:
+            raise StopIteration()
+        time.sleep(self._delay)
+        return [self._key]
+
+    @override
+    def snapshot(self) -> None:
+        return None
+
+
+class _SleepySource(FixedPartitionedSource[str, None]):
+    """Each partition emits its own key after sleeping for its delay."""
+
+    def __init__(self, delays: Dict[str, float], run_for: timedelta) -> None:
+        self._delays = delays
+        self._run_for = run_for
+        self._until: Optional[float] = None
+
+    @override
+    def list_parts(self) -> List[str]:
+        return list(self._delays)
+
+    @override
+    def build_part(
+        self, step_id: str, for_part: str, resume_state: Optional[None]
+    ) -> _SleepyPartition:
+        if self._until is None:
+            self._until = time.monotonic() + self._run_for.total_seconds()
+        return _SleepyPartition(for_part, self._delays[for_part], self._until)
+
+
+def assert_epochs_not_starved(per_epoch: Counter) -> None:
+    """Assert every epoch but the last holds about one epoch of batches.
+
+    The last epoch is cut short by the end of the run. Any epoch the
+    partition spent waiting on the probe would otherwise hold only a
+    batch or two.
+    """
+    epochs = sorted(per_epoch)
+    full = {epoch: per_epoch[epoch] for epoch in epochs[:-1]}
+    assert full, f"too few epochs to judge: {dict(per_epoch)}"
+    # Each full epoch is 1 s / 30 ms ~ 33 batches; 5x slower is ~7.
+    assert min(full.values()) >= 3, (
+        f"an epoch held only {min(full.values())} batches (want >= 3) "
+        f"after waiting on the probe; per epoch: {dict(sorted(per_epoch.items()))}"
+    )
+
+
+class _StallOncePartition(StatefulSourcePartition[str, None]):
+    """Sleep `stall` seconds on the first batch, emit one item, then end."""
+
+    def __init__(self, key: str, stall: float) -> None:
+        self._key = key
+        self._stall = stall
+        self._done = False
+
+    @override
+    def next_batch(self) -> List[str]:
+        if self._done:
+            raise StopIteration()
+        self._done = True
+        time.sleep(self._stall)
+        return [self._key]
+
+    @override
+    def snapshot(self) -> None:
+        return None
+
+
+class _StallingSource(FixedPartitionedSource[str, None]):
+    """Partition `fast` sleeps `fast_delay` per batch; `stall` stalls once."""
+
+    def __init__(self, fast_delay: float, stall: float, run_for: timedelta) -> None:
+        self._fast_delay = fast_delay
+        self._stall = stall
+        self._run_for = run_for
+        self._until: Optional[float] = None
+
+    @override
+    def list_parts(self) -> List[str]:
+        return ["fast", "stall"]
+
+    @override
+    def build_part(
+        self, step_id: str, for_part: str, resume_state: Optional[None]
+    ) -> StatefulSourcePartition[str, None]:
+        if self._until is None:
+            self._until = time.monotonic() + self._run_for.total_seconds()
+        if for_part == "stall":
+            return _StallOncePartition(for_part, self._stall)
+        return _SleepyPartition(for_part, self._fast_delay, self._until)
+
+
+def test_fixed_partitioned_source_partition_alone_on_worker_keeps_up():
+    # `fast` and `stall` run on different workers. `stall` takes three
+    # seconds, three epochs, to produce its first item, so the frontier
+    # stays behind `fast` and `fast` runs ahead and then waits on the
+    # probe for `stall`. That wait must not count as time spent in the
+    # epoch it blocks: once `stall` finishes, `fast` should get a whole
+    # epoch of batches back. Otherwise the wait alone exceeds the epoch
+    # interval and that epoch holds a batch or two. The stall and the
+    # interval are long compared to scheduling jitter, so the outcome
+    # is set by the mechanism, not by machine speed.
+    out: List[Tuple[str, int, int]] = []
+
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp",
+        flow,
+        _StallingSource(fast_delay=0.03, stall=3.0, run_for=timedelta(seconds=5)),
+    )
+    op.inspect_debug(
+        "record",
+        s,
+        lambda _step_id, key, epoch, worker: out.append((key, epoch, worker)),
+    )
+
+    cluster_main(
+        flow, [], 0, epoch_interval=timedelta(seconds=1), worker_count_per_proc=2
+    )
+
+    workers = {key: worker for key, _, worker in out}
+    assert workers["fast"] != workers["stall"], "partitions must not share a worker"
+    fast_per_epoch = Counter(epoch for key, epoch, _ in out if key == "fast")
+    assert_epochs_not_starved(fast_per_epoch)
+
+
+def test_fixed_partitioned_source_waiting_does_not_busy_wait():
+    # While `b` waits for the rest of the dataflow to finish the epoch,
+    # it must not busy-wait. Before the cooldown this ratio was ~0.45.
+    out: List[str] = []
+
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp",
+        flow,
+        _SleepySource({"a": 0.18, "b": 0.03, "c": 0.18}, timedelta(seconds=2)),
+    )
+    op.output("out", s, TestingSink(out))
+
+    before_cpu = time.process_time()
+    before_wall = time.monotonic()
+    cluster_main(
+        flow, [], 0, epoch_interval=timedelta(seconds=0.5), worker_count_per_proc=2
+    )
+    cpu = time.process_time() - before_cpu
+    wall = time.monotonic() - before_wall
+
+    ratio = cpu / wall
+    assert ratio < 0.15, (
+        f"busy-waiting partition: {cpu:.2f} CPU seconds over {wall:.2f} "
+        f"wall seconds (ratio {ratio:.2f}, want < 0.15)"
+    )
+
+
+class _SleepyStatelessPartition(StatelessSourcePartition[int]):
+    def __init__(self, worker_index: int, delay: float, until: float) -> None:
+        self._worker_index = worker_index
+        self._delay = delay
+        self._until = until
+
+    @override
+    def next_batch(self) -> List[int]:
+        if time.monotonic() >= self._until:
+            raise StopIteration()
+        time.sleep(self._delay)
+        return [self._worker_index]
+
+
+class _StallStatelessPartition(StatelessSourcePartition[int]):
+    """Sleep `stall` seconds on the first batch, emit one item, then end."""
+
+    def __init__(self, worker_index: int, stall: float) -> None:
+        self._worker_index = worker_index
+        self._stall = stall
+        self._done = False
+
+    @override
+    def next_batch(self) -> List[int]:
+        if self._done:
+            raise StopIteration()
+        self._done = True
+        time.sleep(self._stall)
+        return [self._worker_index]
+
+
+class _StallingDynamicSource(DynamicSource[int]):
+    """One worker stalls once; every other worker emits every 30 ms."""
+
+    def __init__(self, stall_worker: int, stall: float, run_for: timedelta) -> None:
+        self._stall_worker = stall_worker
+        self._stall = stall
+        self._until = time.monotonic() + run_for.total_seconds()
+
+    @override
+    def build(
+        self, step_id: str, worker_index: int, worker_count: int
+    ) -> StatelessSourcePartition[int]:
+        if worker_index == self._stall_worker:
+            return _StallStatelessPartition(worker_index, self._stall)
+        return _SleepyStatelessPartition(worker_index, 0.03, self._until)
+
+
+class _SleepyDynamicSource(DynamicSource[int]):
+    """Each worker emits its index after sleeping for its delay."""
+
+    def __init__(self, delays: List[float], run_for: timedelta) -> None:
+        self._delays = delays
+        self._until = time.monotonic() + run_for.total_seconds()
+
+    @override
+    def build(
+        self, step_id: str, worker_index: int, worker_count: int
+    ) -> _SleepyStatelessPartition:
+        return _SleepyStatelessPartition(
+            worker_index, self._delays[worker_index], self._until
+        )
+
+
+def test_dynamic_source_fast_worker_keeps_up():
+    # Worker 0 is fast and worker 1 stalls for three seconds before its
+    # first item. Worker 0 waits on the probe for worker 1; that wait
+    # must not count as time spent in the epoch it blocks. See the
+    # fixed partitioned test above.
+    out: List[Tuple[int, int, int]] = []
+
+    flow = Dataflow("test_df")
+    s = op.input(
+        "inp",
+        flow,
+        _StallingDynamicSource(stall_worker=1, stall=3.0, run_for=timedelta(seconds=5)),
+    )
+    op.inspect_debug(
+        "record",
+        s,
+        lambda _step_id, item, epoch, worker: out.append((item, epoch, worker)),
+    )
+
+    cluster_main(
+        flow, [], 0, epoch_interval=timedelta(seconds=1), worker_count_per_proc=2
+    )
+
+    fast_per_epoch = Counter(epoch for item, epoch, _ in out if item == 0)
+    assert_epochs_not_starved(fast_per_epoch)
+
+
+def test_dynamic_source_waiting_does_not_busy_wait():
+    # While worker 0 waits for worker 1 to finish the epoch, it must not
+    # busy-wait.
+    out: List[int] = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, _SleepyDynamicSource([0.03, 0.18], timedelta(seconds=2)))
+    op.output("out", s, TestingSink(out))
+
+    before_cpu = time.process_time()
+    before_wall = time.monotonic()
+    cluster_main(
+        flow, [], 0, epoch_interval=timedelta(seconds=0.5), worker_count_per_proc=2
+    )
+    cpu = time.process_time() - before_cpu
+    wall = time.monotonic() - before_wall
+
+    ratio = cpu / wall
+    assert ratio < 0.15, (
+        f"busy-waiting worker: {cpu:.2f} CPU seconds over {wall:.2f} "
+        f"wall seconds (ratio {ratio:.2f}, want < 0.15)"
+    )
+
+
+def test_fixed_partitioned_source_zero_epoch_interval_is_fast():
+    # With `epoch_interval=0` and `batch_size=1` every item is its own
+    # epoch, so the partition is blocked on the probe right after each
+    # advance, and the probe needs up to one worker step per downstream
+    # operator to advance. All re-checks within the cooldown grace must
+    # be immediate: in a release build, backing off on every blocked
+    # activation made 3000 items take 3.9 s here, and backing off from
+    # the second blocked activation still took 1.3 ms per item in this
+    # multi-operator pipeline, versus 0.016 s with the grace.
+    out: List[int] = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, TestingSource(range(3000), 1))
+    s = op.map("ident_a", s, lambda x: x)
+    s = op.map("ident_b", s, lambda x: x)
+    op.output("out", s, TestingSink(out))
+
+    before = time.monotonic()
+    run_main(flow, epoch_interval=timedelta(0))
+    elapsed = time.monotonic() - before
+
+    assert sorted(out) == list(range(3000))
+    assert elapsed < 1.5, f"zero epoch interval took {elapsed:.2f} s (want < 1.5 s)"
+
+
+class _CountingStatelessPartition(StatelessSourcePartition[int]):
+    def __init__(self, count: int) -> None:
+        self._items = iter(range(count))
+
+    @override
+    def next_batch(self) -> List[int]:
+        return [next(self._items)]
+
+
+class _CountingDynamicSource(DynamicSource[int]):
+    """Emit one item per batch from each worker."""
+
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    @override
+    def build(
+        self, step_id: str, worker_index: int, worker_count: int
+    ) -> _CountingStatelessPartition:
+        return _CountingStatelessPartition(self._count)
+
+
+def test_dynamic_source_zero_epoch_interval_is_fast():
+    # Same as the fixed partitioned case above, for `DynamicSource`.
+    out: List[int] = []
+
+    flow = Dataflow("test_df")
+    s = op.input("inp", flow, _CountingDynamicSource(3000))
+    s = op.map("ident_a", s, lambda x: x)
+    s = op.map("ident_b", s, lambda x: x)
+    op.output("out", s, TestingSink(out))
+
+    before = time.monotonic()
+    run_main(flow, epoch_interval=timedelta(0))
+    elapsed = time.monotonic() - before
+
+    assert sorted(out) == list(range(3000))
+    assert elapsed < 1.5, f"zero epoch interval took {elapsed:.2f} s (want < 1.5 s)"
+
+
+class _SlowStartSource(TestingSource[str]):
+    """A `TestingSource` whose partition takes 5 ms to build."""
+
+    @override
+    def build_part(
+        self, step_id: str, for_part: str, resume_state: Optional[int]
+    ) -> _IterSourcePartition[str]:
+        time.sleep(0.005)
+        return super().build_part(step_id, for_part, resume_state)
+
+
+def test_inputs_start_together():
+    # At the start of an execution every input waits for the probe to
+    # move past the first epoch, which takes several worker steps in
+    # this dataflow. `first` starts waiting, then takes 5 ms, longer
+    # than the cooldown grace, to build its partition; `second` starts
+    # waiting only after that. If `first` cooled down on that wait, it
+    # would sleep while `second` emitted all of its items.
+    out: List[Tuple[str, str]] = []
+
+    flow = Dataflow("test_df")
+    first = op.input("first", flow, _SlowStartSource(["f1", "f2", "f3"]))
+    second = op.input("second", flow, TestingSource(["s1", "s2", "s3"]))
+    merged = op.merge("merge", first, second)
+    keyed = op.key_on("key", merged, lambda _item: "all")
+    passed = op.stateful_map("pass", keyed, lambda state, item: (state, item))
+    op.output("out", passed, TestingSink(out))
+
+    run_main(flow)
+
+    items = [item for _key, item in out]
+    assert items.index("f1") < items.index("s3"), f"first input started late: {items}"

@@ -59,6 +59,28 @@ notes on GitHub when we make a new release.__
   websocket) didn't run. A loop passed in with `loop=` is still left
   open. Reported in #536 by @Chittaranjans.
 
+- Fixes input partitions that are alone on a worker falling behind
+  in multi-worker dataflows, e.g. Kafka partitions spread unevenly
+  over workers. A partition that finished its epoch first waited for
+  the rest of the dataflow, and that wait counted as time spent in
+  its next epoch; once the others caught up, it got only one
+  `next_batch` before its next epoch was due. This affected
+  {py:obj}`~bytewax.inputs.FixedPartitionedSource` and
+  {py:obj}`~bytewax.inputs.DynamicSource`. Reported and first fixed
+  in #556 by @nrdhm.
+
+- Fixes input partitions busy-waking on every activation while they
+  wait for the rest of the dataflow to finish the previous epoch.
+  Such a partition now backs off to the standard 1 ms cooldown only
+  once the wait outlives a 500 µs grace, which removes the constant
+  CPU load while it waits. Re-checks within the grace stay immediate,
+  covering the few worker steps the downstream operators need to
+  process a closed epoch, so zero and short epoch intervals keep
+  their throughput at any pipeline depth. Until a partition closes
+  its first epoch, as at the start of an execution, it keeps
+  re-checking every step, so the inputs of a dataflow still start
+  together.
+
 - Fixes {py:obj}`~bytewax.tracing.setup_tracing` hanging forever
   instead of raising a `RuntimeError` when tracing can't be set up:
   when it is called a second time in the same process, or when the
