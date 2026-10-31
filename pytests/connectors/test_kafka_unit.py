@@ -191,20 +191,89 @@ def fake_admin(monkeypatch):
 
 @dataclass
 class _FakeProducer:
-    """Stand-in for `confluent_kafka.Producer`."""
+    """Stand-in for `confluent_kafka.Producer`.
+
+    Models librdkafka's local queue: `produce` raises `BufferError`
+    while `queue_limit` messages are queued, or for every message if
+    `too_large` (a message bigger than the whole queue). Messages stay
+    counted in `len` until their delivery report is served, as in
+    confluent-kafka.
+
+    Delivery reports go to each message's `on_delivery`, or to the
+    `on_delivery` in the config like librdkafka's default callback,
+    with `delivery_error`. They are served one at a time, so a callback
+    that raises leaves the rest for later. Queued messages are only
+    delivered while waiting (`poll` with a timeout, or `flush`); this
+    is stricter than librdkafka, whose `poll(0)` also serves reports
+    that are already done. `purge` drops queued messages without
+    waiting, like confluent-kafka's, and their `_PURGE_QUEUE` reports
+    are served only by a later `flush` or `poll` with a timeout.
+    `produce_error` is raised synchronously from `produce`, like
+    librdkafka does for e.g. a message bigger than `message.max.bytes`.
+
+    """
 
     config: Dict[str, Any]
     produced: List[Dict[str, Any]] = field(default_factory=list)
     flushes: int = 0
+    flush_timeouts: List[Optional[float]] = field(default_factory=list)
+    purges: int = 0
+    polls: List[float] = field(default_factory=list)
+    queue_limit: Optional[int] = None
+    too_large: bool = False
+    produce_error: Optional[ConfluentKafkaError] = None
+    delivery_error: Optional[ConfluentKafkaError] = None
+    _pending: List[Tuple[Any, Dict[str, Any]]] = field(default_factory=list)
+    _purged: List[Tuple[Any, Dict[str, Any]]] = field(default_factory=list)
+    _buffer_errors: int = 0
+
+    def __len__(self):
+        return len(self._pending)
 
     def produce(self, **kwargs):
+        if self.produce_error is not None:
+            raise KafkaException(self.produce_error)
+        if self.too_large or (
+            self.queue_limit is not None and len(self._pending) >= self.queue_limit
+        ):
+            self._buffer_errors += 1
+            # Waiting can never make room for a message bigger than
+            # the queue; fail the test instead of spinning forever.
+            assert self._buffer_errors < 100, "retried a full queue forever"
+            msg = "Local: Queue full"
+            raise BufferError(msg)
+        on_delivery = kwargs.pop("on_delivery", None)
         self.produced.append(kwargs)
+        self._pending.append((on_delivery, kwargs))
+
+    def _report(self, queue, err):
+        while queue:
+            on_delivery, kwargs = queue.pop(0)
+            if on_delivery is None:
+                on_delivery = self.config.get("on_delivery")
+            if on_delivery is not None:
+                on_delivery(err, _FakeMsg(-1, _topic=kwargs["topic"]))
 
     def poll(self, timeout):
-        pass
+        self.polls.append(timeout)
+        if timeout > 0:
+            self._report(
+                self._purged, ConfluentKafkaError(ConfluentKafkaError._PURGE_QUEUE)
+            )
+            self._report(self._pending, self.delivery_error)
 
-    def flush(self):
+    def flush(self, timeout=None):
         self.flushes += 1
+        self.flush_timeouts.append(timeout)
+        self._report(
+            self._purged, ConfluentKafkaError(ConfluentKafkaError._PURGE_QUEUE)
+        )
+        self._report(self._pending, self.delivery_error)
+
+    def purge(self):
+        self.purges += 1
+        self._purged.extend(self._pending)
+        self._pending = []
 
 
 @fixture
@@ -244,7 +313,7 @@ def test_list_parts_raises_on_missing_topic(fake_admin):
     src = KafkaSource(["broker:9092"], ["missing"])
 
     expect = (
-        "error listing partitions for Kafka topic `'missing'`: "
+        "error listing partitions for Kafka topic 'missing': "
         "Broker: Unknown topic or partition"
     )
     with raises(RuntimeError, match=re.escape(expect)):
@@ -257,7 +326,7 @@ def test_list_parts_raises_on_topic_error(fake_admin):
     src = KafkaSource(["broker:9092"], ["a"])
 
     expect = (
-        "error listing partitions for Kafka topic `'a'`: "
+        "error listing partitions for Kafka topic 'a': "
         "Broker: Topic authorization failed"
     )
     with raises(RuntimeError, match=re.escape(expect)):
@@ -277,8 +346,8 @@ def test_list_parts_raises_on_unreachable_brokers(fake_admin):
     src = KafkaSource(["b1:9092", "b2:9092"], ["a"])
 
     expect = (
-        "could not fetch metadata for Kafka topic `'a'` from brokers "
-        "`'b1:9092,b2:9092'` within 30 seconds: "
+        "could not fetch metadata for Kafka topic 'a' from brokers "
+        "'b1:9092,b2:9092' within 30 seconds: "
         "Failed to get metadata: Local: Broker transport failure"
     )
     with raises(RuntimeError, match=re.escape(expect)) as exc_info:
@@ -294,7 +363,7 @@ def test_list_parts_names_brokers_from_add_config(fake_admin):
         ["ignored:9092"], ["a"], add_config={"bootstrap.servers": "real:9092"}
     )
 
-    with raises(RuntimeError, match=re.escape("from brokers `'real:9092'`")):
+    with raises(RuntimeError, match=re.escape("from brokers 'real:9092'")):
         src.list_parts()
 
 
@@ -304,7 +373,7 @@ def test_list_parts_raises_if_metadata_omits_topic(fake_admin):
     fake_admin.omit_topics = True
     src = KafkaSource(["broker:9092"], ["a"])
 
-    with raises(RuntimeError, match=re.escape("Kafka topic `'a'` was not found")):
+    with raises(RuntimeError, match=re.escape("Kafka topic 'a' was not found")):
         src.list_parts()
 
 
@@ -312,7 +381,7 @@ def test_list_parts_raises_on_no_partitions(fake_admin):
     fake_admin.topics = {"a": _FakeTopicMetadata({})}
     src = KafkaSource(["broker:9092"], ["a"])
 
-    with raises(RuntimeError, match="no partitions listed for Kafka topic `'a'`"):
+    with raises(RuntimeError, match="no partitions listed for Kafka topic 'a'"):
         src.list_parts()
 
 
@@ -433,7 +502,7 @@ def test_next_batch_raises_on_error(fake_consumer):
     fake_consumer.batches = [[_FakeMsg(0), _FakeMsg(1, _error=err)]]
     part = KafkaSource(["b:9092"], [TOPIC]).build_part("step", f"0-{TOPIC}", None)
 
-    expect = f"error consuming from Kafka topic `{TOPIC!r}`"
+    expect = f"error consuming from Kafka topic {TOPIC!r}"
     with raises(RuntimeError, match=re.escape(expect)):
         part.next_batch()
 
@@ -536,6 +605,193 @@ def test_sink_write_batch_topic_selection(fake_producer):
 
     part.close()
     assert producer.flushes == 2
+
+
+def test_sink_write_batch_waits_when_queue_full(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    producer.queue_limit = 1
+
+    part.write_batch([KafkaSinkMessage(b"k1", b"v1"), KafkaSinkMessage(b"k2", b"v2")])
+
+    assert [m["value"] for m in producer.produced] == [b"v1", b"v2"]
+    # It waited for room in the queue instead of failing the batch.
+    assert any(t > 0 for t in producer.polls)
+
+
+def test_sink_write_batch_raises_on_delivery_failure(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    err = ConfluentKafkaError(ConfluentKafkaError._MSG_TIMED_OUT)
+    producer.delivery_error = err
+
+    with raises(RuntimeError) as exc_info:
+        part.write_batch([KafkaSinkMessage(b"k", b"v")])
+
+    assert str(exc_info.value) == (
+        f"failed to deliver a message to Kafka topic {TOPIC!r}: {err.str()}"
+    )
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, KafkaException)
+    assert cause.args[0] == err
+
+
+def test_sink_write_batch_raises_on_delivery_failure_while_queue_full(
+    fake_producer,
+):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    producer.queue_limit = 1
+    producer.delivery_error = ConfluentKafkaError(ConfluentKafkaError._MSG_TIMED_OUT)
+
+    # The first message is queued, the second waits for room, and the
+    # first one's failed delivery must stop the wait.
+    with raises(RuntimeError, match="failed to deliver"):
+        part.write_batch(
+            [KafkaSinkMessage(b"k1", b"v1"), KafkaSinkMessage(b"k2", b"v2")]
+        )
+
+    assert [m["value"] for m in producer.produced] == [b"v1"]
+
+
+def test_sink_write_batch_raises_on_message_larger_than_queue(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    producer.too_large = True
+
+    # Nothing is queued, so waiting can't make room: fail right away
+    # instead of retrying forever.
+    with raises(RuntimeError) as exc_info:
+        part.write_batch([KafkaSinkMessage(b"k", b"v" * 10)])
+
+    assert producer.polls == []
+
+    assert str(exc_info.value) == (
+        f"message for Kafka topic {TOPIC!r} is larger than the producer's "
+        "local queue (`queue.buffering.max.kbytes`)"
+    )
+    assert isinstance(exc_info.value.__cause__, BufferError)
+
+
+def test_sink_write_batch_wraps_produce_errors(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    err = ConfluentKafkaError(ConfluentKafkaError.MSG_SIZE_TOO_LARGE)
+    producer.produce_error = err
+
+    with raises(RuntimeError) as exc_info:
+        part.write_batch([KafkaSinkMessage(b"k", b"v")])
+
+    assert str(exc_info.value) == (
+        f"failed to produce a message to Kafka topic {TOPIC!r}: {err.str()}"
+    )
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, KafkaException)
+    assert cause.args[0] == err
+
+
+def test_sink_close_does_not_raise_on_delivery_failure(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    part.write_batch([KafkaSinkMessage(b"k1", b"v1")])
+    # A message is still queued when the sink is closed, and fails.
+    producer.delivery_error = ConfluentKafkaError(ConfluentKafkaError._MSG_TIMED_OUT)
+    producer.produce(topic=TOPIC, value=b"v2", on_delivery=part._on_delivery)
+
+    # `close` also runs while unwinding from a failed `write_batch`;
+    # raising there aborts the whole process.
+    part.close()
+
+
+def test_sink_close_purges_after_failed_write(fake_producer):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    producer.delivery_error = ConfluentKafkaError(ConfluentKafkaError._MSG_TIMED_OUT)
+    with raises(RuntimeError):
+        part.write_batch([KafkaSinkMessage(b"k", b"v")])
+    flushes = producer.flushes
+
+    part.close()
+
+    # The dataflow is failing and resuming re-sends anything queued, so
+    # don't wait up to `message.timeout.ms` for it: purge, then only
+    # serve the purged messages' reports, with a bounded flush.
+    assert producer.purges == 1
+    assert producer.flushes == flushes + 1
+    assert producer.flush_timeouts[-1] is not None
+
+
+def test_sink_close_after_user_on_delivery_raises(fake_producer, caplog):
+    def on_delivery(err, msg):
+        msg = "boom"
+        raise ValueError(msg)
+
+    sink = KafkaSink(["b:9092"], TOPIC, add_config={"on_delivery": on_delivery})
+    part = sink.build("step", 0, 1)
+    (producer,) = fake_producer
+
+    # The user's exception reaches the dataflow...
+    with raises(ValueError, match="boom"):
+        part.write_batch(
+            [KafkaSinkMessage(b"k1", b"v1"), KafkaSinkMessage(b"k2", b"v2")]
+        )
+    flushes = producer.flushes
+
+    # ...and `close`, which also runs while unwinding from it, must
+    # neither raise nor wait on the messages still queued.
+    part.close()
+
+    assert producer.purges == 1
+    assert producer.flushes == flushes + 1
+    assert producer.flush_timeouts[-1] is not None
+    # It logs the error it swallowed instead.
+    assert "error closing Kafka producer: ValueError('boom')" in caplog.messages
+
+
+def test_sink_close_purges_after_missing_topic_mid_batch(fake_producer):
+    reports = []
+    sink = KafkaSink(
+        ["b:9092"],
+        None,
+        add_config={"on_delivery": lambda err, msg: reports.append(err)},
+    )
+    part = sink.build("step", 0, 1)
+    (producer,) = fake_producer
+
+    with raises(RuntimeError, match="No topic to produce to"):
+        part.write_batch(
+            [KafkaSinkMessage(b"k1", b"v1", topic="t"), KafkaSinkMessage(b"k2", b"v2")]
+        )
+    flushes = producer.flushes
+
+    part.close()
+
+    assert producer.purges == 1
+    assert producer.flushes == flushes + 1
+    assert producer.flush_timeouts[-1] is not None
+    # Delivery reports for the purged message are still served.
+    assert [err.code() for err in reports] == [ConfluentKafkaError._PURGE_QUEUE]
+
+
+def test_sink_calls_user_on_delivery(fake_producer):
+    reports = []
+    sink = KafkaSink(
+        ["b:9092"],
+        TOPIC,
+        add_config={"on_delivery": lambda err, msg: reports.append((err, msg.topic()))},
+    )
+    part = sink.build("step", 0, 1)
+
+    part.write_batch([KafkaSinkMessage(b"k", b"v")])
+
+    assert reports == [(None, TOPIC)]
+
+
+def test_sink_build_rejects_non_callable_on_delivery(fake_producer):
+    sink = KafkaSink(["b:9092"], TOPIC, add_config={"on_delivery": "not callable"})
+
+    with raises(TypeError, match="on_delivery"):
+        sink.build("step", 0, 1)
 
 
 def test_sink_write_batch_raises_without_topic(fake_producer):
