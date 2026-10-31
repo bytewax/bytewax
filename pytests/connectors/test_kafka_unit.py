@@ -721,7 +721,7 @@ def test_sink_close_purges_after_failed_write(fake_producer):
     assert producer.flush_timeouts[-1] is not None
 
 
-def test_sink_close_after_user_on_delivery_raises(fake_producer):
+def test_sink_close_after_user_on_delivery_raises(fake_producer, caplog):
     def on_delivery(err, msg):
         msg = "boom"
         raise ValueError(msg)
@@ -744,6 +744,8 @@ def test_sink_close_after_user_on_delivery_raises(fake_producer):
     assert producer.purges == 1
     assert producer.flushes == flushes + 1
     assert producer.flush_timeouts[-1] is not None
+    # It logs the error it swallowed instead.
+    assert "error closing Kafka producer: ValueError('boom')" in caplog.messages
 
 
 def test_sink_close_purges_after_missing_topic_mid_batch(fake_producer):

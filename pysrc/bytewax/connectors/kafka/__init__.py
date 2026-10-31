@@ -621,8 +621,8 @@ class _KafkaSinkPartition(
                 self._producer.flush(_CLOSE_FLUSH_S)
             else:
                 self._producer.flush()
-        except Exception:
-            _logger.exception("error closing Kafka producer")
+        except Exception as e:
+            _logger.exception("error closing Kafka producer: %r", e)
 
 
 class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]):
