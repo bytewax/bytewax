@@ -507,10 +507,10 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
 
 
 _QUEUE_FULL_POLL_S = 1.0
-"""How long to serve delivery reports before retrying a full queue."""
+"""`poll` timeout when waiting for room in a full queue."""
 
 _CLOSE_FLUSH_S = 5.0
-"""How long `close` serves purged messages' reports after a failure."""
+"""`flush` timeout in `close` after a failure (a slow `on_delivery` can exceed it)."""
 
 
 class _KafkaSinkPartition(
@@ -527,8 +527,9 @@ class _KafkaSinkPartition(
 
     def _on_delivery(self, err: Optional[ConfluentKafkaError], msg) -> None:
         # Called from `poll` and `flush` once librdkafka is done with a
-        # message: delivered, or given up on after
-        # `message.timeout.ms`. Keep the first failure.
+        # message: delivered, or failed (`message.timeout.ms` or the
+        # retries ran out, a broker rejected it, or it was purged).
+        # Keep the first failure.
         if self._user_on_delivery is not None:
             self._user_on_delivery(err, msg)
         if err is not None and self._delivery_err is None:
@@ -595,27 +596,29 @@ class _KafkaSinkPartition(
                 self._producer.poll(0)
             # Every item must be delivered before returning so the
             # epoch isn't committed with lost output; a failure fails
-            # the dataflow and resuming re-sends it.
+            # the dataflow and, with recovery, resuming re-sends it.
+            # With `acks=0` brokers don't confirm writes, so a lost
+            # message is reported as delivered.
             self._producer.flush()
             self._raise_on_delivery_err()
         except BaseException:
             # Whatever failed (including an `on_delivery` from
-            # `add_config`), `close` must not wait on or report the
-            # messages still queued.
+            # `add_config`), `close` must drop the messages still
+            # queued instead of waiting for them to be delivered.
             self._failed = True
             raise
 
     def close(self) -> None:
         # Log errors instead of raising them: `close` also runs while
         # unwinding from a failed `write_batch`, where a second
-        # exception aborts the process. `write_batch` already flushed
-        # and raised on failures.
+        # exception aborts the process. A `write_batch` that returned
+        # has already flushed and raised on failures.
         try:
             if self._failed:
-                # The dataflow is failing and resuming re-sends
-                # anything still queued, so don't wait up to
+                # The dataflow is failing and, with recovery, resuming
+                # re-sends anything still queued, so don't wait up to
                 # `message.timeout.ms` for it. `purge` doesn't wait
-                # either; the bounded `flush` serves the purged
+                # either; `flush` with a timeout serves the purged
                 # messages' delivery reports.
                 self._producer.purge()
                 self._producer.flush(_CLOSE_FLUSH_S)
@@ -635,16 +638,17 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
     Workers are the unit of parallelism.
 
     Can support at-least-once processing, but only when the dataflow
-    runs with recovery (see {py:obj}`~bytewax.recovery.RecoveryConfig`).
-    Messages from the resume epoch will be duplicated right after
+    runs with recovery (see {py:obj}`~bytewax.recovery.RecoveryConfig`)
+    and brokers acknowledge writes (the default; not `acks=0`).
+    Messages from the resume epoch may be duplicated right after
     resume. Without recovery, messages can be lost or repeated.
 
-    Each batch is fully delivered before the sink moves on. If Kafka
-    doesn't accept a message (e.g. librdkafka gives up after
+    Each batch is fully delivered before the sink moves on. If a
+    message isn't delivered (e.g. librdkafka gives up after
     `message.timeout.ms`), the dataflow fails with a `RuntimeError`;
     with recovery, resuming re-sends it. If the producer's local queue
     fills up, writing waits for it to drain; a single message larger
-    than the whole queue fails right away.
+    than the whole queue fails once nothing else is queued.
 
     """
 

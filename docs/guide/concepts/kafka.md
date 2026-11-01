@@ -95,14 +95,19 @@ continue processing data.
 ### Delivery Failures
 
 {py:obj}`~bytewax.connectors.kafka.KafkaSink` waits until every
-message in a batch is delivered before moving on. If Kafka doesn't
-accept a message, the dataflow fails with a `RuntimeError` naming the
-topic and the Kafka error. For example, when the brokers stay
-unreachable for longer than the producer's `message.timeout.ms` (5
-minutes by default), or the topic doesn't exist and the brokers don't
-auto-create topics.
+message in a batch is delivered before moving on. If a message isn't
+delivered, the dataflow fails with a `RuntimeError` naming the topic
+and the Kafka error. For example, when the brokers stay unreachable
+for longer than the producer's `message.timeout.ms` (5 minutes by
+default), a broker rejects the message, or the topic doesn't exist
+and the brokers don't auto-create topics.
 
-At-least-once delivery requires running the dataflow with
+The sink only sees the failures the brokers report. With `acks=0` in
+`add_config` brokers don't confirm writes, so a message lost on the
+way counts as delivered; keep the default `acks=all` for
+at-least-once delivery.
+
+At-least-once delivery also requires running the dataflow with
 [recovery](#xref-recovery): after the failure, resuming the dataflow
 re-sends everything from the last snapshot, so some messages may be
 written twice. Without recovery a restart starts again from the
@@ -113,10 +118,10 @@ lost or repeated (see [Kafka and Recovery](#xref-kafka-recovery)).
 If the producer's local queue fills up because the brokers can't keep
 up, the sink waits for it to drain instead of failing. A single
 message larger than the whole queue (`queue.buffering.max.kbytes`)
-fails the dataflow right away. To make the sink wait less, raise the
-producer's `queue.buffering.max.kbytes` and
-`queue.buffering.max.messages` in `add_config`; see the [`librdkafka`
-configuration
+fails the dataflow once nothing else is queued. To make the queue
+fill up less often, raise the producer's `queue.buffering.max.kbytes`
+and `queue.buffering.max.messages` in `add_config`; see the
+[`librdkafka` configuration
 reference](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md).
 
 ## Batch Sizes
@@ -232,11 +237,11 @@ interval is set to 5000ms.
 It is important to note that this interval is not coordinated with any
 processing steps within Bytewax. As a result, if the dataflow crashes,
 some messages may not be processed (their offsets were committed
-before their output was written) or may be processed twice. Only
-recovery gives at-least-once delivery from
+before their output was written) or may be processed twice. For
+at-least-once delivery from
 {py:obj}`~bytewax.connectors.kafka.KafkaSource` to
-{py:obj}`~bytewax.connectors.kafka.KafkaSink`; see [Delivery
-Failures](#xref-kafka-delivery-failures).
+{py:obj}`~bytewax.connectors.kafka.KafkaSink`, run the dataflow with
+recovery; see [Delivery Failures](#xref-kafka-delivery-failures).
 
 ## Partitions
 
