@@ -609,10 +609,12 @@ class _KafkaSinkPartition(
             raise
 
     def close(self) -> None:
-        # Log errors instead of raising them: `close` also runs while
-        # unwinding from a failed `write_batch`, where a second
-        # exception aborts the process. A `write_batch` that returned
-        # has already flushed and raised on failures.
+        # Log errors instead of raising them, including a
+        # `KeyboardInterrupt` or `SystemExit` from an `on_delivery`:
+        # `close` also runs while unwinding from a failed
+        # `write_batch`, where a second exception aborts the process.
+        # A `write_batch` that returned has already flushed and raised
+        # on failures.
         try:
             if self._failed:
                 # The dataflow is failing and, with recovery, resuming
@@ -624,7 +626,7 @@ class _KafkaSinkPartition(
                 self._producer.flush(_CLOSE_FLUSH_S)
             else:
                 self._producer.flush()
-        except Exception as e:
+        except BaseException as e:
             _logger.exception("error closing Kafka producer: %r", e)
 
 
@@ -686,13 +688,15 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
             "bootstrap.servers": ",".join(self._brokers),
         }
         config.update(self._add_config)
-        user_on_delivery = config.pop("on_delivery", None)
-        if user_on_delivery is not None and not callable(user_on_delivery):
-            msg = (
-                "`on_delivery` in `add_config` must be callable; "
-                f"got {user_on_delivery!r}"
-            )
-            raise TypeError(msg)
+        user_on_delivery = None
+        if "on_delivery" in config:
+            user_on_delivery = config.pop("on_delivery")
+            if not callable(user_on_delivery):
+                msg = (
+                    "`on_delivery` in `add_config` must be callable; "
+                    f"got {user_on_delivery!r}"
+                )
+                raise TypeError(msg)
         producer = Producer(config)
 
         return _KafkaSinkPartition(producer, self._topic, user_on_delivery)
