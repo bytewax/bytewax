@@ -29,7 +29,7 @@ from confluent_kafka import OFFSET_BEGINNING, KafkaException, TopicPartition
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka.serialization import StringDeserializer, StringSerializer
 from prometheus_client import REGISTRY
-from pytest import fixture, importorskip, raises
+from pytest import fail, fixture, importorskip, mark, raises
 
 TOPIC = "topic-a"
 
@@ -714,38 +714,46 @@ def test_sink_close_purges_after_failed_write(fake_producer):
     part.close()
 
     # The dataflow is failing and resuming re-sends anything queued, so
-    # don't wait up to `message.timeout.ms` for it: purge, then only
-    # serve the purged messages' reports, with a bounded flush.
+    # don't wait up to `message.timeout.ms` for it: purge, then serve
+    # the purged messages' reports with a short flush timeout.
     assert producer.purges == 1
     assert producer.flushes == flushes + 1
-    assert producer.flush_timeouts[-1] is not None
+    assert 0 < producer.flush_timeouts[-1] <= 5
 
 
-def test_sink_close_after_user_on_delivery_raises(fake_producer, caplog):
+@mark.parametrize(
+    "exc",
+    [ValueError("boom"), KeyboardInterrupt("boom"), SystemExit("boom")],
+    ids=lambda exc: type(exc).__name__,
+)
+def test_sink_close_after_user_on_delivery_raises(fake_producer, caplog, exc):
     def on_delivery(err, msg):
-        msg = "boom"
-        raise ValueError(msg)
+        raise exc
 
     sink = KafkaSink(["b:9092"], TOPIC, add_config={"on_delivery": on_delivery})
     part = sink.build("step", 0, 1)
     (producer,) = fake_producer
 
     # The user's exception reaches the dataflow...
-    with raises(ValueError, match="boom"):
+    with raises(type(exc), match="boom"):
         part.write_batch(
             [KafkaSinkMessage(b"k1", b"v1"), KafkaSinkMessage(b"k2", b"v2")]
         )
     flushes = producer.flushes
 
     # ...and `close`, which also runs while unwinding from it, must
-    # neither raise nor wait on the messages still queued.
-    part.close()
+    # neither raise, whatever the callback raises, nor wait on the
+    # messages still queued.
+    try:
+        part.close()
+    except BaseException as ex:
+        fail(f"close raised {ex!r}")
 
     assert producer.purges == 1
     assert producer.flushes == flushes + 1
-    assert producer.flush_timeouts[-1] is not None
+    assert 0 < producer.flush_timeouts[-1] <= 5
     # It logs the error it swallowed instead.
-    assert "error closing Kafka producer: ValueError('boom')" in caplog.messages
+    assert f"error closing Kafka producer: {exc!r}" in caplog.messages
 
 
 def test_sink_close_purges_after_missing_topic_mid_batch(fake_producer):
@@ -768,7 +776,7 @@ def test_sink_close_purges_after_missing_topic_mid_batch(fake_producer):
 
     assert producer.purges == 1
     assert producer.flushes == flushes + 1
-    assert producer.flush_timeouts[-1] is not None
+    assert 0 < producer.flush_timeouts[-1] <= 5
     # Delivery reports for the purged message are still served.
     assert [err.code() for err in reports] == [ConfluentKafkaError._PURGE_QUEUE]
 
@@ -782,13 +790,16 @@ def test_sink_calls_user_on_delivery(fake_producer):
     )
     part = sink.build("step", 0, 1)
 
-    part.write_batch([KafkaSinkMessage(b"k", b"v")])
+    part.write_batch(
+        [KafkaSinkMessage(b"k1", b"v1"), KafkaSinkMessage(b"k2", b"v2", topic="other")]
+    )
 
-    assert reports == [(None, TOPIC)]
+    assert reports == [(None, TOPIC), (None, "other")]
 
 
-def test_sink_build_rejects_non_callable_on_delivery(fake_producer):
-    sink = KafkaSink(["b:9092"], TOPIC, add_config={"on_delivery": "not callable"})
+@mark.parametrize("on_delivery", ["not callable", None])
+def test_sink_build_rejects_non_callable_on_delivery(fake_producer, on_delivery):
+    sink = KafkaSink(["b:9092"], TOPIC, add_config={"on_delivery": on_delivery})
 
     with raises(TypeError, match="on_delivery"):
         sink.build("step", 0, 1)
