@@ -1,0 +1,74 @@
+# Kafka connectivity fault gates: a 3-broker KRaft cluster behind
+# Toxiproxy. Every CLIENT listener is advertised as a Toxiproxy port
+# on localhost, so client traffic (produce, fetch, metadata, admin)
+# goes through the proxies (see toxiproxy.json). Inter-broker and
+# controller traffic use their own listeners and are not proxied.
+#
+# Host ports are limited to 39000-39999. Never publish 9092, 19092 or
+# 29092: other clusters on this machine use them.
+#
+# BWKF_KAFKA_IMAGE selects the broker image (default apache/kafka:4.0.0).
+# Use a KRaft-mode image, for example apache/kafka:3.9.1 or
+# apache/kafka:4.3.1. ZooKeeper-mode 3.9 is out of scope.
+name: bwkfaults
+
+x-kafka-env: &kafka-env
+  CLUSTER_ID: "bwkfaultsKRaftCluster0001"
+  KAFKA_PROCESS_ROLES: "broker,controller"
+  KAFKA_LISTENERS: "CONTROLLER://:9093,INTERNAL://:9092,CLIENT://:9094"
+  KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:PLAINTEXT"
+  KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+  KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka1:9093,2@kafka2:9093,3@kafka3:9093"
+  KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+  KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
+
+services:
+  kafka1:
+    image: ${BWKF_KAFKA_IMAGE:-apache/kafka:4.0.0}
+    container_name: bwkf-kafka1
+    hostname: kafka1
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: "1"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka1:9092,CLIENT://localhost:39101"
+
+  kafka2:
+    image: ${BWKF_KAFKA_IMAGE:-apache/kafka:4.0.0}
+    container_name: bwkf-kafka2
+    hostname: kafka2
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: "2"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka2:9092,CLIENT://localhost:39102"
+
+  kafka3:
+    image: ${BWKF_KAFKA_IMAGE:-apache/kafka:4.0.0}
+    container_name: bwkf-kafka3
+    hostname: kafka3
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: "3"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka3:9092,CLIENT://localhost:39103"
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: bwkf-toxiproxy
+    hostname: toxiproxy
+    command: ["-host", "0.0.0.0", "-port", "8474", "-config", "/config/toxiproxy.json"]
+    volumes:
+      - ./toxiproxy.json:/config/toxiproxy.json:ro
+    ports:
+      - "39000:8474"
+      - "39101:39101"
+      - "39102:39102"
+      - "39103:39103"
+    depends_on:
+      - kafka1
+      - kafka2
+      - kafka3
