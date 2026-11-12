@@ -20,7 +20,7 @@ def create_local_kafka_producer(topic_name, servers=None):
 
     # Create Kafka topic
     admin = AdminClient(config)
-    topic = NewTopic(topic_name, num_partitions=3)
+    topic = NewTopic(topic_name, num_partitions=3, replication_factor=1)
     for future in admin.create_topics([topic]).values():
         concurrent.futures.wait([future])
 

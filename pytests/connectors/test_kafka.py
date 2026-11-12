@@ -58,8 +58,9 @@ def tmp_topic(request):
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", request.node.name)
     topic_name = f"pytest_{safe_name}_{uuid.uuid4()}"
     for fut in client.create_topics(
-        # 3 partitions.
-        [NewTopic(topic_name, 3)],
+        # 3 partitions. Brokers before Kafka 2.4 need an explicit
+        # replication factor.
+        [NewTopic(topic_name, 3, 1)],
         operation_timeout=5.0,
     ).values():
         # Surface creation errors instead of timing out below.
