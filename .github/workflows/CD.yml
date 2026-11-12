@@ -4,10 +4,42 @@ on:
   release:
     types:
     - published
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: >-
+          Build the wheels and run every publish step without publishing.
+          Uncheck to publish; a manual run can only publish from a tag.
+        type: boolean
+        default: true
 
 jobs:
+  mode:
+    name: Select Run Mode
+    runs-on: ubuntu-latest
+    outputs:
+      dry-run: ${{ steps.mode.outputs.dry-run }}
+    steps:
+      - name: Decide Whether This Run Publishes
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            echo "dry-run=false" >> "$GITHUB_OUTPUT"
+          elif [ "$DRY_RUN" = "true" ]; then
+            echo "dry-run=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "dry-run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::A manual run can only publish from a tag. Check dry_run or run it on a tag."
+            exit 1
+          fi
+
   build-wheels:
-    if: "startsWith(github.ref, 'refs/tags/')"
+    if: "startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'"
+    needs: [mode]
     uses: ./.github/workflows/build-wheels.yml
     secrets: inherit
     with:
@@ -18,20 +50,26 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [build-wheels]
+    if: "startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'"
+    needs: [mode, build-wheels]
     outputs:
       bytewax-version: ${{ steps.get-info.outputs.bytewax-version }}
       version-image-tag: ${{ steps.get-info.outputs.version-image-tag }}
       latest-image-tag: ${{ steps.get-info.outputs.latest-image-tag }}
     steps:
+      # Only the manual dry run on a branch reads the version from here.
+      - uses: actions/checkout@v5
       - name: Get Version and Tags
         id: get-info
         run: |
-          BYTEWAX_VERSION=${GITHUB_REF:11}
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            BYTEWAX_VERSION=${GITHUB_REF:11}
+          else
+            BYTEWAX_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          fi
           echo "bytewax-version=${BYTEWAX_VERSION}" >> "$GITHUB_OUTPUT"
           REPOSITORY=bytewax/bytewax
-          IMAGE_TAG="${REPOSITORY}:${GITHUB_REF:11}"
+          IMAGE_TAG="${REPOSITORY}:${BYTEWAX_VERSION}"
           echo "version-image-tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
           echo "latest-image-tag=${REPOSITORY}:latest" >> "$GITHUB_OUTPUT"
       - name: Report Info
@@ -86,18 +124,23 @@ jobs:
         with:
           version: "0.11.11"
       - name: Publish to PyPI
+        if: ${{ needs.mode.outputs.dry-run == 'false' }}
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: uv publish --check-url https://pypi.org/simple/ *.whl
+      - name: Dry-run the PyPI Upload
+        if: ${{ needs.mode.outputs.dry-run == 'true' }}
+        run: uv publish --dry-run --check-url https://pypi.org/simple/ *.whl
 
   check-pypi:
     name: Check PyPI
     runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [ release ]
+    if: "startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'"
+    needs: [ mode, release ]
     timeout-minutes: 25
     steps:
     - name: Wait for the release to be installable from PyPI
+      if: ${{ needs.mode.outputs.dry-run == 'false' }}
       # `Dockerfile.release` runs `pip install bytewax==<version>`, so
       # retry the same download with pip until PyPI serves the release.
       env:
@@ -117,10 +160,11 @@ jobs:
 
   publish-docker-hub:
     name: Publish to Docker Hub
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [ release, check-pypi ]
+    if: "startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'"
+    needs: [ mode, release, check-pypi ]
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
@@ -138,7 +182,8 @@ jobs:
       id: docker_build
       uses: docker/build-push-action@v7
       with:
-        push: true
+        # Dry runs still build both platforms, but do not push.
+        push: ${{ needs.mode.outputs.dry-run == 'false' }}
         platforms: linux/amd64, linux/arm64
         tags: |
           ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
@@ -148,6 +193,6 @@ jobs:
           PYTHON_VERSION=${{ matrix.python-version }}
         file: Dockerfile.release
     - name: Tag latest
-      if: ${{ matrix.python-version == '3.9' }}
+      if: ${{ matrix.python-version == '3.9' && needs.mode.outputs.dry-run == 'false' }}
       run: |
         docker buildx imagetools create -t ${{ needs.release.outputs.latest-image-tag }} ${{ needs.release.outputs.version-image-tag }}-python${{ matrix.python-version }}
