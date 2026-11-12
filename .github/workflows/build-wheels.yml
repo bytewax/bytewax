@@ -15,10 +15,20 @@ jobs:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
         target: ['x86_64', 'aarch64', 'armv7']
         include:
+          # Pin the image for each target, so a tag build does not pick
+          # up whatever the default tag points to on that day. The
+          # rust-cross images publish no dated tags, so they are pinned
+          # by digest.
+          - target: x86_64
+            container: quay.io/pypa/manylinux2014_x86_64:2026.10.16-1
+          - target: aarch64
+            container: ghcr.io/rust-cross/manylinux2014-cross@sha256:32c92568ebee8db53e0598c21bcd06a6dd1649d45d507646a8a49313c50325f8
+          - target: armv7
+            container: ghcr.io/rust-cross/manylinux2014-cross@sha256:9bd3f47d894bf11bd00a114a79de07916d325802dca7a176e0a1f974ad5e7563
           # pypa/manylinux dropped CPython 3.8 from its images in
           # pypa/manylinux#1884. This is the last manylinux2014 x86_64
-          # image that still has it. aarch64 and armv7 use the
-          # rust-cross manylinux2014-cross images, which still do.
+          # image that still has it, so it overrides the x86_64 pin
+          # above.
           - python-version: '3.8'
             target: x86_64
             container: quay.io/pypa/manylinux2014_x86_64:2026.05.07-1
@@ -63,9 +73,9 @@ jobs:
           # ubuntu-24.04 host and tagged manylinux_2_34, which does not
           # install on older distros.
           manylinux: '2014'
-          # Empty means the maturin-action default image for the
-          # target and manylinux version.
           container: ${{ matrix.container }}
+          # The same maturin as requirements/build-py<version>.txt.
+          maturin-version: ${{ contains(fromJSON('["3.13", "3.14"]'), matrix.python-version) && '1.13.3' || '1.5.1' }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
       - name: Cache Apache Kafka
         if: ${{ inputs.run-tests && matrix.target == 'x86_64' }}
@@ -141,6 +151,7 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: 10.9
         with:
           target: ${{ matrix.target }}
+          maturin-version: ${{ contains(fromJSON('["3.13", "3.14"]'), matrix.python-version) && '1.13.3' || '1.5.1' }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
       - name: Cache Apache Kafka
         if: ${{ inputs.run-tests }}
@@ -218,6 +229,7 @@ jobs:
           RUSTFLAGS: -C force-frame-pointers=yes
         with:
           target: ${{ matrix.target }}
+          maturin-version: ${{ contains(fromJSON('["3.13", "3.14"]'), matrix.python-version) && '1.13.3' || '1.5.1' }}
           args: --release --out dist/ -i ${{ matrix.python-version }}
       - name: Cache Apache Kafka
         if: ${{ inputs.run-tests }}
