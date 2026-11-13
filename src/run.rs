@@ -3,6 +3,7 @@
 //! For a user-centric version of how to execute dataflows, read the
 //! the `bytewax.execution` Python module docstring. Read that first.
 
+use std::any::Any;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -19,6 +20,8 @@ use pyo3::exceptions::PyKeyboardInterrupt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
+use timely::communication::allocator::AllocateBuilder;
+use timely::communication::allocator::Generic;
 use tokio::runtime::Runtime;
 
 use crate::dataflow::Dataflow;
@@ -176,6 +179,29 @@ pub(crate) fn run_main(
     })
 }
 
+/// The worker threads of [`cluster_main`], like timely's
+/// `WorkerGuards`: dropping it waits for the workers, then drops
+/// `_other`, which holds the network threads of a cluster.
+struct WorkerThreads {
+    threads: Vec<thread::JoinHandle<()>>,
+    _other: Box<dyn Any + Send>,
+}
+
+impl WorkerThreads {
+    /// Wait for the workers and return what each thread returned.
+    fn join(mut self) -> Vec<thread::Result<()>> {
+        self.threads.drain(..).map(|thread| thread.join()).collect()
+    }
+}
+
+impl Drop for WorkerThreads {
+    fn drop(&mut self) {
+        for thread in self.threads.drain(..) {
+            thread.join().expect("Worker panic");
+        }
+    }
+}
+
 /// Execute a dataflow in the current process as part of a cluster.
 ///
 /// This is only used for unit testing. See `bytewax.run`.
@@ -303,33 +329,66 @@ pub(crate) fn cluster_main(
             });
         }));
 
-        let guards = timely::execute::execute_from::<_, (), _>(
-            builders,
-            other,
-            timely::WorkerConfig::default(),
-            move |worker| {
-                let flow = Python::with_gil(|py| flow.clone_ref(py));
-                let recovery_config =
-                    Python::with_gil(|py| recovery_config.as_ref().map(|rc| rc.clone_ref(py)));
+        let worker_fn = Arc::new(move |worker: &mut timely::worker::Worker<Generic>| {
+            let flow = Python::with_gil(|py| flow.clone_ref(py));
+            let recovery_config =
+                Python::with_gil(|py| recovery_config.as_ref().map(|rc| rc.clone_ref(py)));
 
-                unwrap_any!(worker_main(
-                    worker,
-                    // Interrupt if the main thread detects a signal.
-                    || should_shutdown_w.load(Ordering::Relaxed),
-                    flow,
-                    epoch_interval,
-                    recovery_config
-                ))
-            },
-        )
-        .reraise("error during execution")?;
+            unwrap_any!(worker_main(
+                worker,
+                // Interrupt if the main thread detects a signal.
+                || should_shutdown_w.load(Ordering::Relaxed),
+                flow,
+                epoch_interval,
+                recovery_config
+            ))
+        });
+
+        // This does what `timely::execute::execute_from` does, but
+        // runs each worker inside `Python::with_gil` and
+        // `Python::allow_threads`, as `run_main` does on the main
+        // thread. Worker threads are not Python threads, so without
+        // that every `Python::with_gil` on one would create a Python
+        // thread state and delete it again: slow on every call into
+        // Python, and per-thread Python state such as
+        // `threading.local` would not last from one call to the
+        // next. The GIL is not held while the worker runs. The timely
+        // worker is built inside the closure because `allow_threads`
+        // only takes a closure that could be sent to another thread,
+        // and a timely worker can't be.
+        let mut threads = Vec::with_capacity(builders.len());
+        for (index, builder) in builders.into_iter().enumerate() {
+            let worker_fn = worker_fn.clone();
+            let thread = thread::Builder::new()
+                .name(format!("timely:work-{index}"))
+                .spawn(move || {
+                    Python::with_gil(|py| {
+                        py.allow_threads(move || {
+                            let mut worker = timely::worker::Worker::new(
+                                timely::WorkerConfig::default(),
+                                builder.build(),
+                            );
+                            worker_fn(&mut worker);
+                            while worker.has_dataflows() {
+                                worker.step_or_park(None);
+                            }
+                        })
+                    })
+                })
+                .raise::<PyRuntimeError>("error starting a worker thread")?;
+            threads.push(thread);
+        }
+        let guards = WorkerThreads {
+            threads,
+            _other: other,
+        };
 
         let cooldown = Duration::from_millis(1);
         // Recreating what Python does in Thread.join() to "block"
         // but also check interrupt handlers.
         // https://github.com/python/cpython/blob/204946986feee7bc80b233350377d24d20fcb1b8/Modules/_threadmodule.c#L81
         while guards
-            .guards()
+            .threads
             .iter()
             .any(|worker_thread| !worker_thread.is_finished())
         {
