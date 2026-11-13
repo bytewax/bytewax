@@ -334,7 +334,7 @@ def _parse_args():
             "when running with recovery, the `-s/--snapshot_interval` and "
             "`-b/--backup_interval` values must be set. For more information "
             "about setting these values, please see "
-            "https://bytewax.io/docs/concepts/recovery."
+            "https://github.com/bytewax/bytewax/blob/main/docs/guide/concepts/recovery.md."
         )
 
     return args

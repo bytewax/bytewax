@@ -26,8 +26,8 @@ Bytewax itself. Connectors are self-contained Python packages that can
 be downloaded independently. The Connector hub is continuously
 expanding, offering a growing list of connectors for various data
 systems. If you have specific needs for a connector not currently
-available, we encourage you to [contact
-us](https://www.bytewax.io/contact-us/).
+available, we encourage you to [open an issue on
+GitHub](https://github.com/bytewax/bytewax/issues).
 
 ## Building a Custom Connector
 

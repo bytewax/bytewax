@@ -3,17 +3,13 @@
 
 There are many ways you can run Bytewax, in this section we will highlight the main ways we recommend deploying Bytewax.
 
-## The Bytewax Platform
-
-We built the Bytewax Platform to make deploying, managing and operating dataflows easier. You can find out more about the platform features on the [Bytewax website](https://www.bytewax.io/platform) and the [platform documentation](https://platform.bytewax.io/).
-
 ## Container Based Deployment
 
 Docker containers provide a good way to wrap up dependencies and run a containerized version of Bytewax across many different services and orchestration tools. From docker compose to Kubernetes. The [container documentation](#xref-container) provides an overview of how to leverage Bytewax in containers.
 
 ## Running Locally with waxctl
 
-We recommend using `waxctl` locally to test running your dataflow with multiple processes, you can find more about `waxctl` on the [website](https://bytewax.io/waxctl).
+We recommend using `waxctl` locally to test running your dataflow with multiple processes, you can download `waxctl` from its [GitHub releases](https://github.com/bytewax/waxctl-downloads/releases).
 
 Test it out locally after installing:
 
@@ -25,7 +21,7 @@ You can find more information in <project:#xref-waxctl>.
 
 ## Running in Kubernetes
 
-Kubernetes is the most common orchestration platform for running containers. The recommended path to using Bytewax with Kubernetes is to use the [platform](https://platform.bytewax.io/) but you can use the publicly available [helm chart](#xref-helm) to run Bytewax on a Kubernetes cluster.
+Kubernetes is the most common orchestration platform for running containers. You can use the publicly available [helm chart](#xref-helm) to run Bytewax on a Kubernetes cluster.
 
 ## Running on Cloud Instances
 

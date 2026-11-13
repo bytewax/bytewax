@@ -39,7 +39,7 @@ kafka = [
 [project.urls]
 "Source Code" = "https://github.com/bytewax/bytewax"
 Issues = "https://github.com/bytewax/bytewax/issues"
-Documentation = "https://docs.bytewax.io/"
+Documentation = "https://github.com/bytewax/bytewax/tree/main/docs"
 Changelog = "https://github.com/bytewax/bytewax/blob/main/CHANGELOG.md"
 
 [metadata]

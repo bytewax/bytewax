@@ -20,7 +20,7 @@ This tutorial will teach you how to chain Bytewax windowing operators to wrangle
 <gh-path:/docs/tutorials/introducing-windowing/session_dataflow.py>
 <gh-path:/docs/tutorials/introducing-windowing/smoothie_order_l.csv>
 
-In [our blog on windowing](https://bytewax.io/blog/windowing-in-streaming-applications), we cover in depth key concepts and assumptions we make to ensure a smooth experience incorporating windowing techniques. If you're new to windowing, we recommend you take a look at the blog and the [cheatsheet our team prepared](https://images.production.bytewax.io/wind1_74099d4d0d.png).
+If you're new to windowing, we recommend you first read <project:#xref-windowing>, which covers the key concepts and assumptions we make to ensure a smooth experience incorporating windowing techniques.
 
 ## Set up and imports
 

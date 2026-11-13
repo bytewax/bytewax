@@ -74,7 +74,7 @@ fork to your local machine.
 ### Setup Development Environment
 
 Follow the instructions in [Local
-Development](https://docs.bytewax.io/stable/guide/contributing/local-development.html)
+Development](https://github.com/bytewax/bytewax/blob/main/docs/guide/contributing/local-development.md)
 to setup your local development environment.
 
 ### Modify and Commit

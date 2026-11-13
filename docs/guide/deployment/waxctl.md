@@ -12,7 +12,7 @@ have it installed yet.
 
 ## Installation
 
-To install Waxctl visit [here](https://bytewax.io/waxctl).
+To install Waxctl, download it from its [GitHub releases](https://github.com/bytewax/waxctl-downloads/releases).
 
 ## Dataflow Lifecycle
 

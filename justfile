@@ -1,7 +1,7 @@
 # Show this help list
 help:
     @echo 'If you are new here, run `just get-started` to init a development env.'
-    @echo 'See https://docs.bytewax.io/stable/guide/contributing/local-development.html for a more detailed tutorial.'
+    @echo 'See docs/guide/contributing/local-development.md for a more detailed tutorial.'
     @just --list
 
 # Init a development env

@@ -1,19 +1,17 @@
 # Bytewax: Python Stateful Stream Processing Framework
 
 <div align='center'>
- <a href="https://bytewax.io/">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/bytewax/bytewax/assets/53014647/cd47293b-72c9-423c-b010-2c4990206c60" width="350">
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/bytewax/bytewax/assets/53014647/f376c9e8-5bd4-4563-ba40-3df8761b13fc" width="350">
   <img alt="Bytewax" src="https://github.com/bytewax/bytewax/assets/53014647/f376c9e8-5bd4-4563-ba40-3df8761b13fc" width="350">
 </picture>
-</a>
 </div>
 
 <p align='center'>
 <a href="https://github.com/bytewax/bytewax/actions"><img src="https://github.com/bytewax/bytewax/workflows/CI/badge.svg"></a>
 <a href="https://pypi.org/project/bytewax/"><img src="https://img.shields.io/pypi/v/bytewax.svg"></a>
-<a href="https://docs.bytewax.io/stable/guide/index.html"><img src="https://img.shields.io/badge/user-guide-brightgreen"></a>
+<a href="https://github.com/bytewax/bytewax/tree/main/docs/guide"><img src="https://img.shields.io/badge/user-guide-brightgreen"></a>
 <a href="https://github.com/bytewax/bytewax/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
 </p>
 
@@ -36,7 +34,7 @@
 - [Quick Start](#quick-start)
 - [How Bytewax Works](#how-bytewax-works)
 - [Operators Overview](#operators-overview)
-- [Connectors (Module Hub)](#connectors-module-hub)
+- [Connectors](#connectors)
 - [Local Development, Testing, and Production](#local-development-testing-and-production)
 - [Deployment Options](#deployment-options)
   - [Running Locally](#running-locally)
@@ -56,7 +54,7 @@ Install Bytewax from PyPI:
 pip install bytewax
 ```
 
-[Install `waxctl`](https://bytewax.io/waxctl) to manage deployments at scale.
+[Install `waxctl`](https://github.com/bytewax/waxctl-downloads/releases) to manage deployments at scale.
 
 **Minimal Example:**
 
@@ -98,7 +96,7 @@ Bytewax uses a **dataflow computational model**, similar to systems like Flink o
 
 **Stateful operations:** Bytewax maintains distributed state, allows for fault tolerance and state recovery, and supports event-time windowing for advanced analytics and machine learning workloads.
 
-**`waxctl`:** Bytewax’s CLI tool for deploying and managing dataflows on cloud servers or Kubernetes clusters. [Download `waxctl` here](https://bytewax.io/waxctl).
+**`waxctl`:** Bytewax’s CLI tool for deploying and managing dataflows on cloud servers or Kubernetes clusters. [Download `waxctl` here](https://github.com/bytewax/waxctl-downloads/releases).
 
 ---
 
@@ -110,22 +108,21 @@ Operators are the building blocks of Bytewax dataflows:
 - **Stateful Operators:** `reduce`, `fold_window`, `stateful_map`
 - **Windowing & Aggregations:** Event-time, processing-time windows, tumbling, sliding, and session windows.
 - **Joins & Merges:** Combine multiple input streams with `merge`, `join`, or advanced join patterns.
-- **Premium Operators:**
 
-For a comprehensive list, see the [Operators API Documentation](https://docs.bytewax.io/stable/api/bytewax/bytewax.operators.html).
+For a comprehensive list, see the [`bytewax.operators` module](https://github.com/bytewax/bytewax/blob/main/pysrc/bytewax/operators/__init__.py).
 
 ---
 
 ## Connectors
 
-Bytewax provides built-in connectors for common data sources and sinks such as Kafka, files, and stdout. You can also write your own [custom connectors](https://docs.bytewax.io/stable/guide/advanced-concepts/custom-connectors.html).
+Bytewax provides built-in connectors for common data sources and sinks such as Kafka, files, and stdout. You can also write your own [custom connectors](https://github.com/bytewax/bytewax/blob/main/docs/guide/advanced-concepts/custom-connectors.md).
 
 **Examples of Built-in Connectors:**
 - **Kafka:** `bytewax.connectors.kafka`
 - **StdIn/StdOut:** `bytewax.connectors.stdio`
-- **Redis, S3, and More:** See [Bytewax connectors](https://docs.bytewax.io/stable/api/bytewax/bytewax.connectors.html).
+- **Files and More:** See [Bytewax connectors](https://github.com/bytewax/bytewax/tree/main/pysrc/bytewax/connectors).
 
-**Community & Partner Connectors:** Check out the [Bytewax Module Hub](https://bytewax.io/modules) for additional connectors contributed by the community.
+**Community & Partner Connectors:** Additional connectors (for example Redis, ClickHouse, InfluxDB, and DuckDB) live in separate `bytewax-*` repositories in the [Bytewax GitHub organization](https://github.com/bytewax).
 
 ---
 
@@ -139,7 +136,7 @@ Bytewax provides built-in connectors for common data sources and sinks such as K
 **Testing:**
 - Integration tests: Use `TestingSource` and run flows directly in CI environments.
 - Unit tests: Test individual functions and operators as normal Python code.
-- [More on Testing](https://docs.bytewax.io/stable/guide/contributing/testing.html)
+- See the [`bytewax.testing` module](https://github.com/bytewax/bytewax/blob/main/pysrc/bytewax/testing.py) for test sources and sinks.
 
 **Production:**
 - Scale horizontally by running multiple workers on multiple machines.
@@ -166,7 +163,7 @@ python -m bytewax.run my_dataflow.py -w 2
 
 ### Containerized Execution
 
-Run Bytewax inside Docker containers for easy integration with container platforms. See the [Bytewax Container Guide](https://docs.bytewax.io/stable/guide/deployment/container.html).
+Run Bytewax inside Docker containers for easy integration with container platforms. See the [Bytewax Container Guide](https://github.com/bytewax/bytewax/blob/main/docs/guide/deployment/container.md).
 
 ### Scaling on Kubernetes
 
@@ -176,17 +173,13 @@ Use `waxctl` to package and deploy Bytewax dataflows to Kubernetes clusters for 
 waxctl df deploy my_dataflow.py --name my-dataflow
 ```
 
-[Learn more about Kubernetes deployment](https://docs.bytewax.io/stable/guide/deployment/waxctl.html).
-
-### Scaling with the Bytewax Platform
-
-Our commercially licensed Platform
+[Learn more about Kubernetes deployment](https://github.com/bytewax/bytewax/blob/main/docs/guide/deployment/waxctl.md).
 
 ---
 
 ## Examples
 
-- [User Guide](https://docs.bytewax.io/stable/guide/index.html): End-to-end tutorials and advanced topics.
+- [User Guide](https://github.com/bytewax/bytewax/tree/main/docs/guide): End-to-end tutorials and advanced topics.
 - [`/examples` Folder](examples): Additional sample dataflows and connector usage.
 
 ---
@@ -198,7 +191,7 @@ Join us on [Slack](https://join.slack.com/t/bytewaxcommunity/shared_invite/zt-vk
 Open issues on [GitHub Issues](https://github.com/bytewax/bytewax/issues) for bug reports and feature requests. (For general help, use Slack.)
 
 **Contributions Welcome:**
-- Check out the [Contribution Guide](https://docs.bytewax.io/stable/guide/contributing/contributing.html) to learn how to get started.
+- Check out the [Contribution Guide](./CONTRIBUTING.md) to learn how to get started.
 - We follow a [Code of Conduct](https://github.com/bytewax/bytewax/blob/main/CODE_OF_CONDUCT.md).
 
 ---
