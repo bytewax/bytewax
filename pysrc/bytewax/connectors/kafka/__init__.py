@@ -535,7 +535,7 @@ class _KafkaSinkPartition(
 
 
 class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]):
-    """Use a single Kafka topic as an output sink.
+    """Use Kafka topics as an output sink.
 
     Items consumed from the dataflow must be
     {py:obj}`KafkaSinkMessage` with both keys and values as optional
@@ -560,9 +560,10 @@ class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]])
 
         :arg brokers: List of `host:port` strings of Kafka brokers.
 
-        :arg topic: Topic to produce to. If it's `None`, the topic to
-            produce to will be read in each
-            {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage`.
+        :arg topic: Default topic to produce to. A message whose
+            {py:obj}`~bytewax.connectors.kafka.KafkaSinkMessage.topic`
+            is set goes to that topic instead. If it's `None`, every
+            message must set its topic.
 
         :arg add_config: Any additional configuration properties. See
             [the `rdkafka`
