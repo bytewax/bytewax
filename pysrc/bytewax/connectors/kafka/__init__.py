@@ -506,8 +506,8 @@ class KafkaSinkMessage(Generic[K_co, V_co]):
         )
 
 
-_QUEUE_FULL_POLL_S = 1.0
-"""`poll` timeout when waiting for room in a full queue."""
+_WAIT_S = 1.0
+"""`poll`/`flush` timeout while waiting; a failed delivery is checked after each."""
 
 _CLOSE_FLUSH_S = 5.0
 """`flush` timeout in `close` after a failure (a slow `on_delivery` can exceed it)."""
@@ -524,6 +524,8 @@ class _KafkaSinkPartition(
         self._user_on_delivery = user_on_delivery
         self._delivery_err: Optional[Tuple[str, ConfluentKafkaError]] = None
         self._failed = False
+        self._closing = False
+        self._close_err: Optional[BaseException] = None
 
     def _on_delivery(self, err: Optional[ConfluentKafkaError], msg) -> None:
         # Called from `poll` and `flush` once librdkafka is done with a
@@ -531,7 +533,17 @@ class _KafkaSinkPartition(
         # retries ran out, a broker rejected it, or it was purged).
         # Keep the first failure.
         if self._user_on_delivery is not None:
-            self._user_on_delivery(err, msg)
+            try:
+                self._user_on_delivery(err, msg)
+            except BaseException as ex:
+                if not self._closing:
+                    raise
+                # In `close`, keep serving the other reports: each
+                # queued message holds a reference to this partition,
+                # and through it to the producer, until its report is
+                # served. `close` logs the first error.
+                if self._close_err is None:
+                    self._close_err = ex
         if err is not None and self._delivery_err is None:
             self._delivery_err = (msg.topic(), err)
 
@@ -570,7 +582,7 @@ class _KafkaSinkPartition(
                 # librdkafka's local queue is full. Wait for it to
                 # drain instead of failing the batch; stop if a
                 # queued message has failed meanwhile.
-                self._producer.poll(_QUEUE_FULL_POLL_S)
+                self._producer.poll(_WAIT_S)
                 self._raise_on_delivery_err()
             except KafkaException as ex:
                 # Raised before queueing, e.g. a message bigger than
@@ -598,8 +610,11 @@ class _KafkaSinkPartition(
             # epoch isn't committed with lost output; a failure fails
             # the dataflow and, with recovery, resuming re-sends it.
             # With `acks=0` brokers don't confirm writes, so a lost
-            # message is reported as delivered.
-            self._producer.flush()
+            # message is reported as delivered. Wait in steps, so a
+            # failure already reported doesn't wait for the other
+            # messages.
+            while self._producer.flush(_WAIT_S) > 0:
+                self._raise_on_delivery_err()
             self._raise_on_delivery_err()
         except BaseException:
             # Whatever failed (including an `on_delivery` from
@@ -615,6 +630,7 @@ class _KafkaSinkPartition(
         # `write_batch`, where a second exception aborts the process.
         # A `write_batch` that returned has already flushed and raised
         # on failures.
+        self._closing = True
         try:
             if self._failed:
                 # The dataflow is failing and, with recovery, resuming
@@ -626,8 +642,15 @@ class _KafkaSinkPartition(
                 self._producer.flush(_CLOSE_FLUSH_S)
             else:
                 self._producer.flush()
-        except BaseException as e:
-            _logger.exception("error closing Kafka producer: %r", e)
+        except BaseException as ex:
+            if self._close_err is None:
+                self._close_err = ex
+        if self._close_err is not None:
+            _logger.error(
+                "error closing Kafka producer: %r",
+                self._close_err,
+                exc_info=self._close_err,
+            )
 
 
 class KafkaSink(DynamicSink[KafkaSinkMessage[Optional[bytes], Optional[bytes]]]):

@@ -36,13 +36,14 @@ notes on GitHub when we make a new release.__
   Unreachable Brokers" in the Kafka guide.
 
 - *Behavior change* {py:obj}`~bytewax.connectors.kafka.KafkaSink`
-  now fails the dataflow with a `RuntimeError` when a message isn't
-  delivered (e.g. unreachable brokers past `message.timeout.ms`, or a
-  missing topic the brokers don't auto-create). This is intended:
-  previously such messages were dropped silently, even with recovery
-  enabled; now resuming re-sends them (at-least-once), and messages
-  still queued when the dataflow fails are dropped rather than waited
-  on. When the producer's local queue is full, the sink waits for it
+  now fails the dataflow with a `RuntimeError` as soon as a message
+  isn't delivered (e.g. unreachable brokers past `message.timeout.ms`,
+  or a missing topic the brokers don't auto-create), without waiting
+  for the other queued messages. This is intended: previously such
+  messages were dropped silently, even with recovery enabled; now
+  resuming re-sends them (at-least-once), and messages still queued
+  when the dataflow fails are dropped rather than waited on. When the
+  producer's local queue is full, the sink waits for it
   to drain instead of crashing with `BufferError` (reported in #522 by
   @shubhanshu02); a single message larger than the whole queue fails
   with a clear error. A non-callable `on_delivery` in `add_config` is
