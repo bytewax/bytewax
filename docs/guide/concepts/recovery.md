@@ -96,6 +96,14 @@ part-3.sqlite3-wal
 
 You must move the files with the prefix `part-*.` all together.
 
+Don't open the partition files with another SQLite library, such as
+Python's `sqlite3` module, from inside the dataflow's own process
+while it runs, for example in a step or a sink. Bytewax links its own
+copy of SQLite, and two copies in one process can't see each other's
+file locks: closing the other connection can delete the write-ahead
+log that Bytewax is still writing to, and a crash then loses that
+recovery data. Read the files from a separate process instead.
+
 In general, you'll want to your environment to try and evenly
 distribute partitions among your workers.
 
