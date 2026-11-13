@@ -4,21 +4,16 @@
 Bytewax currently supports the following versions of Python: 3.8, 3.9,
 3.10 and 3.11.
 
-## Installing with pip
+## Installing with uv
 
-We recommend creating a virtual environment for your project when
-installing Bytewax.
-
-For more information on setting up a virtual environment, see the
-[official Python documentation for virtual
-environments](inv:python#library/venv).
-
-Once you have your environment set up, you can install the latest
-version of Bytewax with:
-
+We recommend installing Bytewax with
+[uv](https://docs.astral.sh/uv/) into a virtual environment for your
+project:
 
 ```console
-$ pip install bytewax
+$ uv venv
+$ source .venv/bin/activate
+$ uv pip install bytewax
 ```
 
 We recommend that you pin the version of Bytewax that you are using in
@@ -28,7 +23,7 @@ install:
 ```{code-block} console
 :substitutions:
 
-$ pip install bytewax==|version|
+$ uv pip install bytewax==|version|
 ```
 
 When upgrading between versions of Bytewax, be sure to review the

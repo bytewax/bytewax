@@ -59,15 +59,15 @@ Let's get started!
 
 Before we begin, let's import the necessary modules and set up the environment for building the dataflow.
 
-Complete installation - we recommend using a virtual environment to manage your Python dependencies. You can install Bytewax using pip:
+Complete installation - we recommend using a virtual environment to manage your Python dependencies. You can install Bytewax using [uv](https://docs.astral.sh/uv/):
 
 ```{code-block} console
 :substitutions:
-$ python -m venv venv
-$ ./venv/bin/activate
-(venv) $ pip install bytewax==|version|
-(venv) $ pip install ydata-profiling==4.9.0
-(venv) $ pip install pandas==2.2.2 pandas-stubs
+$ uv venv venv
+$ source venv/bin/activate
+(venv) $ uv pip install bytewax==|version|
+(venv) $ uv pip install ydata-profiling==4.9.0
+(venv) $ uv pip install pandas==2.2.2 pandas-stubs
 ```
 
 Now, let's import the required modules and set up the environment for building the dataflow.

@@ -53,7 +53,7 @@
 Install Bytewax from PyPI:
 
 ```sh
-pip install bytewax
+uv pip install bytewax
 ```
 
 [Install `waxctl`](https://bytewax.io/waxctl) to manage deployments at scale.

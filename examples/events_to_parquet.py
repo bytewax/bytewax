@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, List, Optional
 
-# pip install pandas pyarrow fake-web-events
+# uv pip install pandas pyarrow fake-web-events
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
 from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition

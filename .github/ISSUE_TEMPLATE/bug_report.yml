@@ -24,7 +24,7 @@ body:
   - type: input
     id: bytewax_version
     attributes:
-      label: Bytewax version (pip list | grep bytewax)
+      label: Bytewax version (uv pip show bytewax)
       placeholder: ex. bytewax 0.6.1
     validations:
       required: true

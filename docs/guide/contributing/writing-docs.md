@@ -353,7 +353,7 @@ substitutions:
 ```{code-block} console
 :substitutions:
 
-$ pip install bytewax==|version|
+$ uv pip install bytewax==|version|
 ```
 ````
 
@@ -362,7 +362,7 @@ Appears for the current version {{ version }} as:
 ```{code-block} console
 :substitutions:
 
-$ pip install bytewax==|version|
+$ uv pip install bytewax==|version|
 ```
 
 ### Linking to Files in the GitHub Repo
