@@ -205,11 +205,16 @@ class _FakeProducer:
     that raises leaves the rest for later. Queued messages are only
     delivered while waiting (`poll` with a timeout, or `flush`); this
     is stricter than librdkafka, whose `poll(0)` also serves reports
-    that are already done. `purge` drops queued messages without
-    waiting, like confluent-kafka's, and their `_PURGE_QUEUE` reports
-    are served only by a later `flush` or `poll` with a timeout.
-    `produce_error` is raised synchronously from `produce`, like
-    librdkafka does for e.g. a message bigger than `message.max.bytes`.
+    that are already done. Messages to `stuck_topics` never get a
+    report until they are purged, like messages to unreachable brokers
+    with `message.timeout.ms=0`. `flush` returns how many messages are
+    still counted, like confluent-kafka's; without a timeout it would
+    wait forever for a stuck message, so it fails the test instead.
+    `purge` drops queued messages without waiting, like
+    confluent-kafka's, and their `_PURGE_QUEUE` reports are served only
+    by a later `flush` or `poll` with a timeout. `produce_error` is
+    raised synchronously from `produce`, like librdkafka does for e.g.
+    a message bigger than `message.max.bytes`.
 
     """
 
@@ -223,12 +228,13 @@ class _FakeProducer:
     too_large: bool = False
     produce_error: Optional[ConfluentKafkaError] = None
     delivery_error: Optional[ConfluentKafkaError] = None
+    stuck_topics: Tuple[str, ...] = ()
     _pending: List[Tuple[Any, Dict[str, Any]]] = field(default_factory=list)
     _purged: List[Tuple[Any, Dict[str, Any]]] = field(default_factory=list)
     _buffer_errors: int = 0
 
     def __len__(self):
-        return len(self._pending)
+        return len(self._pending) + len(self._purged)
 
     def produce(self, **kwargs):
         if self.produce_error is not None:
@@ -246,29 +252,36 @@ class _FakeProducer:
         self.produced.append(kwargs)
         self._pending.append((on_delivery, kwargs))
 
-    def _report(self, queue, err):
-        while queue:
-            on_delivery, kwargs = queue.pop(0)
-            if on_delivery is None:
-                on_delivery = self.config.get("on_delivery")
-            if on_delivery is not None:
-                on_delivery(err, _FakeMsg(-1, _topic=kwargs["topic"]))
+    def _report(self, queue, err, stuck_topics=()):
+        stuck = [m for m in queue if m[1]["topic"] in stuck_topics]
+        queue[:] = [m for m in queue if m[1]["topic"] not in stuck_topics]
+        try:
+            while queue:
+                on_delivery, kwargs = queue.pop(0)
+                if on_delivery is None:
+                    on_delivery = self.config.get("on_delivery")
+                if on_delivery is not None:
+                    on_delivery(err, _FakeMsg(-1, _topic=kwargs["topic"]))
+        finally:
+            queue.extend(stuck)
+
+    def _serve(self):
+        self._report(
+            self._purged, ConfluentKafkaError(ConfluentKafkaError._PURGE_QUEUE)
+        )
+        self._report(self._pending, self.delivery_error, self.stuck_topics)
 
     def poll(self, timeout):
         self.polls.append(timeout)
         if timeout > 0:
-            self._report(
-                self._purged, ConfluentKafkaError(ConfluentKafkaError._PURGE_QUEUE)
-            )
-            self._report(self._pending, self.delivery_error)
+            self._serve()
 
     def flush(self, timeout=None):
         self.flushes += 1
         self.flush_timeouts.append(timeout)
-        self._report(
-            self._purged, ConfluentKafkaError(ConfluentKafkaError._PURGE_QUEUE)
-        )
-        self._report(self._pending, self.delivery_error)
+        self._serve()
+        assert timeout is not None or not self, "flush without a timeout waits forever"
+        return len(self)
 
     def purge(self):
         self.purges += 1
@@ -654,6 +667,31 @@ def test_sink_write_batch_raises_on_delivery_failure_while_queue_full(
     assert [m["value"] for m in producer.produced] == [b"v1"]
 
 
+def test_sink_write_batch_raises_on_delivery_failure_while_others_wait(
+    fake_producer,
+):
+    part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
+    (producer,) = fake_producer
+    producer.delivery_error = ConfluentKafkaError(ConfluentKafkaError._MSG_TIMED_OUT)
+    # The other topic's brokers are unreachable, and with
+    # `message.timeout.ms=0` librdkafka never gives up on its message.
+    producer.stuck_topics = ("other",)
+
+    # The first message's failed delivery must fail the batch without
+    # waiting for the other one.
+    with raises(RuntimeError, match="failed to deliver"):
+        part.write_batch(
+            [
+                KafkaSinkMessage(b"k1", b"v1"),
+                KafkaSinkMessage(b"k2", b"v2", topic="other"),
+            ]
+        )
+
+    # `close` then purges the stuck message and serves its report.
+    part.close()
+    assert len(producer) == 0
+
+
 def test_sink_write_batch_raises_on_message_larger_than_queue(fake_producer):
     part = KafkaSink(["b:9092"], TOPIC).build("step", 0, 1)
     (producer,) = fake_producer
@@ -754,6 +792,41 @@ def test_sink_close_after_user_on_delivery_raises(fake_producer, caplog, exc):
     assert 0 < producer.flush_timeouts[-1] <= 5
     # It logs the error it swallowed instead.
     assert f"error closing Kafka producer: {exc!r}" in caplog.messages
+
+
+def test_sink_close_serves_every_report_when_user_on_delivery_raises(
+    fake_producer, caplog
+):
+    reports = []
+
+    def on_delivery(err, msg):
+        reports.append(err)
+        msg = "boom"
+        raise ValueError(msg)
+
+    sink = KafkaSink(["b:9092"], TOPIC, add_config={"on_delivery": on_delivery})
+    part = sink.build("step", 0, 1)
+    (producer,) = fake_producer
+    with raises(ValueError, match="boom"):
+        part.write_batch(
+            [
+                KafkaSinkMessage(b"k1", b"v1"),
+                KafkaSinkMessage(b"k2", b"v2"),
+                KafkaSinkMessage(b"k3", b"v3"),
+            ]
+        )
+
+    part.close()
+
+    # Each queued message holds a reference to the sink, and through it
+    # to the producer, until its report is served; one raising callback
+    # must not leave the other reports unserved.
+    assert len(reports) == 3
+    assert len(producer) == 0
+    # It logs the first error it swallowed.
+    assert (
+        caplog.messages.count("error closing Kafka producer: ValueError('boom')") == 1
+    )
 
 
 def test_sink_close_purges_after_missing_topic_mid_batch(fake_producer):
