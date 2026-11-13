@@ -72,8 +72,12 @@ impl Operator {
         self.0.getattr(py, attr_name)
     }
 
+    /// The class name of this step, which picks the core operator.
+    ///
+    /// This is `__name__`, not `__qualname__`, so that a changed
+    /// qualified name cannot change which core operator runs.
     pub(crate) fn name(&self, py: Python) -> PyResult<String> {
-        Ok(self.0.bind(py).get_type().qualname()?.to_string())
+        Ok(self.0.bind(py).get_type().name()?.to_string())
     }
 
     pub(crate) fn step_id(&self, py: Python) -> PyResult<StepId> {
