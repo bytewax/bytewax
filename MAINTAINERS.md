@@ -16,6 +16,7 @@ PR; see "Becoming a maintainer" below.
 | GitHub                                          | Role                  | Areas                                       |
 | ----------------------------------------------- | --------------------- | ------------------------------------------- |
 | [@awmatheson](https://github.com/awmatheson)    | Project lead (founder) | Project direction, governance, releases    |
+| [@cheeeee](https://github.com/cheeeee)          | Maintainer            | CI/CD, Rust/PyO3 toolchain, Kafka connector, releases |
 
 > This list is intentionally short while we onboard new community
 > maintainers. Active contributors who have shown sustained engagement

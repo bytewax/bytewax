@@ -22,8 +22,9 @@ from typing import (
     cast,
 )
 
-from bytewax._bytewax import AbortExecution
 from typing_extensions import AsyncIterable, TypeVar, override
+
+from bytewax._bytewax import AbortExecution
 
 __all__ = [
     "AbortExecution",
