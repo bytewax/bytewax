@@ -25,7 +25,7 @@ get-started:
     @echo 'Once the `dev` venv is activated, run:'
     @echo
     @echo '`just develop` to re-build Bytewax and install it in the venv'
-    @echo '`just py-test` to run the Python test suite'
+    @echo '`just test-py` to run the Python test suite'
     @echo '`just lint` to lint the source code'
     @echo '`just --list` to show more advanced recipes'
 
