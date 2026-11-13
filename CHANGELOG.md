@@ -9,6 +9,11 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- The `db_dir` attribute of {py:obj}`~bytewax.recovery.RecoveryConfig`
+  is a `str` again, as in v0.21.1. The PyO3 0.25 upgrade had made it a
+  `pathlib.Path`, which broke code such as `config.db_dir + "/x"`. The
+  constructor still accepts a `str` or a `pathlib.Path`.
+
 - Adds `bytewax.__version__`, exposing the installed package version
   from Python code, e.g. when sanity-checking an environment or
   reporting a bug. It is read from the package metadata, so importing

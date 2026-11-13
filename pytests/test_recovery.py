@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 from datetime import timedelta
 
 import bytewax.operators as op
@@ -12,7 +13,7 @@ from bytewax.recovery import (
     init_db_dir,
 )
 from bytewax.testing import TestingSink, TestingSource, cluster_main, run_main
-from pytest import raises
+from pytest import mark, raises
 
 ZERO_TD = timedelta(seconds=0)
 FIVE_TD = timedelta(seconds=5)
@@ -269,3 +270,20 @@ def test_inconsistent_parts(tmp_path):
     shutil.copy(tmp_path / "part-0.run0", tmp_path / "part-0.sqlite3")
     with raises(InconsistentPartitionsError):
         run_main(flow, epoch_interval=ZERO_TD, recovery_config=recovery_config)
+
+
+def test_db_dir_is_str(tmp_path):
+    recovery_config = RecoveryConfig(tmp_path)
+
+    assert isinstance(recovery_config.db_dir, str)
+    assert recovery_config.db_dir == str(tmp_path)
+    assert recovery_config.db_dir + "/x" == f"{tmp_path}/x"
+
+
+@mark.skipif(sys.platform == "win32", reason="POSIX paths are bytes")
+def test_db_dir_non_utf8_path(tmp_path):
+    path = tmp_path / os.fsdecode(b"recovery-\xff")
+    recovery_config = RecoveryConfig(path)
+
+    assert isinstance(recovery_config.db_dir, str)
+    assert recovery_config.db_dir == str(path)

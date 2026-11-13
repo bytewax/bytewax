@@ -50,7 +50,15 @@ class RecoveryConfig:
     @property
     def backup_interval(self): ...
     @property
-    def db_dir(self): ...
+    def db_dir(self):
+        """The recovery directory as a `str`.
+
+        Local filesystem directory to search for recovery database
+        partitions. Bytes that are not valid UTF-8 are decoded like
+        `os.fsdecode`.
+
+        """
+        ...
 
 class TracingConfig:
     """Base class for tracing/logging configuration.
