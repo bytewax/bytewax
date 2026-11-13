@@ -106,6 +106,30 @@ Commit the changes once you are happy with them. Be sure to [sign your
 commit](https://docs.github.com/en/organizations/managing-organization-settings/managing-the-commit-signoff-policy-for-your-organization#about-commit-signoffs)
 if using the command line interface.
 
+### Using AI Tools
+
+You may use AI tools to write code, tests, docs, commit messages and
+PR descriptions. These rules apply:
+
+- You own everything you submit. A mistake an AI tool made is your
+  mistake: a wrong claim, a broken test, a made-up API or link. Read
+  and understand every line before you submit it, and be ready to
+  explain it in review.
+
+- The DCO sign-off (`Signed-off-by`) is your personal certification
+  that you have the right to submit the change. Add it yourself; don't
+  let a tool add it for you.
+
+- Every result you report, in a PR description, a commit message or a
+  review reply, comes from runs you made: tests, reproductions,
+  timings. Run each one at least five times, to rule out
+  nondeterminism and machine load, and say how many runs passed. For
+  timings, name the build (debug or release) and the machine.
+
+- Naming the tool is optional but welcome. If you do, add a
+  `Co-authored-by` trailer with the specific model, for example
+  `Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>`.
+
 ### Pull Request
 
 When you're finished with the changes, create a pull request, also
