@@ -227,7 +227,10 @@ jobs:
           key: kafka-${{ hashFiles('scripts/ci-kafka.sh') }}-${{ runner.os }}
       - name: Run Kafka and Python tests
         if: ${{ inputs.run-tests }}
-        timeout-minutes: 25
+        # The batch and worker invariance tests make this step take up to
+        # about 16 minutes on a slow Windows runner, and the windowing
+        # recovery tests add up to about 11 more.
+        timeout-minutes: 45
         shell: bash
         env:
           PYTEST_ADDOPTS: -vv

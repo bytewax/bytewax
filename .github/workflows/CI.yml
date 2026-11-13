@@ -47,7 +47,12 @@ jobs:
         run: just lint
       - name: Run Rust tests
         shell: bash
-        run: just test-rs
+        # The Rust test binary links libpython. When the runner has no
+        # system Python 3.12 (ubuntu-26.04), setup-uv installs uv's
+        # Python, whose libpython isn't on the loader's search path.
+        run: |
+          export LD_LIBRARY_PATH="$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
+          just test-rs
       - name: Run documentation tests
         shell: bash
         run: just test-doc

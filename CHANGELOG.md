@@ -9,11 +9,52 @@ For help with updating to new Bytewax versions, please see the
 __Add any extra change notes here and we'll put them in the release
 notes on GitHub when we make a new release.__
 
+- The `db_dir` attribute of {py:obj}`~bytewax.recovery.RecoveryConfig`
+  is a `str` again, as in v0.21.1. The PyO3 0.25 upgrade had made it a
+  `pathlib.Path`, which broke code such as `config.db_dir + "/x"`. The
+  constructor still accepts a `str` or a `pathlib.Path`.
+
+- Adds `bytewax.__version__`, exposing the installed package version
+  from Python code, e.g. when sanity-checking an environment or
+  reporting a bug. It is read from the package metadata, so importing
+  the package stays cheap and does not load the compiled extension.
+  `bytewax` is now a regular package instead of a namespace package.
+  Add-ons that install modules into it, such as `bytewax.duckdb`, are
+  still found, also from another `sys.path` entry than bytewax; only a
+  path added to `sys.path` after `import bytewax` is no longer searched
+  for them.
+
+- Security: the keys of eight eMudhra intermediate CAs were
+  compromised in October 2026. The release Docker images now upgrade
+  Debian's `ca-certificates` package (to `20250419~deb12u2` or later),
+  which no longer trusts them; images built on base images that are no
+  longer updated, such as the one for Python 3.9, still trusted them.
+  The lock files for tests and builds pin `certifi` 2026.10.23, which
+  drops the `emSign ECC Root CA - G3` root they chain to. Bytewax
+  bundles no CA certificates itself: in your own environments, update
+  `certifi` to 2026.10.19 or later and your system's `ca-certificates`.
+
 - {py:obj}`~bytewax.connectors.kafka.KafkaSource` no longer blocks
   forever at startup when the brokers are unreachable. It now gives
   up fetching topic metadata after 30 seconds and fails with a
   `RuntimeError` naming the brokers and topic. See "Startup and
   Unreachable Brokers" in the Kafka guide.
+
+- *Behavior change* {py:obj}`~bytewax.connectors.kafka.KafkaSink`
+  now fails the dataflow with a `RuntimeError` when a message isn't
+  delivered (e.g. unreachable brokers past `message.timeout.ms`, or a
+  missing topic the brokers don't auto-create). This is intended:
+  previously such messages were dropped silently, even with recovery
+  enabled; now resuming re-sends them (at-least-once), and messages
+  still queued when the dataflow fails are dropped rather than waited
+  on. When the producer's local queue is full, the sink waits for it
+  to drain instead of crashing with `BufferError` (reported in #522 by
+  @shubhanshu02); a single message larger than the whole queue fails
+  with a clear error. A non-callable `on_delivery` in `add_config` is
+  rejected with a `TypeError` when the sink is built; it used to raise
+  a `KafkaException` there. The docs now state that this at-least-once
+  guarantee requires running with recovery and brokers acknowledging
+  writes (not `acks=0`).
 
 - Fixes `bytewax.connectors.kafka.serde` failing to import with
   `confluent-kafka>=2.7` unless the `confluent-kafka[schemaregistry]`
@@ -71,16 +112,27 @@ notes on GitHub when we make a new release.__
 - Building Bytewax from source now uses Rust 1.86.0 (pinned in
   `rust-toolchain.toml`) instead of 1.74.1.
 
+- Fixes the type hints of the `late` stream of
+  {py:obj}`~bytewax.operators.windowing.join_window`: late values
+  (sub-keyed by window ID) are `(side, value)` 2-tuples, where `side`
+  is the index of the stream the value came from, not bare values.
+  The docstring now says so. Code annotated with the old type needs
+  updating; it did not match what the stream carries at runtime.
+
 - Fixes the type hints of
   {py:obj}`~bytewax.operators.windowing.collect_window` not accepting
   the `ordered` argument, so type checkers rejected
   `collect_window(..., ordered=False)` even though it works at
   runtime.
 
-- The `db_dir` attribute of {py:obj}`~bytewax.recovery.RecoveryConfig`
-  is a `str` again, as in v0.21.1. The PyO3 0.25 upgrade had made it a
-  `pathlib.Path`, which broke code such as `config.db_dir + "/x"`. The
-  constructor still accepts a `str` or a `pathlib.Path`.
+- {py:obj}`~bytewax.operators.windowing.collect_window` now raises
+  its intended `TypeError` explaining that only `list`, `set`, and
+  `dict` are supported when `into` is another type. A formatting bug
+  replaced that message with "unsupported format string passed to
+  type.__format__". The `into` docs now list the supported types,
+  the `up` docs no longer call it a "stream of items to count", and
+  the `:returns:` docs no longer say the values are always in
+  timestamp order, which isn't true with `ordered=False`.
 
 ## v0.21.1
 

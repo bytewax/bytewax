@@ -20,9 +20,13 @@ kop.output("kafka-out", kafka_input.oks, brokers=[...], topic="...")
 from dataclasses import dataclass
 from typing import Any, Dict, Generic, List, Optional, TypeVar, Union, cast
 
-import bytewax.operators as op
 import confluent_kafka
 import confluent_kafka.serialization
+from confluent_kafka import OFFSET_BEGINNING
+from confluent_kafka import KafkaError as ConfluentKafkaError
+from confluent_kafka.serialization import MessageField, SerializationContext
+
+import bytewax.operators as op
 from bytewax.connectors.kafka import (
     K2,
     V2,
@@ -35,9 +39,6 @@ from bytewax.connectors.kafka import (
     V,
 )
 from bytewax.dataflow import Dataflow, Stream, operator
-from confluent_kafka import OFFSET_BEGINNING
-from confluent_kafka import KafkaError as ConfluentKafkaError
-from confluent_kafka.serialization import MessageField, SerializationContext
 
 X = TypeVar("X")
 """Type of successfully processed items."""
@@ -170,8 +171,13 @@ def output(
 
     Workers are the unit of parallelism.
 
-    Can support at-least-once processing. Messages from the resume
-    epoch will be duplicated right after resume.
+    Can support at-least-once processing, but only when the dataflow
+    runs with recovery (see {py:obj}`~bytewax.recovery.RecoveryConfig`)
+    and brokers acknowledge writes (the default; not `acks=0`).
+    Messages from the resume epoch may be duplicated right after
+    resume. Without recovery, messages can be lost or repeated. See
+    {py:obj}`~bytewax.connectors.kafka.KafkaSink` for how delivery
+    failures are handled.
 
     :arg step_id: Unique ID.
 
